@@ -1,7 +1,154 @@
-﻿@page "/"
+@page "/"
+@inject NoteService NoteService
+@inject NavigationManager Nav
+@inject IJSRuntime JS
+@implements IAsyncDisposable
 
-<PageTitle>Home</PageTitle>
+<PageTitle>Notes</PageTitle>
 
-<h1>Hello, world!</h1>
+<div class="notes-header">
+    <h1>Notes</h1>
+    <button class="btn btn-primary" @onclick="CreateNote">New Note</button>
+</div>
 
-Welcome to your new app.
+@if (!notes.Any())
+{
+    <p class="empty-message">No notes yet. Create one!</p>
+}
+else
+{
+    <div class="note-table">
+        <div class="note-row note-header">
+            <div class="col-check">
+                <input type="checkbox"
+                       class="note-checkbox"
+                       checked="@IsAllSelected"
+                       @onchange="ToggleSelectAll" />
+            </div>
+            <div class="col-title sortable" @onclick="() => SetSort(SortColumn.Title)">
+                제목 @SortIcon(SortColumn.Title)
+            </div>
+            <div class="col-date sortable" @onclick="() => SetSort(SortColumn.Date)">
+                수정 시간 @SortIcon(SortColumn.Date)
+            </div>
+        </div>
+        @foreach (var note in SortedNotes)
+        {
+            <div class="note-row note-item @(selectedIds.Contains(note.Id) ? "selected" : "")">
+                <div class="col-check">
+                    <input type="checkbox"
+                           class="note-checkbox"
+                           checked="@selectedIds.Contains(note.Id)"
+                           @onchange="() => ToggleSelect(note.Id)"
+                           @onclick:stopPropagation="true" />
+                </div>
+                <div class="col-title" @onclick="() => EditNote(note.Id)">
+                    @(string.IsNullOrWhiteSpace(note.Title) ? "(No title)" : note.Title)
+                </div>
+                <div class="col-date" @onclick="() => EditNote(note.Id)">
+                    @note.UpdatedAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm")
+                </div>
+            </div>
+        }
+    </div>
+}
+
+@code {
+    private IReadOnlyList<NoteItem> notes = [];
+    private HashSet<Guid> selectedIds = [];
+    private DotNetObjectReference<Home>? dotNetRef;
+
+    private enum SortColumn { Title, Date }
+    private SortColumn currentSort = SortColumn.Date;
+    private bool sortAscending = false;
+
+    private IEnumerable<NoteItem> SortedNotes => currentSort switch
+    {
+        SortColumn.Title => sortAscending
+            ? notes.OrderBy(n => n.Title)
+            : notes.OrderByDescending(n => n.Title),
+        SortColumn.Date => sortAscending
+            ? notes.OrderBy(n => n.UpdatedAt)
+            : notes.OrderByDescending(n => n.UpdatedAt),
+        _ => notes
+    };
+
+    private bool IsAllSelected => notes.Count > 0 && selectedIds.Count == notes.Count;
+
+    private string SortIcon(SortColumn col)
+    {
+        if (currentSort != col) return "⇅";
+        return sortAscending ? "↑" : "↓";
+    }
+
+    private void SetSort(SortColumn col)
+    {
+        if (currentSort == col)
+            sortAscending = !sortAscending;
+        else
+        {
+            currentSort = col;
+            sortAscending = true;
+        }
+    }
+
+    protected override void OnInitialized()
+    {
+        notes = NoteService.GetAll();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            dotNetRef = DotNetObjectReference.Create(this);
+            await JS.InvokeVoidAsync("registerDeleteKey", dotNetRef);
+        }
+    }
+
+    [JSInvokable]
+    public async Task OnDeleteKeyPressed()
+    {
+        if (selectedIds.Count == 0) return;
+
+        var confirmed = await JS.InvokeAsync<bool>("confirm", $"선택한 노트 {selectedIds.Count}개를 삭제할까요?");
+        if (!confirmed) return;
+
+        foreach (var id in selectedIds)
+            NoteService.Delete(id);
+
+        selectedIds.Clear();
+        notes = NoteService.GetAll();
+        StateHasChanged();
+    }
+
+    private void ToggleSelect(Guid id)
+    {
+        if (!selectedIds.Add(id))
+            selectedIds.Remove(id);
+    }
+
+    private void ToggleSelectAll()
+    {
+        if (IsAllSelected)
+            selectedIds.Clear();
+        else
+            selectedIds = notes.Select(n => n.Id).ToHashSet();
+    }
+
+    private void CreateNote()
+    {
+        Nav.NavigateTo("/editor");
+    }
+
+    private void EditNote(Guid id)
+    {
+        Nav.NavigateTo($"/editor/{id}");
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        await JS.InvokeVoidAsync("unregisterDeleteKey");
+        dotNetRef?.Dispose();
+    }
+}
