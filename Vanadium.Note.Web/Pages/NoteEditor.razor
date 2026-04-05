@@ -35,11 +35,11 @@
     private string content = string.Empty;
     private bool isNew => Id is null;
 
-    protected override void OnParametersSet()
+    protected override async Task OnParametersSetAsync()
     {
         if (Id is not null)
         {
-            var note = NoteService.Get(Id.Value);
+            var note = await NoteService.GetAsync(Id.Value);
             if (note is not null)
             {
                 title = note.Title;
@@ -48,22 +48,22 @@
         }
     }
 
-    private void SaveNote()
+    private async Task SaveNote()
     {
         var note = new NoteItem
         {
-            Id = Id ?? Guid.NewGuid(),
+            Id = Id ?? Guid.Empty,
             Title = title,
             Content = content
         };
-        NoteService.Save(note);
+        await NoteService.SaveAsync(note);
         Nav.NavigateTo("/");
     }
 
-    private void DeleteNote()
+    private async Task DeleteNote()
     {
         if (Id is not null)
-            NoteService.Delete(Id.Value);
+            await NoteService.DeleteAsync(Id.Value);
         Nav.NavigateTo("/");
     }
 
