@@ -1,32 +1,30 @@
+using System.Net.Http.Json;
 using Vanadium.Note.Web.Models;
 
 namespace Vanadium.Note.Web.Services;
 
-public class NoteService
+public class NoteService(HttpClient http)
 {
-    private readonly List<NoteItem> _notes = [];
+    public Task<IReadOnlyList<NoteItem>?> GetAllAsync() =>
+        http.GetFromJsonAsync<IReadOnlyList<NoteItem>>("api/notes");
 
-    public IReadOnlyList<NoteItem> GetAll() =>
-        _notes.OrderByDescending(n => n.UpdatedAt).ToList();
+    public Task<NoteItem?> GetAsync(Guid id) =>
+        http.GetFromJsonAsync<NoteItem>($"api/notes/{id}");
 
-    public NoteItem? Get(Guid id) =>
-        _notes.FirstOrDefault(n => n.Id == id);
-
-    public void Save(NoteItem note)
+    public async Task<NoteItem?> SaveAsync(NoteItem note)
     {
-        var existing = _notes.FirstOrDefault(n => n.Id == note.Id);
-        if (existing is null)
+        if (note.Id == Guid.Empty)
         {
-            _notes.Add(note);
+            var response = await http.PostAsJsonAsync("api/notes", note);
+            return await response.Content.ReadFromJsonAsync<NoteItem>();
         }
         else
         {
-            existing.Title = note.Title;
-            existing.Content = note.Content;
-            existing.UpdatedAt = DateTime.UtcNow;
+            var response = await http.PutAsJsonAsync($"api/notes/{note.Id}", note);
+            return await response.Content.ReadFromJsonAsync<NoteItem>();
         }
     }
 
-    public void Delete(Guid id) =>
-        _notes.RemoveAll(n => n.Id == id);
+    public Task DeleteAsync(Guid id) =>
+        http.DeleteAsync($"api/notes/{id}");
 }
