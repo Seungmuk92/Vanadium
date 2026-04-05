@@ -1,7 +1,46 @@
-﻿@page "/"
+@page "/"
+@inject NoteService NoteService
+@inject NavigationManager Nav
 
-<PageTitle>Home</PageTitle>
+<PageTitle>Notes</PageTitle>
 
-<h1>Hello, world!</h1>
+<div class="notes-header">
+    <h1>Notes</h1>
+    <button class="btn btn-primary" @onclick="CreateNote">New Note</button>
+</div>
 
-Welcome to your new app.
+@if (!notes.Any())
+{
+    <p class="empty-message">No notes yet. Create one!</p>
+}
+else
+{
+    <ul class="note-list">
+        @foreach (var note in notes)
+        {
+            <li class="note-item" @onclick="() => EditNote(note.Id)">
+                <span class="note-title">@(string.IsNullOrWhiteSpace(note.Title) ? "(No title)" : note.Title)</span>
+                <span class="note-date">@note.UpdatedAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm")</span>
+            </li>
+        }
+    </ul>
+}
+
+@code {
+    private IReadOnlyList<NoteItem> notes = [];
+
+    protected override void OnInitialized()
+    {
+        notes = NoteService.GetAll();
+    }
+
+    private void CreateNote()
+    {
+        Nav.NavigateTo("/editor");
+    }
+
+    private void EditNote(Guid id)
+    {
+        Nav.NavigateTo($"/editor/{id}");
+    }
+}
