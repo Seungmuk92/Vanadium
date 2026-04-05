@@ -1,6 +1,8 @@
 @page "/"
 @inject NoteService NoteService
 @inject NavigationManager Nav
+@inject IJSRuntime JS
+@implements IAsyncDisposable
 
 <PageTitle>Notes</PageTitle>
 
@@ -15,12 +17,17 @@
 }
 else
 {
-    <ul class="note-list">
+    <ul class="note-list" @ref="listRef">
         @foreach (var note in notes)
         {
-            <li class="note-item" @onclick="() => EditNote(note.Id)">
-                <span class="note-title">@(string.IsNullOrWhiteSpace(note.Title) ? "(No title)" : note.Title)</span>
-                <span class="note-date">@note.UpdatedAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm")</span>
+            <li class="note-item @(selectedIds.Contains(note.Id) ? "selected" : "")">
+                <input type="checkbox"
+                       class="note-checkbox"
+                       checked="@selectedIds.Contains(note.Id)"
+                       @onchange="() => ToggleSelect(note.Id)"
+                       @onclick:stopPropagation="true" />
+                <span class="note-title" @onclick="() => EditNote(note.Id)">@(string.IsNullOrWhiteSpace(note.Title) ? "(No title)" : note.Title)</span>
+                <span class="note-date" @onclick="() => EditNote(note.Id)">@note.UpdatedAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm")</span>
             </li>
         }
     </ul>
@@ -28,10 +35,44 @@ else
 
 @code {
     private IReadOnlyList<NoteItem> notes = [];
+    private HashSet<Guid> selectedIds = [];
+    private ElementReference listRef;
+    private DotNetObjectReference<Home>? dotNetRef;
 
     protected override void OnInitialized()
     {
         notes = NoteService.GetAll();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            dotNetRef = DotNetObjectReference.Create(this);
+            await JS.InvokeVoidAsync("registerDeleteKey", dotNetRef);
+        }
+    }
+
+    [JSInvokable]
+    public async Task OnDeleteKeyPressed()
+    {
+        if (selectedIds.Count == 0) return;
+
+        var confirmed = await JS.InvokeAsync<bool>("confirm", $"선택한 노트 {selectedIds.Count}개를 삭제할까요?");
+        if (!confirmed) return;
+
+        foreach (var id in selectedIds)
+            NoteService.Delete(id);
+
+        selectedIds.Clear();
+        notes = NoteService.GetAll();
+        StateHasChanged();
+    }
+
+    private void ToggleSelect(Guid id)
+    {
+        if (!selectedIds.Add(id))
+            selectedIds.Remove(id);
     }
 
     private void CreateNote()
@@ -42,5 +83,11 @@ else
     private void EditNote(Guid id)
     {
         Nav.NavigateTo($"/editor/{id}");
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        await JS.InvokeVoidAsync("unregisterDeleteKey");
+        dotNetRef?.Dispose();
     }
 }

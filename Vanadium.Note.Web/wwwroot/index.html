@@ -29,6 +29,25 @@
         <span class="dismiss">🗙</span>
     </div>
     <script src="_framework/blazor.webassembly#[.{fingerprint}].js"></script>
+    <script>
+        let _deleteHandler = null;
+        function registerDeleteKey(dotNetRef) {
+            _deleteHandler = (e) => {
+                const el = document.activeElement;
+            const isTextInput = (el?.tagName === 'INPUT' && el?.type !== 'checkbox') || el?.tagName === 'TEXTAREA';
+            if (e.key === 'Delete' && !isTextInput) {
+                    dotNetRef.invokeMethodAsync('OnDeleteKeyPressed');
+                }
+            };
+            document.addEventListener('keydown', _deleteHandler);
+        }
+        function unregisterDeleteKey() {
+            if (_deleteHandler) {
+                document.removeEventListener('keydown', _deleteHandler);
+                _deleteHandler = null;
+            }
+        }
+    </script>
 </body>
 
 </html>
