@@ -8,11 +8,29 @@ namespace Vanadium.Note.REST.Controllers;
 [Route("api/[controller]")]
 public class NotesController(NoteService noteService) : ControllerBase
 {
+    [HttpGet]
+    public ActionResult<IReadOnlyList<NoteItem>> GetAll() =>
+        Ok(noteService.GetAll());
+
+    [HttpGet("{id:guid}")]
+    public ActionResult<NoteItem> Get(Guid id)
+    {
+        var note = noteService.Get(id);
+        return note is null ? NotFound() : Ok(note);
+    }
+
     [HttpPost]
     public ActionResult<NoteItem> Create([FromBody] NoteItem note)
     {
         var created = noteService.Create(note);
-        return CreatedAtAction(nameof(Create), new { id = created.Id }, created);
+        return CreatedAtAction(nameof(Get), new { id = created.Id }, created);
+    }
+
+    [HttpPut("{id:guid}")]
+    public ActionResult<NoteItem> Update(Guid id, [FromBody] NoteItem note)
+    {
+        var updated = noteService.Update(id, note);
+        return updated is null ? NotFound() : Ok(updated);
     }
 
     [HttpDelete("{id:guid}")]

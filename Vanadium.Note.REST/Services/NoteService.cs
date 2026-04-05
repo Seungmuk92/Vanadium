@@ -20,6 +20,17 @@ public class NoteService
         return note;
     }
 
+    public NoteItem? Update(Guid id, NoteItem note)
+    {
+        var existing = _notes.FirstOrDefault(n => n.Id == id);
+        if (existing is null) return null;
+
+        existing.Title = note.Title;
+        existing.Content = note.Content;
+        existing.UpdatedAt = DateTime.UtcNow;
+        return existing;
+    }
+
     public bool Delete(Guid id) =>
         _notes.RemoveAll(n => n.Id == id) > 0;
 }
