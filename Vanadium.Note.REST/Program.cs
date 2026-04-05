@@ -1,3 +1,5 @@
+using Microsoft.EntityFrameworkCore;
+using Vanadium.Note.REST.Data;
 using Vanadium.Note.REST.Services;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -10,8 +12,12 @@ builder.Services.AddCors(options =>
               .AllowAnyHeader());
 });
 
+builder.Services.AddDbContext<NoteDbContext>(options =>
+    options.UseSqlite(builder.Configuration.GetConnectionString("DefaultConnection")
+        ?? "Data Source=notes.db"));
+
 builder.Services.AddControllers();
-builder.Services.AddSingleton<NoteService>();
+builder.Services.AddScoped<NoteService>();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
@@ -22,6 +28,9 @@ if (app.Environment.IsDevelopment())
     app.UseSwagger();
     app.UseSwaggerUI();
 }
+
+using (var scope = app.Services.CreateScope())
+    scope.ServiceProvider.GetRequiredService<NoteDbContext>().Database.Migrate();
 
 app.UseCors();
 app.UseAuthorization();

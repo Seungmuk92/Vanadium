@@ -9,34 +9,34 @@ namespace Vanadium.Note.REST.Controllers;
 public class NotesController(NoteService noteService) : ControllerBase
 {
     [HttpGet]
-    public ActionResult<IReadOnlyList<NoteItem>> GetAll() =>
-        Ok(noteService.GetAll());
+    public async Task<ActionResult<IReadOnlyList<NoteItem>>> GetAll() =>
+        Ok(await noteService.GetAll());
 
     [HttpGet("{id:guid}")]
-    public ActionResult<NoteItem> Get(Guid id)
+    public async Task<ActionResult<NoteItem>> Get(Guid id)
     {
-        var note = noteService.Get(id);
+        var note = await noteService.Get(id);
         return note is null ? NotFound() : Ok(note);
     }
 
     [HttpPost]
-    public ActionResult<NoteItem> Create([FromBody] NoteItem note)
+    public async Task<ActionResult<NoteItem>> Create([FromBody] NoteItem note)
     {
-        var created = noteService.Create(note);
+        var created = await noteService.Create(note);
         return CreatedAtAction(nameof(Get), new { id = created.Id }, created);
     }
 
     [HttpPut("{id:guid}")]
-    public ActionResult<NoteItem> Update(Guid id, [FromBody] NoteItem note)
+    public async Task<ActionResult<NoteItem>> Update(Guid id, [FromBody] NoteItem note)
     {
-        var updated = noteService.Update(id, note);
+        var updated = await noteService.Update(id, note);
         return updated is null ? NotFound() : Ok(updated);
     }
 
     [HttpDelete("{id:guid}")]
-    public IActionResult Delete(Guid id)
+    public async Task<IActionResult> Delete(Guid id)
     {
-        if (!noteService.Delete(id))
+        if (!await noteService.Delete(id))
             return NotFound();
 
         return NoContent();
