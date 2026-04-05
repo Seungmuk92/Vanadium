@@ -1,0 +1,40 @@
+.notes-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 1rem;
+}
+
+.empty-message {
+    color: #888;
+}
+
+.note-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+
+.note-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.75rem 1rem;
+    border-bottom: 1px solid #e0e0e0;
+    cursor: pointer;
+}
+
+.note-item:hover {
+    background-color: #f5f5f5;
+}
+
+.note-title {
+    font-size: 1rem;
+}
+
+.note-date {
+    font-size: 0.8rem;
+    color: #888;
+    white-space: nowrap;
+    margin-left: 1rem;
+}

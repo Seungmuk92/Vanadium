@@ -1,0 +1,74 @@
+@page "/editor"
+@page "/editor/{Id:guid}"
+@inject NoteService NoteService
+@inject NavigationManager Nav
+
+<PageTitle>@(isNew ? "New Note" : "Edit Note")</PageTitle>
+
+<div class="editor-header">
+    <button class="btn btn-outline-secondary" @onclick="GoBack">← Back</button>
+    <div class="editor-actions">
+        @if (!isNew)
+        {
+            <button class="btn btn-outline-danger" @onclick="DeleteNote">Delete</button>
+        }
+        <button class="btn btn-primary" @onclick="SaveNote">Save</button>
+    </div>
+</div>
+
+<div class="editor-body">
+    <input class="editor-title"
+           type="text"
+           placeholder="Title"
+           @bind="title"
+           @bind:event="oninput" />
+    <textarea class="editor-content"
+              placeholder="Write something..."
+              @bind="content"
+              @bind:event="oninput"></textarea>
+</div>
+
+@code {
+    [Parameter] public Guid? Id { get; set; }
+
+    private string title = string.Empty;
+    private string content = string.Empty;
+    private bool isNew => Id is null;
+
+    protected override void OnParametersSet()
+    {
+        if (Id is not null)
+        {
+            var note = NoteService.Get(Id.Value);
+            if (note is not null)
+            {
+                title = note.Title;
+                content = note.Content;
+            }
+        }
+    }
+
+    private void SaveNote()
+    {
+        var note = new NoteItem
+        {
+            Id = Id ?? Guid.NewGuid(),
+            Title = title,
+            Content = content
+        };
+        NoteService.Save(note);
+        Nav.NavigateTo("/");
+    }
+
+    private void DeleteNote()
+    {
+        if (Id is not null)
+            NoteService.Delete(Id.Value);
+        Nav.NavigateTo("/");
+    }
+
+    private void GoBack()
+    {
+        Nav.NavigateTo("/");
+    }
+}
