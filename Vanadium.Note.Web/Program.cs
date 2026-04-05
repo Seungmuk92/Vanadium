@@ -12,8 +12,9 @@ namespace Vanadium.Note.Web
             builder.RootComponents.Add<App>("#app");
             builder.RootComponents.Add<HeadOutlet>("head::after");
 
-            builder.Services.AddScoped(sp => new HttpClient { BaseAddress = new Uri(builder.HostEnvironment.BaseAddress) });
-            builder.Services.AddSingleton<NoteService>();
+            var apiBaseUrl = builder.Configuration["ApiBaseUrl"] ?? "https://localhost:7711";
+            builder.Services.AddScoped(sp => new HttpClient { BaseAddress = new Uri(apiBaseUrl) });
+            builder.Services.AddScoped<NoteService>();
 
             await builder.Build().RunAsync();
         }

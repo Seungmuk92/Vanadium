@@ -92,9 +92,9 @@ else
         }
     }
 
-    protected override void OnInitialized()
+    protected override async Task OnInitializedAsync()
     {
-        notes = NoteService.GetAll();
+        notes = await NoteService.GetAllAsync() ?? [];
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
@@ -115,10 +115,10 @@ else
         if (!confirmed) return;
 
         foreach (var id in selectedIds)
-            NoteService.Delete(id);
+            await NoteService.DeleteAsync(id);
 
         selectedIds.Clear();
-        notes = NoteService.GetAll();
+        notes = await NoteService.GetAllAsync() ?? [];
         StateHasChanged();
     }
 
