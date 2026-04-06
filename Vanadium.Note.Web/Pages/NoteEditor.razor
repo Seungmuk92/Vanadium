@@ -1,8 +1,8 @@
 @page "/editor"
 @page "/editor/{Id:guid}"
-@using Markdig
 @inject NoteService NoteService
 @inject NavigationManager Nav
+@inject IJSRuntime JS
 @implements IDisposable
 
 <PageTitle>@(isNew ? "New Note" : "Edit Note")</PageTitle>
@@ -25,13 +25,7 @@
            placeholder="Title"
            value="@title"
            @oninput="OnTitleInput" />
-    <div class="editor-panes">
-        <textarea class="editor-content"
-                  placeholder="Write something..."
-                  @oninput="OnContentInput">@content</textarea>
-        <div class="editor-divider"></div>
-        <div class="editor-preview">@((MarkupString)RenderMarkdown())</div>
-    </div>
+    <div id="@_editorId" class="tiptap-wrapper"></div>
 </div>
 
 @code {
@@ -42,15 +36,13 @@
     private bool isNew => Id is null;
 
     private bool _initialized = false;
+    private bool _editorMounted = false;
+    private bool _contentJustLoaded = false;
+    private readonly string _editorId = "tiptap-" + Guid.NewGuid().ToString("N")[..8];
+    private DotNetObjectReference<NoteEditor>? _objRef;
     private CancellationTokenSource? _debounceCts;
     private string saveStatusText = string.Empty;
     private string saveStatusCss = string.Empty;
-
-    private static readonly MarkdownPipeline _mdPipeline =
-        new MarkdownPipelineBuilder().UseAdvancedExtensions().Build();
-
-    private string RenderMarkdown() =>
-        Markdown.ToHtml(content, _mdPipeline);
 
     protected override async Task OnParametersSetAsync()
     {
@@ -64,19 +56,36 @@
             {
                 title = note.Title;
                 content = note.Content;
+                _contentJustLoaded = true;
             }
         }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            _objRef = DotNetObjectReference.Create(this);
+            await JS.InvokeVoidAsync("tiptapInterop.init", _editorId, _objRef, content);
+            _editorMounted = true;
+        }
+        else if (_contentJustLoaded && _editorMounted)
+        {
+            _contentJustLoaded = false;
+            await JS.InvokeVoidAsync("tiptapInterop.setContent", _editorId, content);
+        }
+    }
+
+    [JSInvokable]
+    public void OnEditorContentChanged(string html)
+    {
+        content = html;
+        ScheduleAutoSave();
     }
 
     private void OnTitleInput(ChangeEventArgs e)
     {
         title = e.Value?.ToString() ?? string.Empty;
-        ScheduleAutoSave();
-    }
-
-    private void OnContentInput(ChangeEventArgs e)
-    {
-        content = e.Value?.ToString() ?? string.Empty;
         ScheduleAutoSave();
     }
 
@@ -160,5 +169,8 @@
     {
         _debounceCts?.Cancel();
         _debounceCts?.Dispose();
+        _objRef?.Dispose();
+        if (_editorMounted)
+            JS.InvokeVoidAsync("tiptapInterop.destroy", _editorId);
     }
 }
