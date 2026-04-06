@@ -43,12 +43,107 @@
     width: 100%;
 }
 
+.editor-panes {
+    display: flex;
+    flex: 1;
+    min-height: 0;
+}
+
 .editor-content {
     flex: 1;
     font-size: 1rem;
+    font-family: 'Consolas', 'Menlo', monospace;
     border: none;
     outline: none;
     resize: none;
     line-height: 1.6;
+    min-width: 0;
+}
+
+.editor-divider {
+    width: 1px;
+    background-color: #e0e0e0;
+    margin: 0 1.25rem;
+    flex-shrink: 0;
+}
+
+.editor-preview {
+    flex: 1;
+    overflow-y: auto;
+    line-height: 1.7;
+    min-width: 0;
+}
+
+.editor-preview :global(h1),
+.editor-preview :global(h2),
+.editor-preview :global(h3),
+.editor-preview :global(h4),
+.editor-preview :global(h5),
+.editor-preview :global(h6) {
+    margin-top: 1.2em;
+    margin-bottom: 0.4em;
+    font-weight: 600;
+}
+
+.editor-preview :global(p) {
+    margin-bottom: 0.75em;
+}
+
+.editor-preview :global(ul),
+.editor-preview :global(ol) {
+    padding-left: 1.5em;
+    margin-bottom: 0.75em;
+}
+
+.editor-preview :global(blockquote) {
+    border-left: 3px solid #dee2e6;
+    margin: 0 0 0.75em;
+    padding: 0.25em 1em;
+    color: #6c757d;
+}
+
+.editor-preview :global(code) {
+    background: #f8f9fa;
+    border-radius: 3px;
+    padding: 0.1em 0.35em;
+    font-size: 0.9em;
+}
+
+.editor-preview :global(pre) {
+    background: #f8f9fa;
+    border-radius: 6px;
+    padding: 1em;
+    overflow-x: auto;
+    margin-bottom: 0.75em;
+}
+
+.editor-preview :global(pre code) {
+    background: none;
+    padding: 0;
+}
+
+.editor-preview :global(hr) {
+    border: none;
+    border-top: 1px solid #dee2e6;
+    margin: 1em 0;
+}
+
+.editor-preview :global(a) {
+    color: #0d6efd;
+}
+
+.editor-preview :global(table) {
+    border-collapse: collapse;
     width: 100%;
+    margin-bottom: 0.75em;
+}
+
+.editor-preview :global(th),
+.editor-preview :global(td) {
+    border: 1px solid #dee2e6;
+    padding: 0.4em 0.75em;
+}
+
+.editor-preview :global(th) {
+    background: #f8f9fa;
 }

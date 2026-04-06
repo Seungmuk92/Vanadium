@@ -1,5 +1,6 @@
 @page "/editor"
 @page "/editor/{Id:guid}"
+@using Markdig
 @inject NoteService NoteService
 @inject NavigationManager Nav
 @implements IDisposable
@@ -24,9 +25,13 @@
            placeholder="Title"
            value="@title"
            @oninput="OnTitleInput" />
-    <textarea class="editor-content"
-              placeholder="Write something..."
-              @oninput="OnContentInput">@content</textarea>
+    <div class="editor-panes">
+        <textarea class="editor-content"
+                  placeholder="Write something..."
+                  @oninput="OnContentInput">@content</textarea>
+        <div class="editor-divider"></div>
+        <div class="editor-preview">@((MarkupString)RenderMarkdown())</div>
+    </div>
 </div>
 
 @code {
@@ -40,6 +45,12 @@
     private CancellationTokenSource? _debounceCts;
     private string saveStatusText = string.Empty;
     private string saveStatusCss = string.Empty;
+
+    private static readonly MarkdownPipeline _mdPipeline =
+        new MarkdownPipelineBuilder().UseAdvancedExtensions().Build();
+
+    private string RenderMarkdown() =>
+        Markdown.ToHtml(content, _mdPipeline);
 
     protected override async Task OnParametersSetAsync()
     {
