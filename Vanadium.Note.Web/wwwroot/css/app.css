@@ -7,6 +7,18 @@
     --vn-note-header-color: #555;
     --vn-note-hover-bg: #f0f0f0;
     --vn-note-selected-bg: #fff3cd;
+    /* Editor */
+    --vn-editor-bg: #ffffff;
+    --vn-editor-title-border: #e0e0e0;
+    --vn-editor-blockquote-border: #dee2e6;
+    --vn-editor-blockquote-color: #6c757d;
+    --vn-editor-code-bg: #f1f3f5;
+    --vn-editor-code-color: #c92a2a;
+    --vn-editor-pre-bg: #f8f9fa;
+    --vn-editor-hr-color: #dee2e6;
+    --vn-link-popover-bg: #ffffff;
+    --vn-link-popover-border: #dee2e6;
+    --vn-link-popover-color: #333;
 }
 
 body.dark-mode {
@@ -18,6 +30,18 @@ body.dark-mode {
     --vn-note-header-color: #aaa;
     --vn-note-hover-bg: #2a2a3e;
     --vn-note-selected-bg: #3a3218;
+    /* Editor */
+    --vn-editor-bg: #1c1c2a;
+    --vn-editor-title-border: #3a3a4e;
+    --vn-editor-blockquote-border: #4a4a5e;
+    --vn-editor-blockquote-color: #9ba4ae;
+    --vn-editor-code-bg: #2a2a3e;
+    --vn-editor-code-color: #ff8080;
+    --vn-editor-pre-bg: #22222e;
+    --vn-editor-hr-color: #3a3a4e;
+    --vn-link-popover-bg: #2a2a3e;
+    --vn-link-popover-border: #4a4a5e;
+    --vn-link-popover-color: #e0e0e0;
     background-color: #121212;
     color: #e0e0e0;
 }
@@ -171,12 +195,12 @@ code {
     position: fixed;
     display: flex;
     align-items: center;
-    background: #fff;
-    border: 1px solid #dee2e6;
+    background: var(--vn-link-popover-bg);
+    border: 1px solid var(--vn-link-popover-border);
     border-radius: 6px;
     padding: 5px 8px;
     gap: 4px;
-    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.12);
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.2);
     z-index: 9999;
 }
 
@@ -185,7 +209,7 @@ code {
     outline: none;
     font-size: 0.85rem;
     width: 260px;
-    color: #333;
+    color: var(--vn-link-popover-color);
     background: transparent;
 }
 
@@ -196,12 +220,12 @@ code {
     padding: 2px 6px;
     border-radius: 4px;
     font-size: 0.8rem;
-    color: #555;
+    color: var(--vn-link-popover-color);
     flex-shrink: 0;
 }
 
 .tiptap-link-popover .link-btn:hover {
-    background: #f1f3f5;
+    background: var(--vn-editor-code-bg);
 }
 
 .tiptap-link-popover .link-remove {
