@@ -5,6 +5,22 @@
     margin-bottom: 1rem;
 }
 
+.save-status {
+    font-size: 0.8rem;
+}
+
+.status-pending {
+    color: #999;
+}
+
+.status-saving {
+    color: #0d6efd;
+}
+
+.status-saved {
+    color: #198754;
+}
+
 .editor-actions {
     display: flex;
     gap: 0.5rem;

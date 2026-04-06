@@ -2,11 +2,13 @@
 @page "/editor/{Id:guid}"
 @inject NoteService NoteService
 @inject NavigationManager Nav
+@implements IDisposable
 
 <PageTitle>@(isNew ? "New Note" : "Edit Note")</PageTitle>
 
 <div class="editor-header">
     <button class="btn btn-outline-secondary" @onclick="GoBack">← Back</button>
+    <span class="save-status @saveStatusCss">@saveStatusText</span>
     <div class="editor-actions">
         @if (!isNew)
         {
@@ -20,12 +22,11 @@
     <input class="editor-title"
            type="text"
            placeholder="Title"
-           @bind="title"
-           @bind:event="oninput" />
+           value="@title"
+           @oninput="OnTitleInput" />
     <textarea class="editor-content"
               placeholder="Write something..."
-              @bind="content"
-              @bind:event="oninput"></textarea>
+              @oninput="OnContentInput">@content</textarea>
 </div>
 
 @code {
@@ -35,8 +36,16 @@
     private string content = string.Empty;
     private bool isNew => Id is null;
 
+    private bool _initialized = false;
+    private CancellationTokenSource? _debounceCts;
+    private string saveStatusText = string.Empty;
+    private string saveStatusCss = string.Empty;
+
     protected override async Task OnParametersSetAsync()
     {
+        if (_initialized) return;
+        _initialized = true;
+
         if (Id is not null)
         {
             var note = await NoteService.GetAsync(Id.Value);
@@ -48,8 +57,71 @@
         }
     }
 
+    private void OnTitleInput(ChangeEventArgs e)
+    {
+        title = e.Value?.ToString() ?? string.Empty;
+        ScheduleAutoSave();
+    }
+
+    private void OnContentInput(ChangeEventArgs e)
+    {
+        content = e.Value?.ToString() ?? string.Empty;
+        ScheduleAutoSave();
+    }
+
+    private void ScheduleAutoSave()
+    {
+        SetStatus("Writing...", "status-pending");
+        _debounceCts?.Cancel();
+        _debounceCts?.Dispose();
+        _debounceCts = new CancellationTokenSource();
+        _ = DebounceAndSave(_debounceCts.Token);
+    }
+
+    private async Task DebounceAndSave(CancellationToken token)
+    {
+        try
+        {
+            await Task.Delay(1500, token);
+            await InvokeAsync(DoAutoSave);
+        }
+        catch (TaskCanceledException) { }
+    }
+
+    private async Task DoAutoSave()
+    {
+        SetStatus("Saving...", "status-saving");
+        StateHasChanged();
+
+        var note = new NoteItem
+        {
+            Id = Id ?? Guid.Empty,
+            Title = title,
+            Content = content
+        };
+
+        var savedNote = await NoteService.SaveAsync(note);
+
+        if (isNew && savedNote is not null)
+            Nav.NavigateTo($"/editor/{savedNote.Id}", replace: true);
+
+        SetStatus("Saved", "status-saved");
+        StateHasChanged();
+
+        await Task.Delay(2000);
+        SetStatus(string.Empty, string.Empty);
+        StateHasChanged();
+    }
+
+    private void SetStatus(string text, string css)
+    {
+        saveStatusText = text;
+        saveStatusCss = css;
+    }
+
     private async Task SaveNote()
     {
+        _debounceCts?.Cancel();
         var note = new NoteItem
         {
             Id = Id ?? Guid.Empty,
@@ -62,6 +134,7 @@
 
     private async Task DeleteNote()
     {
+        _debounceCts?.Cancel();
         if (Id is not null)
             await NoteService.DeleteAsync(Id.Value);
         Nav.NavigateTo("/");
@@ -70,5 +143,11 @@
     private void GoBack()
     {
         Nav.NavigateTo("/");
+    }
+
+    public void Dispose()
+    {
+        _debounceCts?.Cancel();
+        _debounceCts?.Dispose();
     }
 }
