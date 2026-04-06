@@ -60,8 +60,16 @@ a, .btn-link {
 
 .btn-primary {
     color: #fff;
-    background-color: #1b6ec2;
-    border-color: #1861ac;
+    background-color: var(--mud-palette-primary);
+    border-color: var(--mud-palette-primary-darken);
+}
+
+.btn-primary:hover,
+.btn-primary:focus,
+.btn-primary:active {
+    color: #fff;
+    background-color: var(--mud-palette-primary-darken);
+    border-color: var(--mud-palette-primary-darken);
 }
 
 .btn:focus, .btn:active:focus, .btn-link.nav-link:focus, .form-control:focus, .form-check-input:focus {
