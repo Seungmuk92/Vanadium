@@ -12,9 +12,10 @@
 .note-table {
     display: flex;
     flex-direction: column;
-    border: 1px solid #e0e0e0;
+    border: 1px solid var(--mud-palette-divider);
     border-radius: 4px;
     overflow: hidden;
+    background-color: var(--mud-palette-surface);
 }
 
 .note-row {
@@ -22,7 +23,7 @@
     grid-template-columns: 2.5rem 1fr 10rem;
     align-items: center;
     padding: 0.6rem 1rem;
-    border-bottom: 1px solid #e0e0e0;
+    border-bottom: 1px solid var(--mud-palette-divider);
 }
 
 .note-row:last-child {
@@ -30,10 +31,10 @@
 }
 
 .note-header {
-    background-color: #f8f9fa;
+    background-color: var(--vn-note-header-bg);
     font-weight: 600;
     font-size: 0.875rem;
-    color: #555;
+    color: var(--vn-note-header-color);
 }
 
 .note-item {
@@ -41,11 +42,11 @@
 }
 
 .note-item:hover {
-    background-color: #f5f5f5;
+    background-color: var(--vn-note-hover-bg);
 }
 
 .note-item.selected {
-    background-color: #fff3cd;
+    background-color: var(--vn-note-selected-bg);
 }
 
 .sortable {
@@ -86,5 +87,5 @@
 }
 
 .note-header .col-date {
-    color: #555;
+    color: var(--vn-note-header-color);
 }

@@ -14,11 +14,11 @@
 }
 
 .status-saving {
-    color: #0d6efd;
+    color: #6ea8fe;
 }
 
 .status-saved {
-    color: #198754;
+    color: #5cb85c;
 }
 
 .editor-actions {
@@ -30,17 +30,27 @@
     display: flex;
     flex-direction: column;
     height: calc(100vh - 10rem);
+    background-color: var(--vn-editor-bg);
+    border: 1px solid var(--vn-editor-title-border);
+    border-radius: 6px;
+    padding: 1.25rem 1.5rem;
 }
 
 .editor-title {
     font-size: 1.4rem;
     font-weight: 600;
     border: none;
-    border-bottom: 1px solid #e0e0e0;
+    border-bottom: 1px solid var(--vn-editor-title-border);
     outline: none;
     padding: 0.5rem 0;
     margin-bottom: 0.75rem;
     width: 100%;
+    background: transparent;
+    color: inherit;
+}
+
+.editor-title::placeholder {
+    color: var(--vn-editor-blockquote-color);
 }
 
 .tiptap-wrapper {
@@ -60,7 +70,7 @@
 
 /* Placeholder */
 .tiptap-wrapper ::deep .ProseMirror p.is-editor-empty:first-child::before {
-    color: #adb5bd;
+    color: var(--vn-editor-blockquote-color);
     content: attr(data-placeholder);
     float: left;
     height: 0;
@@ -84,28 +94,29 @@
 
 /* Blockquote */
 .tiptap-wrapper ::deep blockquote {
-    border-left: 3px solid #dee2e6;
+    border-left: 3px solid var(--vn-editor-blockquote-border);
     margin: 0.5em 0;
     padding: 0.2em 1em;
-    color: #6c757d;
+    color: var(--vn-editor-blockquote-color);
 }
 
 /* Inline code */
 .tiptap-wrapper ::deep code {
-    background: #f1f3f5;
+    background: var(--vn-editor-code-bg);
     border-radius: 3px;
     padding: 0.1em 0.35em;
     font-size: 0.88em;
-    color: #c92a2a;
+    color: var(--vn-editor-code-color);
 }
 
 /* Code block */
 .tiptap-wrapper ::deep pre {
-    background: #f8f9fa;
+    background: var(--vn-editor-pre-bg);
     border-radius: 6px;
     padding: 1em;
     overflow-x: auto;
     margin-bottom: 0.75em;
+    border: 1px solid var(--vn-editor-title-border);
 }
 
 .tiptap-wrapper ::deep pre code {
@@ -118,13 +129,13 @@
 /* Horizontal rule */
 .tiptap-wrapper ::deep hr {
     border: none;
-    border-top: 1px solid #dee2e6;
+    border-top: 1px solid var(--vn-editor-hr-color);
     margin: 1em 0;
 }
 
 /* Links */
 .tiptap-wrapper ::deep a {
-    color: #0d6efd;
+    color: #6ea8fe;
     text-decoration: underline;
     cursor: pointer;
 }
