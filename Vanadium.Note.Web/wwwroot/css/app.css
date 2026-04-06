@@ -1,3 +1,27 @@
+:root {
+    --vn-top-row-bg: #f7f7f7;
+    --vn-top-row-border: #d6d5d5;
+    --vn-nav-icon-filter: brightness(0) opacity(0.54);
+    --vn-sidebar-bg: #f0eeff;
+    --vn-note-header-bg: #f8f9fa;
+    --vn-note-header-color: #555;
+    --vn-note-hover-bg: #f0f0f0;
+    --vn-note-selected-bg: #fff3cd;
+}
+
+body.dark-mode {
+    --vn-top-row-bg: #1e1e1e;
+    --vn-top-row-border: #333;
+    --vn-nav-icon-filter: none;
+    --vn-sidebar-bg: var(--mud-palette-drawer-background);
+    --vn-note-header-bg: #1a1a2a;
+    --vn-note-header-color: #aaa;
+    --vn-note-hover-bg: #2a2a3e;
+    --vn-note-selected-bg: #3a3218;
+    background-color: #121212;
+    color: #e0e0e0;
+}
+
 html, body {
     font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
 }

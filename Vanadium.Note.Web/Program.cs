@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Components.Web;
 using Microsoft.AspNetCore.Components.WebAssembly.Hosting;
+using MudBlazor.Services;
 using Vanadium.Note.Web.Services;
 
 namespace Vanadium.Note.Web
@@ -15,6 +16,7 @@ namespace Vanadium.Note.Web
             var apiBaseUrl = builder.Configuration["ApiBaseUrl"] ?? "https://localhost:7711";
             builder.Services.AddScoped(sp => new HttpClient { BaseAddress = new Uri(apiBaseUrl) });
             builder.Services.AddScoped<NoteService>();
+            builder.Services.AddMudServices();
 
             await builder.Build().RunAsync();
         }
