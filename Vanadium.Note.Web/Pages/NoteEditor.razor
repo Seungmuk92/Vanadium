@@ -24,7 +24,8 @@
            type="text"
            placeholder="Title"
            value="@title"
-           @oninput="OnTitleInput" />
+           @oninput="OnTitleInput"
+           @onkeydown="OnTitleKeyDown" />
     <div id="@_editorId" class="tiptap-wrapper"></div>
 </div>
 
@@ -87,6 +88,12 @@
     {
         title = e.Value?.ToString() ?? string.Empty;
         ScheduleAutoSave();
+    }
+
+    private async Task OnTitleKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter")
+            await JS.InvokeVoidAsync("tiptapInterop.focus", _editorId);
     }
 
     private void ScheduleAutoSave()

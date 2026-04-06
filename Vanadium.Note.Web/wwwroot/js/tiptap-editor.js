@@ -205,6 +205,10 @@ window.tiptapInterop = {
         _editors[elementId] = { editor, bubbleMenuEl, linkPopover };
     },
 
+    focus(elementId) {
+        _editors[elementId]?.editor.commands.focus('start');
+    },
+
     setContent(elementId, content) {
         _editors[elementId]?.editor.commands.setContent(content, false);
     },
