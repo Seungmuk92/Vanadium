@@ -13,8 +13,7 @@ builder.Services.AddCors(options =>
 });
 
 builder.Services.AddDbContext<NoteDbContext>(options =>
-    options.UseSqlite(builder.Configuration.GetConnectionString("DefaultConnection")
-        ?? "Data Source=notes.db"));
+    options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")));
 
 builder.Services.AddControllers();
 builder.Services.AddScoped<NoteService>();
