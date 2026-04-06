@@ -5,6 +5,22 @@
     margin-bottom: 1rem;
 }
 
+.save-status {
+    font-size: 0.8rem;
+}
+
+.status-pending {
+    color: #999;
+}
+
+.status-saving {
+    color: #0d6efd;
+}
+
+.status-saved {
+    color: #198754;
+}
+
 .editor-actions {
     display: flex;
     gap: 0.5rem;
@@ -27,12 +43,88 @@
     width: 100%;
 }
 
-.editor-content {
+.tiptap-wrapper {
     flex: 1;
-    font-size: 1rem;
-    border: none;
+    overflow-y: auto;
+    min-height: 0;
+    cursor: text;
+}
+
+/* TipTap ProseMirror content */
+.tiptap-wrapper ::deep .ProseMirror {
     outline: none;
-    resize: none;
-    line-height: 1.6;
-    width: 100%;
+    min-height: 100%;
+    line-height: 1.7;
+    padding-bottom: 4rem;
+}
+
+/* Placeholder */
+.tiptap-wrapper ::deep .ProseMirror p.is-editor-empty:first-child::before {
+    color: #adb5bd;
+    content: attr(data-placeholder);
+    float: left;
+    height: 0;
+    pointer-events: none;
+}
+
+/* Headings */
+.tiptap-wrapper ::deep h1 { font-size: 1.8rem; font-weight: 700; margin: 1.2em 0 0.3em; }
+.tiptap-wrapper ::deep h2 { font-size: 1.4rem; font-weight: 700; margin: 1.1em 0 0.3em; }
+.tiptap-wrapper ::deep h3 { font-size: 1.15rem; font-weight: 600; margin: 1em 0 0.3em; }
+
+/* Paragraph */
+.tiptap-wrapper ::deep p { margin-bottom: 0.5em; }
+
+/* Lists */
+.tiptap-wrapper ::deep ul,
+.tiptap-wrapper ::deep ol {
+    padding-left: 1.5em;
+    margin-bottom: 0.5em;
+}
+
+/* Blockquote */
+.tiptap-wrapper ::deep blockquote {
+    border-left: 3px solid #dee2e6;
+    margin: 0.5em 0;
+    padding: 0.2em 1em;
+    color: #6c757d;
+}
+
+/* Inline code */
+.tiptap-wrapper ::deep code {
+    background: #f1f3f5;
+    border-radius: 3px;
+    padding: 0.1em 0.35em;
+    font-size: 0.88em;
+    color: #c92a2a;
+}
+
+/* Code block */
+.tiptap-wrapper ::deep pre {
+    background: #f8f9fa;
+    border-radius: 6px;
+    padding: 1em;
+    overflow-x: auto;
+    margin-bottom: 0.75em;
+}
+
+.tiptap-wrapper ::deep pre code {
+    background: none;
+    padding: 0;
+    color: inherit;
+    font-size: 0.9em;
+}
+
+/* Horizontal rule */
+.tiptap-wrapper ::deep hr {
+    border: none;
+    border-top: 1px solid #dee2e6;
+    margin: 1em 0;
+}
+
+/* Links */
+.tiptap-wrapper ::deep a {
+    color: #0d6efd;
+    text-decoration: underline;
+    cursor: pointer;
 }
