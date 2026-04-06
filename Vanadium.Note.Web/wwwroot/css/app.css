@@ -105,6 +105,43 @@ code {
     color: #c02d76;
 }
 
+/* TipTap bubble menu — appended to body, must be global */
+.tiptap-bubble-menu {
+    display: flex;
+    align-items: center;
+    background: #1f1f1f;
+    border-radius: 6px;
+    padding: 4px 6px;
+    gap: 2px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+    z-index: 9999;
+}
+
+.tiptap-bubble-menu button {
+    background: none;
+    border: none;
+    color: #fff;
+    font-size: 0.78rem;
+    font-weight: 600;
+    padding: 3px 7px;
+    border-radius: 4px;
+    cursor: pointer;
+    min-width: 26px;
+    line-height: 1.4;
+}
+
+.tiptap-bubble-menu button:hover {
+    background: #3a3a3a;
+}
+
+.bubble-sep {
+    width: 1px;
+    height: 16px;
+    background: #444;
+    margin: 0 3px;
+    flex-shrink: 0;
+}
+
 .form-floating > .form-control-plaintext::placeholder, .form-floating > .form-control::placeholder {
     color: var(--bs-secondary-color);
     text-align: end;

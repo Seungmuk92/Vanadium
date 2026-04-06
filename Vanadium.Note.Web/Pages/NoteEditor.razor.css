@@ -43,73 +43,64 @@
     width: 100%;
 }
 
-.editor-panes {
-    display: flex;
-    flex: 1;
-    min-height: 0;
-}
-
-.editor-content {
-    flex: 1;
-    font-size: 1rem;
-    font-family: 'Consolas', 'Menlo', monospace;
-    border: none;
-    outline: none;
-    resize: none;
-    line-height: 1.6;
-    min-width: 0;
-}
-
-.editor-divider {
-    width: 1px;
-    background-color: #e0e0e0;
-    margin: 0 1.25rem;
-    flex-shrink: 0;
-}
-
-.editor-preview {
+.tiptap-wrapper {
     flex: 1;
     overflow-y: auto;
+    min-height: 0;
+    cursor: text;
+}
+
+/* TipTap ProseMirror content */
+.tiptap-wrapper ::deep .ProseMirror {
+    outline: none;
+    min-height: 100%;
     line-height: 1.7;
-    min-width: 0;
+    padding-bottom: 4rem;
 }
 
-.editor-preview :global(h1),
-.editor-preview :global(h2),
-.editor-preview :global(h3),
-.editor-preview :global(h4),
-.editor-preview :global(h5),
-.editor-preview :global(h6) {
-    margin-top: 1.2em;
-    margin-bottom: 0.4em;
-    font-weight: 600;
+/* Placeholder */
+.tiptap-wrapper ::deep .ProseMirror p.is-editor-empty:first-child::before {
+    color: #adb5bd;
+    content: attr(data-placeholder);
+    float: left;
+    height: 0;
+    pointer-events: none;
 }
 
-.editor-preview :global(p) {
-    margin-bottom: 0.75em;
-}
+/* Headings */
+.tiptap-wrapper ::deep h1 { font-size: 1.8rem; font-weight: 700; margin: 1.2em 0 0.3em; }
+.tiptap-wrapper ::deep h2 { font-size: 1.4rem; font-weight: 700; margin: 1.1em 0 0.3em; }
+.tiptap-wrapper ::deep h3 { font-size: 1.15rem; font-weight: 600; margin: 1em 0 0.3em; }
 
-.editor-preview :global(ul),
-.editor-preview :global(ol) {
+/* Paragraph */
+.tiptap-wrapper ::deep p { margin-bottom: 0.5em; }
+
+/* Lists */
+.tiptap-wrapper ::deep ul,
+.tiptap-wrapper ::deep ol {
     padding-left: 1.5em;
-    margin-bottom: 0.75em;
+    margin-bottom: 0.5em;
 }
 
-.editor-preview :global(blockquote) {
+/* Blockquote */
+.tiptap-wrapper ::deep blockquote {
     border-left: 3px solid #dee2e6;
-    margin: 0 0 0.75em;
-    padding: 0.25em 1em;
+    margin: 0.5em 0;
+    padding: 0.2em 1em;
     color: #6c757d;
 }
 
-.editor-preview :global(code) {
-    background: #f8f9fa;
+/* Inline code */
+.tiptap-wrapper ::deep code {
+    background: #f1f3f5;
     border-radius: 3px;
     padding: 0.1em 0.35em;
-    font-size: 0.9em;
+    font-size: 0.88em;
+    color: #c92a2a;
 }
 
-.editor-preview :global(pre) {
+/* Code block */
+.tiptap-wrapper ::deep pre {
     background: #f8f9fa;
     border-radius: 6px;
     padding: 1em;
@@ -117,33 +108,16 @@
     margin-bottom: 0.75em;
 }
 
-.editor-preview :global(pre code) {
+.tiptap-wrapper ::deep pre code {
     background: none;
     padding: 0;
+    color: inherit;
+    font-size: 0.9em;
 }
 
-.editor-preview :global(hr) {
+/* Horizontal rule */
+.tiptap-wrapper ::deep hr {
     border: none;
     border-top: 1px solid #dee2e6;
     margin: 1em 0;
-}
-
-.editor-preview :global(a) {
-    color: #0d6efd;
-}
-
-.editor-preview :global(table) {
-    border-collapse: collapse;
-    width: 100%;
-    margin-bottom: 0.75em;
-}
-
-.editor-preview :global(th),
-.editor-preview :global(td) {
-    border: 1px solid #dee2e6;
-    padding: 0.4em 0.75em;
-}
-
-.editor-preview :global(th) {
-    background: #f8f9fa;
 }
