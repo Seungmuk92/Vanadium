@@ -105,6 +105,85 @@ code {
     color: #c02d76;
 }
 
+/* TipTap bubble menu — appended to body, must be global */
+.tiptap-bubble-menu {
+    display: flex;
+    align-items: center;
+    background: #1f1f1f;
+    border-radius: 6px;
+    padding: 4px 6px;
+    gap: 2px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+    z-index: 9999;
+}
+
+.tiptap-bubble-menu button {
+    background: none;
+    border: none;
+    color: #fff;
+    font-size: 0.78rem;
+    font-weight: 600;
+    padding: 3px 7px;
+    border-radius: 4px;
+    cursor: pointer;
+    min-width: 26px;
+    line-height: 1.4;
+}
+
+.tiptap-bubble-menu button:hover {
+    background: #3a3a3a;
+}
+
+.bubble-sep {
+    width: 1px;
+    height: 16px;
+    background: #444;
+    margin: 0 3px;
+    flex-shrink: 0;
+}
+
+/* TipTap link popover */
+.tiptap-link-popover {
+    position: fixed;
+    display: flex;
+    align-items: center;
+    background: #fff;
+    border: 1px solid #dee2e6;
+    border-radius: 6px;
+    padding: 5px 8px;
+    gap: 4px;
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.12);
+    z-index: 9999;
+}
+
+.tiptap-link-popover .link-input {
+    border: none;
+    outline: none;
+    font-size: 0.85rem;
+    width: 260px;
+    color: #333;
+    background: transparent;
+}
+
+.tiptap-link-popover .link-btn {
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 0.8rem;
+    color: #555;
+    flex-shrink: 0;
+}
+
+.tiptap-link-popover .link-btn:hover {
+    background: #f1f3f5;
+}
+
+.tiptap-link-popover .link-remove {
+    color: #dc3545;
+}
+
 .form-floating > .form-control-plaintext::placeholder, .form-floating > .form-control::placeholder {
     color: var(--bs-secondary-color);
     text-align: end;
