@@ -3,6 +3,7 @@
 @inject NoteService NoteService
 @inject NavigationManager Nav
 @inject IJSRuntime JS
+@inject HttpClient Http
 @implements IDisposable
 
 <PageTitle>@(isNew ? "New Note" : "Edit Note")</PageTitle>
@@ -67,7 +68,8 @@
         if (firstRender)
         {
             _objRef = DotNetObjectReference.Create(this);
-            await JS.InvokeVoidAsync("tiptapInterop.init", _editorId, _objRef, content);
+            var apiBase = Http.BaseAddress?.ToString().TrimEnd('/') ?? string.Empty;
+            await JS.InvokeVoidAsync("tiptapInterop.init", _editorId, _objRef, content, apiBase);
             _editorMounted = true;
         }
         else if (_contentJustLoaded && _editorMounted)
