@@ -3,6 +3,7 @@ import StarterKit from 'https://esm.sh/@tiptap/starter-kit@2'
 import BubbleMenu from 'https://esm.sh/@tiptap/extension-bubble-menu@2'
 import Placeholder from 'https://esm.sh/@tiptap/extension-placeholder@2'
 import Link from 'https://esm.sh/@tiptap/extension-link@2'
+import Image from 'https://esm.sh/@tiptap/extension-image@2'
 
 const _editors = {};
 
@@ -183,6 +184,11 @@ window.tiptapInterop = {
                     openOnClick: false,
                     HTMLAttributes: { target: '_blank', rel: 'noopener noreferrer' },
                 }),
+                Image.configure({
+                    inline: false,
+                    allowBase64: true,
+                    HTMLAttributes: { class: 'tiptap-image' },
+                }),
                 BubbleMenu.configure({
                     element: bubbleMenuEl,
                     shouldShow: ({ from, to }) => from !== to,
@@ -199,6 +205,26 @@ window.tiptapInterop = {
             if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
                 e.preventDefault();
                 showLinkPopover(elementId);
+            }
+        });
+
+        // Clipboard image paste
+        editor.view.dom.addEventListener('paste', (e) => {
+            const items = e.clipboardData?.items;
+            if (!items) return;
+            for (const item of items) {
+                if (item.type.startsWith('image/')) {
+                    e.preventDefault();
+                    const file = item.getAsFile();
+                    if (!file) return;
+                    const reader = new FileReader();
+                    reader.onload = (ev) => {
+                        const src = ev.target.result;
+                        editor.chain().focus().setImage({ src }).run();
+                    };
+                    reader.readAsDataURL(file);
+                    break;
+                }
             }
         });
 
