@@ -167,7 +167,7 @@ function runCommand(editor, cmd) {
 // ── Public API ───────────────────────────────────────────────────────────────
 
 window.tiptapInterop = {
-    init(elementId, dotnetRef, initialContent) {
+    init(elementId, dotnetRef, initialContent, apiBaseUrl) {
         const el = document.getElementById(elementId);
         if (!el) return;
 
@@ -186,7 +186,6 @@ window.tiptapInterop = {
                 }),
                 Image.configure({
                     inline: false,
-                    allowBase64: true,
                     HTMLAttributes: { class: 'tiptap-image' },
                 }),
                 BubbleMenu.configure({
@@ -208,8 +207,8 @@ window.tiptapInterop = {
             }
         });
 
-        // Clipboard image paste
-        editor.view.dom.addEventListener('paste', (e) => {
+        // Clipboard image paste — upload to server, insert URL
+        editor.view.dom.addEventListener('paste', async (e) => {
             const items = e.clipboardData?.items;
             if (!items) return;
             for (const item of items) {
@@ -217,12 +216,18 @@ window.tiptapInterop = {
                     e.preventDefault();
                     const file = item.getAsFile();
                     if (!file) return;
-                    const reader = new FileReader();
-                    reader.onload = (ev) => {
-                        const src = ev.target.result;
-                        editor.chain().focus().setImage({ src }).run();
-                    };
-                    reader.readAsDataURL(file);
+
+                    const formData = new FormData();
+                    formData.append('file', file);
+
+                    try {
+                        const res = await fetch(`${apiBaseUrl}/api/images`, { method: 'POST', body: formData });
+                        if (!res.ok) throw new Error(`Upload failed: ${res.status}`);
+                        const { url } = await res.json();
+                        editor.chain().focus().setImage({ src: `${apiBaseUrl}${url}` }).run();
+                    } catch (err) {
+                        console.error('Image upload failed', err);
+                    }
                     break;
                 }
             }
