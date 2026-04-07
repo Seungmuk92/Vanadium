@@ -240,6 +240,21 @@ code {
     color: #dc3545;
 }
 
+/* Pasted images */
+.tiptap-image {
+    max-width: 100%;
+    height: auto;
+    display: block;
+    border-radius: 6px;
+    margin: 0.5rem 0;
+    cursor: default;
+}
+
+.tiptap-image.ProseMirror-selectednode {
+    outline: 2px solid var(--mud-palette-primary, #7c4dff);
+    border-radius: 6px;
+}
+
 .form-floating > .form-control-plaintext::placeholder, .form-floating > .form-control::placeholder {
     color: var(--bs-secondary-color);
     text-align: end;
