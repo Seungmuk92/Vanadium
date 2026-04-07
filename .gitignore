@@ -493,6 +493,9 @@ $RECYCLE.BIN/
 ## Project-specific
 ##
 
+# Uploaded images (runtime-generated, not source code)
+**/uploads/
+
 # Visual Studio solution user settings
 *.slnx.user
 

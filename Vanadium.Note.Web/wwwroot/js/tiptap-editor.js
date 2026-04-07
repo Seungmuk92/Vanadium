@@ -3,6 +3,7 @@ import StarterKit from 'https://esm.sh/@tiptap/starter-kit@2'
 import BubbleMenu from 'https://esm.sh/@tiptap/extension-bubble-menu@2'
 import Placeholder from 'https://esm.sh/@tiptap/extension-placeholder@2'
 import Link from 'https://esm.sh/@tiptap/extension-link@2'
+import Image from 'https://esm.sh/@tiptap/extension-image@2'
 
 const _editors = {};
 
@@ -166,7 +167,7 @@ function runCommand(editor, cmd) {
 // ── Public API ───────────────────────────────────────────────────────────────
 
 window.tiptapInterop = {
-    init(elementId, dotnetRef, initialContent) {
+    init(elementId, dotnetRef, initialContent, apiBaseUrl) {
         const el = document.getElementById(elementId);
         if (!el) return;
 
@@ -182,6 +183,10 @@ window.tiptapInterop = {
                     autolink: true,
                     openOnClick: false,
                     HTMLAttributes: { target: '_blank', rel: 'noopener noreferrer' },
+                }),
+                Image.configure({
+                    inline: false,
+                    HTMLAttributes: { class: 'tiptap-image' },
                 }),
                 BubbleMenu.configure({
                     element: bubbleMenuEl,
@@ -199,6 +204,32 @@ window.tiptapInterop = {
             if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
                 e.preventDefault();
                 showLinkPopover(elementId);
+            }
+        });
+
+        // Clipboard image paste — upload to server, insert URL
+        editor.view.dom.addEventListener('paste', async (e) => {
+            const items = e.clipboardData?.items;
+            if (!items) return;
+            for (const item of items) {
+                if (item.type.startsWith('image/')) {
+                    e.preventDefault();
+                    const file = item.getAsFile();
+                    if (!file) return;
+
+                    const formData = new FormData();
+                    formData.append('file', file);
+
+                    try {
+                        const res = await fetch(`${apiBaseUrl}/api/images`, { method: 'POST', body: formData });
+                        if (!res.ok) throw new Error(`Upload failed: ${res.status}`);
+                        const { url } = await res.json();
+                        editor.chain().focus().setImage({ src: `${apiBaseUrl}${url}` }).run();
+                    } catch (err) {
+                        console.error('Image upload failed', err);
+                    }
+                    break;
+                }
             }
         });
 
