@@ -7,6 +7,18 @@ using Vanadium.Note.REST.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// Remove Kestrel's default 30MB request body size limit to allow large file uploads
+builder.WebHost.ConfigureKestrel(options =>
+{
+    options.Limits.MaxRequestBodySize = null;
+});
+
+// Remove multipart/form-data body length limit (default is 128MB)
+builder.Services.Configure<Microsoft.AspNetCore.Http.Features.FormOptions>(options =>
+{
+    options.MultipartBodyLengthLimit = long.MaxValue;
+});
+
 builder.Services.AddCors(options =>
 {
     options.AddDefaultPolicy(policy =>
