@@ -1,4 +1,7 @@
+using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.IdentityModel.Tokens;
+using System.Text;
 using Vanadium.Note.REST.Data;
 using Vanadium.Note.REST.Services;
 
@@ -14,6 +17,21 @@ builder.Services.AddCors(options =>
 
 builder.Services.AddDbContext<NoteDbContext>(options =>
     options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")));
+
+var jwtSecret = builder.Configuration["Auth:JwtSecret"]
+    ?? throw new InvalidOperationException("Auth:JwtSecret is not configured. Set Auth:JwtSecret in appsettings.");
+
+builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+    .AddJwtBearer(options =>
+    {
+        options.TokenValidationParameters = new TokenValidationParameters
+        {
+            ValidateIssuerSigningKey = true,
+            IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtSecret)),
+            ValidateIssuer = false,
+            ValidateAudience = false,
+        };
+    });
 
 builder.Services.AddControllers();
 builder.Services.AddScoped<NoteService>();
@@ -32,6 +50,7 @@ using (var scope = app.Services.CreateScope())
     scope.ServiceProvider.GetRequiredService<NoteDbContext>().Database.Migrate();
 
 app.UseCors();
+app.UseAuthentication();
 app.UseAuthorization();
 app.MapControllers();
 
