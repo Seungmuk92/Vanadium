@@ -4,7 +4,7 @@ using Vanadium.Note.REST.Models;
 
 namespace Vanadium.Note.REST.Services;
 
-public class NoteService(NoteDbContext db)
+public class NoteService(NoteDbContext db, FileCleanupService fileCleanup)
 {
     public Task<List<NoteItem>> GetAll() =>
         db.Notes.OrderByDescending(n => n.UpdatedAt).ToListAsync();
@@ -38,8 +38,15 @@ public class NoteService(NoteDbContext db)
         var note = await db.Notes.FindAsync(id);
         if (note is null) return false;
 
+        // Capture content before removal so we can clean up referenced files
+        var content = note.Content;
+
         db.Notes.Remove(note);
         await db.SaveChangesAsync();
+
+        // Delete files/images that are no longer referenced by any note
+        await fileCleanup.DeleteOrphanedFromContentAsync(content);
+
         return true;
     }
 }
