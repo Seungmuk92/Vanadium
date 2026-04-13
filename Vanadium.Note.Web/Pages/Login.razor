@@ -1,0 +1,72 @@
+@page "/login"
+@attribute [AllowAnonymous]
+@inject AuthService AuthService
+@inject NavigationManager Nav
+
+<div class="login-container">
+    <div class="login-card">
+        <h2 class="login-title">Vanadium</h2>
+
+        <EditForm Model="@_model" OnValidSubmit="HandleLogin">
+            <DataAnnotationsValidator />
+            <div class="login-field">
+                <input type="text"
+                       class="login-input"
+                       placeholder="Username"
+                       @bind="_model.Username"
+                       @bind:event="oninput"
+                       disabled="@_isLoading" />
+            </div>
+            <div class="login-field">
+                <input type="password"
+                       class="login-input"
+                       placeholder="Password"
+                       @bind="_model.Password"
+                       @bind:event="oninput"
+                       disabled="@_isLoading" />
+            </div>
+
+            @if (_errorMessage is not null)
+            {
+                <div class="login-error">@_errorMessage</div>
+            }
+
+            <button type="submit" class="login-btn" disabled="@_isLoading">
+                @(_isLoading ? "Signing in..." : "Sign in")
+            </button>
+        </EditForm>
+    </div>
+</div>
+
+@code {
+    [SupplyParameterFromQuery] private string? ReturnUrl { get; set; }
+
+    private readonly LoginModel _model = new();
+    private bool _isLoading;
+    private string? _errorMessage;
+
+    private async Task HandleLogin()
+    {
+        _isLoading = true;
+        _errorMessage = null;
+
+        var success = await AuthService.LoginAsync(_model.Username, _model.Password);
+
+        if (success)
+        {
+            var target = string.IsNullOrEmpty(ReturnUrl) ? "/" : Uri.UnescapeDataString(ReturnUrl);
+            Nav.NavigateTo(target);
+        }
+        else
+        {
+            _errorMessage = "Invalid username or password.";
+            _isLoading = false;
+        }
+    }
+
+    private class LoginModel
+    {
+        public string Username { get; set; } = string.Empty;
+        public string Password { get; set; } = string.Empty;
+    }
+}
