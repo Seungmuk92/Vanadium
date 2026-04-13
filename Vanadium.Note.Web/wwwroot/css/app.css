@@ -254,6 +254,90 @@ code {
     color: #dc3545;
 }
 
+/* Upload progress toast */
+.upload-toast {
+    position: fixed;
+    bottom: 24px;
+    right: 24px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    background: var(--vn-link-popover-bg);
+    border: 1px solid var(--vn-link-popover-border);
+    border-radius: 8px;
+    padding: 10px 14px;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.18);
+    z-index: 99999;
+    min-width: 260px;
+    font-size: 0.85rem;
+    color: var(--vn-link-popover-color);
+    transition: opacity 0.3s;
+}
+
+.upload-toast-name {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 160px;
+}
+
+.upload-toast-bar-wrap {
+    width: 64px;
+    height: 4px;
+    background: var(--vn-editor-code-bg);
+    border-radius: 2px;
+    overflow: hidden;
+    flex-shrink: 0;
+}
+
+.upload-toast-bar {
+    height: 100%;
+    width: 0%;
+    background: var(--mud-palette-primary, #7c4dff);
+    border-radius: 2px;
+    transition: width 0.15s;
+}
+
+.upload-toast-pct {
+    width: 34px;
+    text-align: right;
+    flex-shrink: 0;
+}
+
+.upload-toast-done { opacity: 0; }
+
+.upload-toast-error .upload-toast-bar { background: #dc3545; }
+.upload-toast-error .upload-toast-pct::after { content: ' Failed'; color: #dc3545; }
+
+/* File attachment link */
+a.file-attachment {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 1px 8px;
+    border-radius: 4px;
+    background: var(--vn-editor-code-bg);
+    color: var(--vn-editor-code-color);
+    text-decoration: none;
+    font-size: 0.88em;
+    font-family: inherit;
+    border: 1px solid var(--vn-editor-title-border);
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+a.file-attachment:hover {
+    text-decoration: underline;
+    opacity: 0.85;
+}
+
+/* Drag-over visual feedback */
+.ProseMirror.drag-over {
+    outline: 2px dashed var(--mud-palette-primary, #7c4dff);
+    border-radius: 4px;
+}
+
 /* Pasted images */
 .tiptap-image {
     max-width: 100%;

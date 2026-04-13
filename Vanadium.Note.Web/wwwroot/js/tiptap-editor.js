@@ -1,4 +1,4 @@
-import { Editor } from 'https://esm.sh/@tiptap/core@2'
+import { Editor, Node, mergeAttributes } from 'https://esm.sh/@tiptap/core@2'
 import StarterKit from 'https://esm.sh/@tiptap/starter-kit@2'
 import BubbleMenu from 'https://esm.sh/@tiptap/extension-bubble-menu@2'
 import Placeholder from 'https://esm.sh/@tiptap/extension-placeholder@2'
@@ -6,6 +6,90 @@ import Link from 'https://esm.sh/@tiptap/extension-link@2'
 import Image from 'https://esm.sh/@tiptap/extension-image@2'
 
 const _editors = {};
+
+// ── FileAttachment node ──────────────────────────────────────────────────────
+
+const FileAttachment = Node.create({
+    name: 'fileAttachment',
+    group: 'inline',
+    inline: true,
+    atom: true,
+
+    addAttributes() {
+        return {
+            href: { default: null },
+            filename: { default: '' },
+        };
+    },
+
+    parseHTML() {
+        return [{
+            tag: 'a.file-attachment',
+            getAttrs: (el) => ({
+                href: el.getAttribute('href'),
+                filename: el.getAttribute('data-filename') || el.textContent.replace('📎 ', '').trim(),
+            }),
+        }];
+    },
+
+    renderHTML({ HTMLAttributes }) {
+        return ['a', mergeAttributes({
+            class: 'file-attachment',
+            'data-filename': HTMLAttributes.filename,
+            download: HTMLAttributes.filename,
+        }, { href: HTMLAttributes.href }), `📎 ${HTMLAttributes.filename}`];
+    },
+});
+
+// ── Upload helpers ───────────────────────────────────────────────────────────
+
+function uploadWithProgress(url, formData, headers, onProgress) {
+    return new Promise((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open('POST', url);
+        for (const [key, value] of Object.entries(headers)) {
+            xhr.setRequestHeader(key, value);
+        }
+        xhr.upload.addEventListener('progress', (e) => {
+            if (e.lengthComputable) onProgress(e.loaded / e.total);
+        });
+        xhr.addEventListener('load', () => {
+            if (xhr.status >= 200 && xhr.status < 300) {
+                resolve(JSON.parse(xhr.responseText));
+            } else {
+                reject(new Error(`Upload failed: ${xhr.status}`));
+            }
+        });
+        xhr.addEventListener('error', () => reject(new Error('Network error')));
+        xhr.send(formData);
+    });
+}
+
+function createProgressToast(filename) {
+    const toast = document.createElement('div');
+    toast.className = 'upload-toast';
+    toast.innerHTML = `
+        <span class="upload-toast-name">${filename}</span>
+        <div class="upload-toast-bar-wrap"><div class="upload-toast-bar"></div></div>
+        <span class="upload-toast-pct">0%</span>
+    `;
+    document.body.appendChild(toast);
+
+    return {
+        update(ratio) {
+            toast.querySelector('.upload-toast-bar').style.width = `${Math.round(ratio * 100)}%`;
+            toast.querySelector('.upload-toast-pct').textContent = `${Math.round(ratio * 100)}%`;
+        },
+        done() {
+            toast.classList.add('upload-toast-done');
+            setTimeout(() => toast.remove(), 1200);
+        },
+        error() {
+            toast.classList.add('upload-toast-error');
+            setTimeout(() => toast.remove(), 3000);
+        },
+    };
+}
 
 // ── Link popover ────────────────────────────────────────────────────────────
 
@@ -188,6 +272,7 @@ window.tiptapInterop = {
                     inline: false,
                     HTMLAttributes: { class: 'tiptap-image' },
                 }),
+                FileAttachment,
                 BubbleMenu.configure({
                     element: bubbleMenuEl,
                     shouldShow: ({ from, to }) => from !== to,
@@ -219,17 +304,96 @@ window.tiptapInterop = {
 
                     const formData = new FormData();
                     formData.append('file', file);
+                    const headers = authToken ? { 'Authorization': `Bearer ${authToken}` } : {};
+                    const toast = createProgressToast(file.name || 'image');
 
                     try {
-                        const headers = authToken ? { 'Authorization': `Bearer ${authToken}` } : {};
-                        const res = await fetch(`${apiBaseUrl}/api/images`, { method: 'POST', body: formData, headers });
-                        if (!res.ok) throw new Error(`Upload failed: ${res.status}`);
-                        const { url } = await res.json();
+                        const { url } = await uploadWithProgress(
+                            `${apiBaseUrl}/api/images`, formData, headers,
+                            (ratio) => toast.update(ratio)
+                        );
+                        toast.done();
                         editor.chain().focus().setImage({ src: `${apiBaseUrl}${url}` }).run();
                     } catch (err) {
+                        toast.error();
                         console.error('Image upload failed', err);
                     }
                     break;
+                }
+            }
+        });
+
+        // File attachment click — ProseMirror intercepts clicks, so we handle it manually
+        editor.view.dom.addEventListener('click', (e) => {
+            const link = e.target.closest('a.file-attachment');
+            if (!link) return;
+            e.preventDefault();
+            e.stopPropagation();
+            const a = document.createElement('a');
+            a.href = link.getAttribute('href');
+            a.download = link.getAttribute('data-filename') || '';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+        });
+
+        // File drag & drop
+        editor.view.dom.addEventListener('dragover', (e) => {
+            if (e.dataTransfer?.types.includes('Files')) {
+                e.preventDefault();
+                editor.view.dom.classList.add('drag-over');
+            }
+        });
+
+        editor.view.dom.addEventListener('dragleave', (e) => {
+            if (!editor.view.dom.contains(e.relatedTarget)) {
+                editor.view.dom.classList.remove('drag-over');
+            }
+        });
+
+        editor.view.dom.addEventListener('drop', async (e) => {
+            editor.view.dom.classList.remove('drag-over');
+            const files = Array.from(e.dataTransfer?.files || []);
+            if (files.length === 0) return;
+            e.preventDefault();
+
+            const pos = editor.view.posAtCoords({ left: e.clientX, top: e.clientY });
+            const insertPos = pos ? pos.pos : editor.state.doc.content.size;
+
+            const headers = authToken ? { 'Authorization': `Bearer ${authToken}` } : {};
+
+            for (const file of files) {
+                const formData = new FormData();
+                formData.append('file', file);
+                const toast = createProgressToast(file.name);
+
+                try {
+                    if (file.type.startsWith('image/')) {
+                        // Image files are inserted as inline images
+                        const { url } = await uploadWithProgress(
+                            `${apiBaseUrl}/api/images`, formData, headers,
+                            (ratio) => toast.update(ratio)
+                        );
+                        toast.done();
+                        editor.chain().focus().insertContentAt(insertPos, {
+                            type: 'image',
+                            attrs: { src: `${apiBaseUrl}${url}`, class: 'tiptap-image' },
+                        }).run();
+                    } else {
+                        // Other files are inserted as file attachment links
+                        const { url, filename } = await uploadWithProgress(
+                            `${apiBaseUrl}/api/files`, formData, headers,
+                            (ratio) => toast.update(ratio)
+                        );
+                        toast.done();
+                        editor.chain().focus().insertContentAt(insertPos, {
+                            type: 'fileAttachment',
+                            attrs: { href: `${apiBaseUrl}${url}`, filename },
+                        }).run();
+                    }
+                } catch (err) {
+                    toast.error();
+                    console.error('File upload failed', err);
                 }
             }
         });
