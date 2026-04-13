@@ -1,9 +1,11 @@
 @page "/editor"
 @page "/editor/{Id:guid}"
+@attribute [Authorize]
 @inject NoteService NoteService
 @inject NavigationManager Nav
 @inject IJSRuntime JS
 @inject HttpClient Http
+@inject TokenStore TokenStore
 @implements IDisposable
 
 <PageTitle>@(isNew ? "New Note" : "Edit Note")</PageTitle>
@@ -69,7 +71,8 @@
         {
             _objRef = DotNetObjectReference.Create(this);
             var apiBase = Http.BaseAddress?.ToString().TrimEnd('/') ?? string.Empty;
-            await JS.InvokeVoidAsync("tiptapInterop.init", _editorId, _objRef, content, apiBase);
+            var token = await TokenStore.GetAsync() ?? string.Empty;
+            await JS.InvokeVoidAsync("tiptapInterop.init", _editorId, _objRef, content, apiBase, token);
             _editorMounted = true;
         }
         else if (_contentJustLoaded && _editorMounted)
