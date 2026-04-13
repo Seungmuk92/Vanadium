@@ -167,7 +167,7 @@ function runCommand(editor, cmd) {
 // ── Public API ───────────────────────────────────────────────────────────────
 
 window.tiptapInterop = {
-    init(elementId, dotnetRef, initialContent, apiBaseUrl) {
+    init(elementId, dotnetRef, initialContent, apiBaseUrl, authToken) {
         const el = document.getElementById(elementId);
         if (!el) return;
 
@@ -221,7 +221,8 @@ window.tiptapInterop = {
                     formData.append('file', file);
 
                     try {
-                        const res = await fetch(`${apiBaseUrl}/api/images`, { method: 'POST', body: formData });
+                        const headers = authToken ? { 'Authorization': `Bearer ${authToken}` } : {};
+                        const res = await fetch(`${apiBaseUrl}/api/images`, { method: 'POST', body: formData, headers });
                         if (!res.ok) throw new Error(`Upload failed: ${res.status}`);
                         const { url } = await res.json();
                         editor.chain().focus().setImage({ src: `${apiBaseUrl}${url}` }).run();
