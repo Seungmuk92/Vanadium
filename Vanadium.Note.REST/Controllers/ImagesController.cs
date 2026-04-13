@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace Vanadium.Note.REST.Controllers;
@@ -13,6 +14,7 @@ public class ImagesController(IWebHostEnvironment env) : ControllerBase
 {
     private string UploadsPath => Path.Combine(env.ContentRootPath, "uploads");
 
+    [Authorize]
     [HttpPost]
     [DisableRequestSizeLimit]
     [Consumes("multipart/form-data")]
