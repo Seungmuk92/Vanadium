@@ -1,6 +1,7 @@
 @page "/"
 @attribute [Authorize]
 @inject NoteService NoteService
+@inject LabelService LabelService
 @inject NavigationManager Nav
 @inject IJSRuntime JS
 @implements IAsyncDisposable
@@ -12,9 +13,36 @@
     <button class="btn btn-primary" @onclick="CreateNote">New Note</button>
 </div>
 
+@if (allLabels.Any())
+{
+    <div class="label-filter-bar">
+        <span class="label-filter-title">필터:</span>
+        @foreach (var label in allLabels)
+        {
+            var active = activeFilters.Contains(label.Id);
+            <span class="filter-chip @(active ? "filter-chip-active" : "") @(label.CategoryId.HasValue ? "filter-chip-cat" : "")"
+                  @onclick="() => ToggleFilter(label.Id)">
+                @if (label.CategoryId.HasValue)
+                {
+                    <span class="filter-chip-cat-prefix">@label.CategoryName:</span>
+                }
+                @label.Name
+            </span>
+        }
+        @if (activeFilters.Any())
+        {
+            <button class="filter-clear-btn" @onclick="ClearFilters">× 초기화</button>
+        }
+    </div>
+}
+
 @if (!notes.Any())
 {
     <p class="empty-message">No notes yet. Create one!</p>
+}
+else if (!FilteredNotes.Any())
+{
+    <p class="empty-message">선택한 라벨에 해당하는 노트가 없습니다.</p>
 }
 else
 {
@@ -33,7 +61,7 @@ else
                 Modified @SortIcon(SortColumn.Date)
             </div>
         </div>
-        @foreach (var note in SortedNotes)
+        @foreach (var note in FilteredNotes)
         {
             <div class="note-row note-item @(selectedIds.Contains(note.Id) ? "selected" : "")">
                 <div class="col-check">
@@ -44,7 +72,26 @@ else
                            @onclick:stopPropagation="true" />
                 </div>
                 <div class="col-title" @onclick="() => EditNote(note.Id)">
-                    @(string.IsNullOrWhiteSpace(note.Title) ? "(No title)" : note.Title)
+                    <div class="note-title-text">
+                        @(string.IsNullOrWhiteSpace(note.Title) ? "(No title)" : note.Title)
+                    </div>
+                    @if (note.Labels.Any())
+                    {
+                        <div class="note-label-chips">
+                            @foreach (var label in note.Labels)
+                            {
+                                <span class="note-label-chip @(label.CategoryId.HasValue ? "note-label-chip-cat" : "")"
+                                      @onclick:stopPropagation="true"
+                                      @onclick="() => ToggleFilter(label.Id)">
+                                    @if (label.CategoryId.HasValue)
+                                    {
+                                        <span class="note-label-cat-prefix">@label.CategoryName:</span>
+                                    }
+                                    @label.Name
+                                </span>
+                            }
+                        </div>
+                    }
                 </div>
                 <div class="col-date" @onclick="() => EditNote(note.Id)">
                     @note.UpdatedAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm")
@@ -56,7 +103,9 @@ else
 
 @code {
     private IReadOnlyList<NoteItem> notes = [];
+    private List<Label> allLabels = [];
     private HashSet<Guid> selectedIds = [];
+    private HashSet<Guid> activeFilters = [];
     private DotNetObjectReference<Home>? dotNetRef;
 
     private enum SortColumn { Title, Date }
@@ -73,6 +122,10 @@ else
             : notes.OrderByDescending(n => n.UpdatedAt),
         _ => notes
     };
+
+    private IEnumerable<NoteItem> FilteredNotes => activeFilters.Count == 0
+        ? SortedNotes
+        : SortedNotes.Where(n => activeFilters.All(f => n.Labels.Any(l => l.Id == f)));
 
     private bool IsAllSelected => notes.Count > 0 && selectedIds.Count == notes.Count;
 
@@ -96,6 +149,7 @@ else
     protected override async Task OnInitializedAsync()
     {
         notes = await NoteService.GetAllAsync() ?? [];
+        allLabels = await LabelService.GetLabelsAsync() ?? [];
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
@@ -136,6 +190,14 @@ else
         else
             selectedIds = notes.Select(n => n.Id).ToHashSet();
     }
+
+    private void ToggleFilter(Guid labelId)
+    {
+        if (!activeFilters.Add(labelId))
+            activeFilters.Remove(labelId);
+    }
+
+    private void ClearFilters() => activeFilters.Clear();
 
     private void CreateNote()
     {
