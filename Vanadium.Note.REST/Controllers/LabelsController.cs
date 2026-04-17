@@ -18,8 +18,15 @@ public class LabelsController(LabelService labelService) : ControllerBase
     [HttpPost("api/label-categories")]
     public async Task<ActionResult<LabelCategoryDto>> CreateCategory([FromBody] NameRequest req)
     {
-        var result = await labelService.CreateCategoryAsync(req.Name);
-        return Created($"api/label-categories/{result.Id}", result);
+        try
+        {
+            var result = await labelService.CreateCategoryAsync(req.Name);
+            return Created($"api/label-categories/{result.Id}", result);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return Conflict(new { error = ex.Message });
+        }
     }
 
     [HttpDelete("api/label-categories/{id:guid}")]
@@ -35,8 +42,15 @@ public class LabelsController(LabelService labelService) : ControllerBase
     [HttpPost("api/labels")]
     public async Task<ActionResult<LabelSummary>> CreateLabel([FromBody] CreateLabelRequest req)
     {
-        var result = await labelService.CreateLabelAsync(req.Name, req.CategoryId);
-        return Created($"api/labels/{result.Id}", result);
+        try
+        {
+            var result = await labelService.CreateLabelAsync(req.Name, req.CategoryId);
+            return Created($"api/labels/{result.Id}", result);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return Conflict(new { error = ex.Message });
+        }
     }
 
     [HttpDelete("api/labels/{id:guid}")]

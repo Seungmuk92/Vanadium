@@ -398,3 +398,13 @@
     background: var(--mud-palette-surface);
     color: inherit;
 }
+
+.input-error {
+    border-color: #dc3545 !important;
+}
+
+.label-manager-error {
+    margin-top: 0.3rem;
+    font-size: 0.78rem;
+    color: #dc3545;
+}

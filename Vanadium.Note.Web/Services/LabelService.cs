@@ -1,4 +1,5 @@
 using System.Net.Http.Json;
+using System.Text.Json;
 using Vanadium.Note.Web.Models;
 
 namespace Vanadium.Note.Web.Services;
@@ -8,12 +9,12 @@ public class LabelService(HttpClient http)
     public Task<List<Label>?> GetLabelsAsync() =>
         http.GetFromJsonAsync<List<Label>>("api/labels");
 
-    public async Task<Label?> CreateLabelAsync(string name, Guid? categoryId)
+    public async Task<(Label? Result, string? Error)> CreateLabelAsync(string name, Guid? categoryId)
     {
         var response = await http.PostAsJsonAsync("api/labels", new { name, categoryId });
-        return response.IsSuccessStatusCode
-            ? await response.Content.ReadFromJsonAsync<Label>()
-            : null;
+        if (response.IsSuccessStatusCode)
+            return (await response.Content.ReadFromJsonAsync<Label>(), null);
+        return (null, await ReadErrorAsync(response));
     }
 
     public Task DeleteLabelAsync(Guid id) =>
@@ -22,12 +23,24 @@ public class LabelService(HttpClient http)
     public Task<List<LabelCategory>?> GetCategoriesAsync() =>
         http.GetFromJsonAsync<List<LabelCategory>>("api/label-categories");
 
-    public async Task<LabelCategory?> CreateCategoryAsync(string name)
+    public async Task<(LabelCategory? Result, string? Error)> CreateCategoryAsync(string name)
     {
         var response = await http.PostAsJsonAsync("api/label-categories", new { name });
-        return response.IsSuccessStatusCode
-            ? await response.Content.ReadFromJsonAsync<LabelCategory>()
-            : null;
+        if (response.IsSuccessStatusCode)
+            return (await response.Content.ReadFromJsonAsync<LabelCategory>(), null);
+        return (null, await ReadErrorAsync(response));
+    }
+
+    private static async Task<string> ReadErrorAsync(HttpResponseMessage response)
+    {
+        try
+        {
+            var json = await response.Content.ReadFromJsonAsync<JsonElement>();
+            if (json.TryGetProperty("error", out var err))
+                return err.GetString() ?? "오류가 발생했습니다.";
+        }
+        catch { }
+        return "오류가 발생했습니다.";
     }
 
     public Task DeleteCategoryAsync(Guid id) =>

@@ -125,9 +125,16 @@
                         </div>
                     }
                     <div class="label-manager-new">
-                        <input class="label-manager-input" @bind="newCategoryName" placeholder="카테고리 이름" />
+                        <input class="label-manager-input @(categoryError is not null ? "input-error" : "")"
+                               @bind="newCategoryName"
+                               @oninput="() => categoryError = null"
+                               placeholder="카테고리 이름" />
                         <button class="btn btn-sm btn-primary" @onclick="CreateCategory">추가</button>
                     </div>
+                    @if (categoryError is not null)
+                    {
+                        <div class="label-manager-error">@categoryError</div>
+                    }
                 </div>
 
                 <div class="label-manager-section">
@@ -146,7 +153,10 @@
                         </div>
                     }
                     <div class="label-manager-new">
-                        <input class="label-manager-input" @bind="newLabelName" placeholder="라벨 이름" />
+                        <input class="label-manager-input @(labelError is not null ? "input-error" : "")"
+                               @bind="newLabelName"
+                               @oninput="() => labelError = null"
+                               placeholder="라벨 이름" />
                         <select class="label-manager-select" @bind="newLabelCategoryStr">
                             <option value="">일반 라벨</option>
                             @foreach (var cat in labelCategories)
@@ -156,6 +166,10 @@
                         </select>
                         <button class="btn btn-sm btn-primary" @onclick="CreateLabel">추가</button>
                     </div>
+                    @if (labelError is not null)
+                    {
+                        <div class="label-manager-error">@labelError</div>
+                    }
                 </div>
             </div>
         </div>
@@ -189,6 +203,8 @@
     private string newLabelName = "";
     private string newLabelCategoryStr = "";
     private string newCategoryName = "";
+    private string? labelError;
+    private string? categoryError;
 
     private Guid? NewLabelCategoryId =>
         Guid.TryParse(newLabelCategoryStr, out var g) && g != Guid.Empty ? g : null;
@@ -377,26 +393,32 @@
     private async Task CreateLabel()
     {
         if (string.IsNullOrWhiteSpace(newLabelName)) return;
-        var label = await LabelService.CreateLabelAsync(newLabelName.Trim(), NewLabelCategoryId);
-        if (label is not null)
+        var (label, error) = await LabelService.CreateLabelAsync(newLabelName.Trim(), NewLabelCategoryId);
+        if (error is not null)
         {
-            availableLabels.Add(label);
-            availableLabels = [.. availableLabels.OrderBy(l => l.Name)];
-            newLabelName = "";
-            newLabelCategoryStr = "";
+            labelError = error;
+            return;
         }
+        labelError = null;
+        availableLabels.Add(label!);
+        availableLabels = [.. availableLabels.OrderBy(l => l.Name)];
+        newLabelName = "";
+        newLabelCategoryStr = "";
     }
 
     private async Task CreateCategory()
     {
         if (string.IsNullOrWhiteSpace(newCategoryName)) return;
-        var cat = await LabelService.CreateCategoryAsync(newCategoryName.Trim());
-        if (cat is not null)
+        var (cat, error) = await LabelService.CreateCategoryAsync(newCategoryName.Trim());
+        if (error is not null)
         {
-            labelCategories.Add(cat);
-            labelCategories = [.. labelCategories.OrderBy(c => c.Name)];
-            newCategoryName = "";
+            categoryError = error;
+            return;
         }
+        categoryError = null;
+        labelCategories.Add(cat!);
+        labelCategories = [.. labelCategories.OrderBy(c => c.Name)];
+        newCategoryName = "";
     }
 
     private async Task DeleteLabel(Guid labelId)
