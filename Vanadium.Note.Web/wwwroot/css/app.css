@@ -48,6 +48,8 @@ body.dark-mode {
 
 html, body {
     font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+    height: 100%;
+    overflow: hidden;
 }
 
 h1:focus {
@@ -78,6 +80,11 @@ a, .btn-link {
 
 .content {
     padding-top: 1.1rem;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow-y: auto;
+    min-height: 0;
 }
 
 .valid.modified:not([type=checkbox]) {

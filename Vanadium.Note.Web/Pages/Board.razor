@@ -1,0 +1,216 @@
+@page "/board"
+@attribute [Authorize]
+@inject NoteService NoteService
+@inject LabelService LabelService
+@inject NavigationManager Nav
+@inject IJSRuntime JS
+
+<PageTitle>Board</PageTitle>
+
+<div class="board-page">
+    <div class="board-top-bar">
+        <div class="board-category-selector">
+            <span class="board-cat-label">Category:</span>
+            @if (!categories.Any())
+            {
+                <span class="board-no-categories">No categories yet. Create one in the note editor.</span>
+            }
+            else
+            {
+                @foreach (var cat in categories)
+                {
+                    var catId = cat.Id;
+                    <button class="board-cat-btn @(selectedCategoryId == catId ? "active" : "")"
+                            @onclick="() => SelectCategory(catId)">
+                        @cat.Name
+                    </button>
+                }
+            }
+        </div>
+    </div>
+
+    @if (selectedCategory is null || !selectedCategory.Labels.Any())
+    {
+        <p class="board-empty-msg">
+            @if (!categories.Any())
+            {
+                <span>No categories found. Create a label category in the note editor first.</span>
+            }
+            else
+            {
+                <span>This category has no labels.</span>
+            }
+        </p>
+    }
+    else
+    {
+        <div class="board-columns">
+            @foreach (var label in selectedCategory.Labels.OrderBy(l => l.Name))
+            {
+                var columnLabel = label;
+                var notesForLabel = GetNotesForLabel(columnLabel.Id);
+                <div class="board-column">
+                    <div class="board-column-header">
+                        <span class="board-column-title">@columnLabel.Name</span>
+                        <span class="board-column-count">@notesForLabel.Count</span>
+                    </div>
+                    <div class="board-column-cards">
+                        @foreach (var note in notesForLabel)
+                        {
+                            var noteId = note.Id;
+                            <div class="board-card" @onclick="() => EditNote(noteId)">
+                                <div class="board-card-title">
+                                    @(string.IsNullOrWhiteSpace(note.Title) ? "(No title)" : note.Title)
+                                </div>
+                                @{
+                                    var otherLabels = note.Labels.Where(l => l.Id != columnLabel.Id).ToList();
+                                }
+                                @if (otherLabels.Any())
+                                {
+                                    <div class="board-card-labels">
+                                        @foreach (var lbl in otherLabels)
+                                        {
+                                            <span class="board-card-chip @(lbl.CategoryId.HasValue ? "board-card-chip-cat" : "")">
+                                                @if (lbl.CategoryId.HasValue)
+                                                {
+                                                    <span class="board-card-chip-prefix">@lbl.CategoryName:</span>
+                                                }
+                                                @lbl.Name
+                                            </span>
+                                        }
+                                    </div>
+                                }
+                                <div class="board-card-date">
+                                    @note.UpdatedAt.ToLocalTime().ToString("MM-dd HH:mm")
+                                </div>
+                            </div>
+                        }
+                    </div>
+                    <div class="board-column-footer">
+                        <button class="board-add-btn" @onclick="() => OpenAddDialog(columnLabel)">
+                            + Add a note
+                        </button>
+                    </div>
+                </div>
+            }
+        </div>
+    }
+</div>
+
+@if (showDialog)
+{
+    <div class="board-dialog-overlay" @onclick="CancelDialog">
+        <div class="board-dialog" @onclick:stopPropagation="true">
+            <div class="board-dialog-header">
+                <h4>New note in &ldquo;<strong>@dialogLabel?.Name</strong>&rdquo;</h4>
+                <button class="board-dialog-close" @onclick="CancelDialog">×</button>
+            </div>
+            <input class="board-dialog-input"
+                   type="text"
+                   placeholder="Note title"
+                   @bind="newNoteTitle"
+                   @bind:event="oninput"
+                   @onkeydown="OnDialogKeyDown"
+                   autofocus />
+            @if (dialogError is not null)
+            {
+                <div class="board-dialog-error">@dialogError</div>
+            }
+            <div class="board-dialog-footer">
+                <button class="btn btn-outline-secondary btn-sm" @onclick="CancelDialog" disabled="@isAdding">Cancel</button>
+                <button class="btn btn-primary btn-sm" @onclick="ConfirmAddNote" disabled="@isAdding">
+                    @(isAdding ? "Adding..." : "Add")
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private IReadOnlyList<NoteItem> notes = [];
+    private List<LabelCategory> categories = [];
+    private Guid? selectedCategoryId;
+
+    private bool showDialog = false;
+    private Label? dialogLabel;
+    private string newNoteTitle = "";
+    private string? dialogError;
+    private bool isAdding = false;
+
+    private LabelCategory? selectedCategory =>
+        categories.FirstOrDefault(c => c.Id == selectedCategoryId);
+
+    protected override async Task OnInitializedAsync()
+    {
+        notes = await NoteService.GetAllAsync() ?? [];
+        categories = await LabelService.GetCategoriesAsync() ?? [];
+        if (categories.Any())
+            selectedCategoryId = categories[0].Id;
+    }
+
+    private List<NoteItem> GetNotesForLabel(Guid labelId) =>
+        notes.Where(n => n.Labels.Any(l => l.Id == labelId))
+             .OrderByDescending(n => n.UpdatedAt)
+             .ToList();
+
+    private void SelectCategory(Guid catId) =>
+        selectedCategoryId = catId;
+
+    private void EditNote(Guid id) =>
+        Nav.NavigateTo($"/editor/{id}");
+
+    private void OpenAddDialog(Label label)
+    {
+        dialogLabel = label;
+        newNoteTitle = "";
+        dialogError = null;
+        isAdding = false;
+        showDialog = true;
+    }
+
+    private void CancelDialog()
+    {
+        if (isAdding) return;
+        showDialog = false;
+        dialogLabel = null;
+        newNoteTitle = "";
+        dialogError = null;
+    }
+
+    private async Task ConfirmAddNote()
+    {
+        if (dialogLabel is null || isAdding) return;
+
+        isAdding = true;
+        dialogError = null;
+        StateHasChanged();
+
+        try
+        {
+            var note = new NoteItem { Id = Guid.Empty, Title = newNoteTitle.Trim() };
+            var saved = await NoteService.SaveAsync(note);
+            if (saved is not null)
+            {
+                await LabelService.AddLabelToNoteAsync(saved.Id, dialogLabel.Id);
+                notes = await NoteService.GetAllAsync() ?? [];
+            }
+            showDialog = false;
+            dialogLabel = null;
+            newNoteTitle = "";
+        }
+        catch
+        {
+            dialogError = "Failed to add note. Please try again.";
+        }
+        finally
+        {
+            isAdding = false;
+        }
+    }
+
+    private async Task OnDialogKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter") await ConfirmAddNote();
+        else if (e.Key == "Escape") CancelDialog();
+    }
+}
