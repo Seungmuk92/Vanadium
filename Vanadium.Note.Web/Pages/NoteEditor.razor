@@ -51,6 +51,7 @@
 
             @if (showLabelPicker)
             {
+                <div class="label-picker-backdrop" @onclick="CloseLabelPicker"></div>
                 <div class="label-picker">
                     @{
                         var generalLabels = availableLabels.Where(l => !l.CategoryId.HasValue).ToList();
@@ -358,6 +359,11 @@
     {
         showLabelPicker = !showLabelPicker;
         if (showLabelPicker) showLabelManager = false;
+    }
+
+    private void CloseLabelPicker()
+    {
+        showLabelPicker = false;
     }
 
     private void ToggleLabelManager()

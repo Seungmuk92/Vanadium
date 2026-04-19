@@ -221,6 +221,12 @@
 
 /* ── Label picker dropdown ──────────────────────────────────────────────── */
 
+.label-picker-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 199;
+}
+
 .label-picker {
     position: absolute;
     top: calc(100% + 0.25rem);
