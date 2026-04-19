@@ -7,6 +7,9 @@ using Vanadium.Note.REST.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
+var port = Environment.GetEnvironmentVariable("PORT") ?? "8080";
+builder.WebHost.UseUrls($"http://+:{port}");
+
 // Remove Kestrel's default 30MB request body size limit to allow large file uploads
 builder.WebHost.ConfigureKestrel(options =>
 {
