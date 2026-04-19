@@ -193,8 +193,23 @@ else
 
     private void ToggleFilter(Guid labelId)
     {
-        if (!activeFilters.Add(labelId))
+        if (activeFilters.Contains(labelId))
+        {
             activeFilters.Remove(labelId);
+            return;
+        }
+
+        var label = allLabels.FirstOrDefault(l => l.Id == labelId);
+        if (label?.CategoryId.HasValue == true)
+        {
+            var sameCategory = allLabels
+                .Where(l => l.CategoryId == label.CategoryId)
+                .Select(l => l.Id);
+            foreach (var id in sameCategory)
+                activeFilters.Remove(id);
+        }
+
+        activeFilters.Add(labelId);
     }
 
     private void ClearFilters() => activeFilters.Clear();
