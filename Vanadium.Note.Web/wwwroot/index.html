@@ -38,6 +38,11 @@
             document.documentElement.setAttribute('data-bs-theme', isDark ? 'dark' : 'light');
             document.body.classList.toggle('dark-mode', isDark);
         }
+        function getSystemDarkMode() {
+            return window.matchMedia('(prefers-color-scheme: dark)').matches;
+        }
+        // Apply immediately to prevent flash before Blazor loads
+        setDarkMode(getSystemDarkMode());
         let _deleteHandler = null;
         function registerDeleteKey(dotNetRef) {
             _deleteHandler = (e) => {
