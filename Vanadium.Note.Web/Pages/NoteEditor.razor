@@ -256,6 +256,12 @@
         ScheduleAutoSave();
     }
 
+    [JSInvokable]
+    public async Task OnSaveShortcut()
+    {
+        await InvokeAsync(SaveNote);
+    }
+
     private void OnTitleInput(ChangeEventArgs e)
     {
         title = e.Value?.ToString() ?? string.Empty;
