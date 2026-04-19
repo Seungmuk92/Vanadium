@@ -6,4 +6,5 @@ public class NoteItem
     public string Title { get; set; } = string.Empty;
     public string Content { get; set; } = string.Empty;
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
+    public List<Label> Labels { get; set; } = [];
 }
