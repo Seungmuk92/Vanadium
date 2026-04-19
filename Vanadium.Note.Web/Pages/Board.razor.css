@@ -165,14 +165,37 @@
     border: 1px solid var(--mud-palette-divider);
     border-radius: 6px;
     padding: 0.5rem 0.65rem;
-    cursor: pointer;
-    transition: box-shadow 0.15s, border-color 0.15s;
+    cursor: grab;
+    transition: box-shadow 0.15s, border-color 0.15s, opacity 0.15s;
     flex-shrink: 0;
+    user-select: none;
 }
 
 .board-card:hover {
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
     border-color: var(--mud-palette-primary);
+}
+
+/* Card being dragged */
+.board-card.is-dragging {
+    opacity: 0.4;
+    cursor: grabbing;
+}
+
+/* During drag: disable pointer events on all column children
+   so dragleave only fires when actually leaving the column boundary */
+.board-columns.is-dragging .board-column * {
+    pointer-events: none;
+}
+
+/* Drop target column highlight */
+.board-column.drop-target {
+    border-color: var(--mud-palette-primary);
+    background-color: var(--vn-board-drop-target-bg);
+}
+
+.board-column.drop-target .board-column-header {
+    border-bottom-color: var(--mud-palette-primary);
 }
 
 .board-card-title {

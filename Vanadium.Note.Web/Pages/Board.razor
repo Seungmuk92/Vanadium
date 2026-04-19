@@ -4,6 +4,7 @@
 @inject LabelService LabelService
 @inject NavigationManager Nav
 @inject IJSRuntime JS
+@implements IAsyncDisposable
 
 <PageTitle>Board</PageTitle>
 
@@ -49,7 +50,9 @@
             {
                 var columnLabel = label;
                 var notesForLabel = GetNotesForLabel(columnLabel.Id);
-                <div class="board-column">
+
+                <div class="board-column"
+                     data-label-id="@columnLabel.Id">
                     <div class="board-column-header">
                         <span class="board-column-title">@columnLabel.Name</span>
                         <span class="board-column-count">@notesForLabel.Count</span>
@@ -57,13 +60,17 @@
                     <div class="board-column-cards">
                         @foreach (var note in notesForLabel)
                         {
-                            var noteId = note.Id;
-                            <div class="board-card" @onclick="() => EditNote(noteId)">
+                            var capturedNote = note;
+                            <div class="board-card"
+                                 draggable="true"
+                                 data-note-id="@capturedNote.Id"
+                                 data-label-id="@columnLabel.Id"
+                                 @onclick="() => EditNote(capturedNote.Id)">
                                 <div class="board-card-title">
-                                    @(string.IsNullOrWhiteSpace(note.Title) ? "(No title)" : note.Title)
+                                    @(string.IsNullOrWhiteSpace(capturedNote.Title) ? "(No title)" : capturedNote.Title)
                                 </div>
                                 @{
-                                    var otherLabels = note.Labels.Where(l => l.Id != columnLabel.Id).ToList();
+                                    var otherLabels = capturedNote.Labels.Where(l => l.Id != columnLabel.Id).ToList();
                                 }
                                 @if (otherLabels.Any())
                                 {
@@ -81,7 +88,7 @@
                                     </div>
                                 }
                                 <div class="board-card-date">
-                                    @note.UpdatedAt.ToLocalTime().ToString("MM-dd HH:mm")
+                                    @capturedNote.UpdatedAt.ToLocalTime().ToString("MM-dd HH:mm")
                                 </div>
                             </div>
                         }
@@ -130,7 +137,9 @@
     private IReadOnlyList<NoteItem> notes = [];
     private List<LabelCategory> categories = [];
     private Guid? selectedCategoryId;
+    private DotNetObjectReference<Board>? _dotNetRef;
 
+    // ── Dialog state ──────────────────────────────────────────────────────────
     private bool showDialog = false;
     private Label? dialogLabel;
     private string newNoteTitle = "";
@@ -148,6 +157,46 @@
             selectedCategoryId = categories[0].Id;
     }
 
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            _dotNetRef = DotNetObjectReference.Create(this);
+            await JS.InvokeVoidAsync("boardDragDrop.init", _dotNetRef);
+        }
+    }
+
+    // ── Called by JS when a card is dropped on a different column ─────────────
+
+    [JSInvokable]
+    public async Task OnDropFromJs(string noteIdStr, string fromLabelIdStr, string toLabelIdStr)
+    {
+        if (!Guid.TryParse(noteIdStr, out var noteId)) return;
+        if (!Guid.TryParse(fromLabelIdStr, out var fromLabelId)) return;
+        if (!Guid.TryParse(toLabelIdStr, out var toLabelId)) return;
+
+        // Resolve target label object from current category
+        var targetLabel = selectedCategory?.Labels.FirstOrDefault(l => l.Id == toLabelId);
+        if (targetLabel is null) return;
+
+        // Optimistic local update
+        var note = notes.FirstOrDefault(n => n.Id == noteId);
+        if (note is not null)
+        {
+            note.Labels.RemoveAll(l => l.Id == fromLabelId);
+            if (!note.Labels.Any(l => l.Id == toLabelId))
+                note.Labels.Add(targetLabel);
+        }
+
+        StateHasChanged();
+
+        // Persist to server
+        await LabelService.RemoveLabelFromNoteAsync(noteId, fromLabelId);
+        await LabelService.AddLabelToNoteAsync(noteId, toLabelId);
+    }
+
+    // ── General helpers ───────────────────────────────────────────────────────
+
     private List<NoteItem> GetNotesForLabel(Guid labelId) =>
         notes.Where(n => n.Labels.Any(l => l.Id == labelId))
              .OrderByDescending(n => n.UpdatedAt)
@@ -158,6 +207,8 @@
 
     private void EditNote(Guid id) =>
         Nav.NavigateTo($"/editor/{id}");
+
+    // ── Add note dialog ───────────────────────────────────────────────────────
 
     private void OpenAddDialog(Label label)
     {
@@ -212,5 +263,11 @@
     {
         if (e.Key == "Enter") await ConfirmAddNote();
         else if (e.Key == "Escape") CancelDialog();
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        await JS.InvokeVoidAsync("boardDragDrop.dispose");
+        _dotNetRef?.Dispose();
     }
 }
