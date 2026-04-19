@@ -1,0 +1,321 @@
+/* ── Page layout ─────────────────────────────────────────────────────────── */
+
+.board-page {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
+}
+
+/* ── Top bar (category selector) ─────────────────────────────────────────── */
+
+.board-top-bar {
+    flex-shrink: 0;
+    padding-bottom: 0.75rem;
+}
+
+.board-category-selector {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    flex-wrap: wrap;
+}
+
+.board-cat-label {
+    font-size: 0.82rem;
+    font-weight: 600;
+    opacity: 0.5;
+    margin-right: 0.15rem;
+    white-space: nowrap;
+}
+
+.board-cat-btn {
+    padding: 0.28rem 0.85rem;
+    border-radius: 999px;
+    border: 1px solid var(--mud-palette-divider);
+    background: none;
+    cursor: pointer;
+    font-size: 0.85rem;
+    color: inherit;
+    transition: background-color 0.15s, border-color 0.15s, color 0.15s;
+    white-space: nowrap;
+}
+
+.board-cat-btn:hover {
+    background-color: var(--vn-note-hover-bg);
+}
+
+.board-cat-btn.active {
+    background-color: var(--mud-palette-primary);
+    border-color: var(--mud-palette-primary);
+    color: #fff;
+}
+
+.board-no-categories {
+    font-size: 0.85rem;
+    opacity: 0.55;
+}
+
+.board-empty-msg {
+    color: #888;
+    margin-top: 1rem;
+    font-size: 0.9rem;
+}
+
+/* ── Columns container ───────────────────────────────────────────────────── */
+
+.board-columns {
+    flex: 1;
+    display: flex;
+    flex-direction: row;
+    gap: 0.75rem;
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding-bottom: 0.5rem;
+    align-items: flex-start; /* columns don't stretch to full height */
+    /* but they should fill height for scrollability */
+    align-items: stretch;
+}
+
+/* ── Individual column ───────────────────────────────────────────────────── */
+
+.board-column {
+    display: flex;
+    flex-direction: column;
+    width: 280px;
+    min-width: 280px;
+    max-width: 280px;
+    flex-shrink: 0;
+    border-radius: 8px;
+    background-color: var(--vn-note-header-bg);
+    border: 1px solid var(--mud-palette-divider);
+    overflow: hidden;
+}
+
+.board-column-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.6rem 0.75rem;
+    font-weight: 600;
+    font-size: 0.9rem;
+    border-bottom: 1px solid var(--mud-palette-divider);
+    flex-shrink: 0;
+}
+
+.board-column-title {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.board-column-count {
+    font-size: 0.72rem;
+    font-weight: 500;
+    opacity: 0.5;
+    background: var(--mud-palette-divider);
+    border-radius: 999px;
+    padding: 0.05rem 0.45rem;
+    min-width: 1.25rem;
+    text-align: center;
+    margin-left: 0.5rem;
+    flex-shrink: 0;
+}
+
+.board-column-cards {
+    flex: 1;
+    overflow-y: auto;
+    overflow-x: hidden;
+    padding: 0.5rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+}
+
+.board-column-footer {
+    padding: 0.35rem 0.5rem;
+    border-top: 1px solid var(--mud-palette-divider);
+    flex-shrink: 0;
+}
+
+.board-add-btn {
+    width: 100%;
+    background: none;
+    border: none;
+    cursor: pointer;
+    font-size: 0.83rem;
+    color: inherit;
+    opacity: 0.5;
+    padding: 0.3rem 0.5rem;
+    border-radius: 4px;
+    text-align: left;
+    transition: opacity 0.15s, background-color 0.15s;
+}
+
+.board-add-btn:hover {
+    opacity: 1;
+    background-color: var(--vn-note-hover-bg);
+}
+
+/* ── Note cards ──────────────────────────────────────────────────────────── */
+
+.board-card {
+    background: var(--mud-palette-surface);
+    border: 1px solid var(--mud-palette-divider);
+    border-radius: 6px;
+    padding: 0.5rem 0.65rem;
+    cursor: grab;
+    transition: box-shadow 0.15s, border-color 0.15s, opacity 0.15s;
+    flex-shrink: 0;
+    user-select: none;
+}
+
+.board-card:hover {
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+    border-color: var(--mud-palette-primary);
+}
+
+/* Card being dragged */
+.board-card.is-dragging {
+    opacity: 0.4;
+    cursor: grabbing;
+}
+
+/* During drag: disable pointer events on all column children
+   so dragleave only fires when actually leaving the column boundary */
+.board-columns.is-dragging .board-column * {
+    pointer-events: none;
+}
+
+/* Drop target column highlight */
+.board-column.drop-target {
+    border-color: var(--mud-palette-primary);
+    background-color: var(--vn-board-drop-target-bg);
+}
+
+.board-column.drop-target .board-column-header {
+    border-bottom-color: var(--mud-palette-primary);
+}
+
+.board-card-title {
+    font-size: 0.88rem;
+    font-weight: 500;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.board-card-labels {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.2rem;
+    margin-top: 0.3rem;
+}
+
+.board-card-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.1rem;
+    font-size: 0.68rem;
+    padding: 0.06rem 0.38rem;
+    border-radius: 999px;
+    border: 1px solid var(--mud-palette-divider);
+    opacity: 0.7;
+}
+
+.board-card-chip-cat {
+    border-color: var(--mud-palette-primary-darken);
+}
+
+.board-card-chip-prefix {
+    font-size: 0.62rem;
+    opacity: 0.65;
+}
+
+.board-card-date {
+    font-size: 0.7rem;
+    opacity: 0.4;
+    margin-top: 0.35rem;
+    text-align: right;
+}
+
+/* ── Add note dialog ─────────────────────────────────────────────────────── */
+
+.board-dialog-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.38);
+    z-index: 9000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.board-dialog {
+    background: var(--mud-palette-surface);
+    border-radius: 10px;
+    padding: 1.25rem 1.4rem;
+    width: 420px;
+    max-width: 95vw;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.22);
+    display: flex;
+    flex-direction: column;
+    gap: 0.8rem;
+}
+
+.board-dialog-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.board-dialog-header h4 {
+    margin: 0;
+    font-size: 1rem;
+    font-weight: 500;
+}
+
+.board-dialog-close {
+    background: none;
+    border: none;
+    font-size: 1.4rem;
+    cursor: pointer;
+    opacity: 0.45;
+    line-height: 1;
+    padding: 0 0.2rem;
+    color: inherit;
+    margin-left: 0.5rem;
+}
+
+.board-dialog-close:hover {
+    opacity: 1;
+}
+
+.board-dialog-input {
+    width: 100%;
+    border: 1px solid var(--mud-palette-divider);
+    border-radius: 6px;
+    padding: 0.5rem 0.75rem;
+    font-size: 0.95rem;
+    background: var(--mud-palette-background);
+    color: inherit;
+    outline: none;
+    font-family: inherit;
+}
+
+.board-dialog-input:focus {
+    border-color: var(--mud-palette-primary);
+    box-shadow: 0 0 0 2px rgba(var(--mud-palette-primary-rgb, 124, 77, 255), 0.15);
+}
+
+.board-dialog-error {
+    font-size: 0.82rem;
+    color: #dc3545;
+}
+
+.board-dialog-footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.5rem;
+}

@@ -29,7 +29,8 @@
 .editor-body {
     display: flex;
     flex-direction: column;
-    height: calc(100vh - 10rem);
+    flex: 1;
+    min-height: 0;
     background-color: var(--vn-editor-bg);
     border: 1px solid var(--vn-editor-title-border);
     border-radius: 6px;
