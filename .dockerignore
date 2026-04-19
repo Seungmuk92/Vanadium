@@ -1,0 +1,8 @@
+**/.git
+**/.gitignore
+**/bin
+**/obj
+**/*.user
+**/notes.db*
+**/uploads
+Vanadium.Note.Web
