@@ -16,7 +16,7 @@
 @if (allLabels.Any())
 {
     <div class="label-filter-bar">
-        <span class="label-filter-title">필터:</span>
+        <span class="label-filter-title">Filter:</span>
         @foreach (var label in allLabels)
         {
             var active = activeFilters.Contains(label.Id);
@@ -31,7 +31,7 @@
         }
         @if (activeFilters.Any())
         {
-            <button class="filter-clear-btn" @onclick="ClearFilters">× 초기화</button>
+            <button class="filter-clear-btn" @onclick="ClearFilters">× Clear</button>
         }
     </div>
 }
@@ -42,7 +42,7 @@
 }
 else if (!FilteredNotes.Any())
 {
-    <p class="empty-message">선택한 라벨에 해당하는 노트가 없습니다.</p>
+    <p class="empty-message">No notes match the selected labels.</p>
 }
 else
 {

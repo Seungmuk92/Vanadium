@@ -45,16 +45,9 @@
         }
 
         <div class="label-add-wrapper">
-            @if (isNew)
-            {
-                <span class="label-add-hint">저장 후 라벨을 추가할 수 있습니다</span>
-            }
-            else
-            {
-                <button class="label-add-btn" @onclick="ToggleLabelPicker">
-                    @(showLabelPicker ? "닫기" : "+ 라벨")
-                </button>
-            }
+            <button class="label-add-btn" @onclick="ToggleLabelPicker">
+                @(showLabelPicker ? "Close" : "+ Label")
+            </button>
 
             @if (showLabelPicker)
             {
@@ -66,7 +59,7 @@
                     @if (generalLabels.Any())
                     {
                         <div class="label-picker-section">
-                            <div class="label-picker-section-title">일반</div>
+                            <div class="label-picker-section-title">General</div>
                             @foreach (var lbl in generalLabels)
                             {
                                 var isAdded = noteLabels.Any(nl => nl.Id == lbl.Id);
@@ -97,11 +90,11 @@
 
                     @if (!availableLabels.Any())
                     {
-                        <div class="label-picker-empty">라벨이 없습니다</div>
+                        <div class="label-picker-empty">No labels</div>
                     }
 
                     <div class="label-picker-divider"></div>
-                    <div class="label-picker-manage-btn" @onclick="ToggleLabelManager">라벨 관리...</div>
+                    <div class="label-picker-manage-btn" @onclick="ToggleLabelManager">Manage labels...</div>
                 </div>
             }
         </div>
@@ -111,12 +104,12 @@
     {
         <div class="label-manager">
             <div class="label-manager-header">
-                <strong>라벨 관리</strong>
-                <button class="btn btn-sm btn-outline-secondary" @onclick="ToggleLabelManager">닫기</button>
+                <strong>Manage Labels</strong>
+                <button class="btn btn-sm btn-outline-secondary" @onclick="ToggleLabelManager">Close</button>
             </div>
             <div class="label-manager-body">
                 <div class="label-manager-section">
-                    <div class="label-manager-section-title">카테고리</div>
+                    <div class="label-manager-section-title">Categories</div>
                     @foreach (var cat in labelCategories)
                     {
                         <div class="label-manager-item">
@@ -128,8 +121,8 @@
                         <input class="label-manager-input @(categoryError is not null ? "input-error" : "")"
                                @bind="newCategoryName"
                                @oninput="() => categoryError = null"
-                               placeholder="카테고리 이름" />
-                        <button class="btn btn-sm btn-primary" @onclick="CreateCategory">추가</button>
+                               placeholder="Category name" />
+                        <button class="btn btn-sm btn-primary" @onclick="CreateCategory">Add</button>
                     </div>
                     @if (categoryError is not null)
                     {
@@ -138,7 +131,7 @@
                 </div>
 
                 <div class="label-manager-section">
-                    <div class="label-manager-section-title">라벨</div>
+                    <div class="label-manager-section-title">Labels</div>
                     @foreach (var lbl in availableLabels)
                     {
                         <div class="label-manager-item">
@@ -156,15 +149,15 @@
                         <input class="label-manager-input @(labelError is not null ? "input-error" : "")"
                                @bind="newLabelName"
                                @oninput="() => labelError = null"
-                               placeholder="라벨 이름" />
+                               placeholder="Label name" />
                         <select class="label-manager-select" @bind="newLabelCategoryStr">
-                            <option value="">일반 라벨</option>
+                            <option value="">General</option>
                             @foreach (var cat in labelCategories)
                             {
                                 <option value="@cat.Id">@cat.Name</option>
                             }
                         </select>
-                        <button class="btn btn-sm btn-primary" @onclick="CreateLabel">추가</button>
+                        <button class="btn btn-sm btn-primary" @onclick="CreateLabel">Add</button>
                     </div>
                     @if (labelError is not null)
                     {
@@ -305,7 +298,11 @@
         var savedNote = await NoteService.SaveAsync(note);
 
         if (isNew && savedNote is not null)
+        {
+            foreach (var label in noteLabels.ToList())
+                await LabelService.AddLabelToNoteAsync(savedNote.Id, label.Id);
             Nav.NavigateTo($"/editor/{savedNote.Id}", replace: true);
+        }
 
         SetStatus("Saved", "status-saved");
         StateHasChanged();
@@ -330,7 +327,12 @@
             Title = title,
             Content = content
         };
-        await NoteService.SaveAsync(note);
+        var savedNote = await NoteService.SaveAsync(note);
+        if (isNew && savedNote is not null)
+        {
+            foreach (var label in noteLabels.ToList())
+                await LabelService.AddLabelToNoteAsync(savedNote.Id, label.Id);
+        }
         Nav.NavigateTo("/");
     }
 
@@ -363,16 +365,16 @@
 
     private async Task ToggleLabel(Label label)
     {
-        if (Id is null) return;
-
         if (noteLabels.Any(l => l.Id == label.Id))
         {
-            await LabelService.RemoveLabelFromNoteAsync(Id.Value, label.Id);
+            if (Id is not null)
+                await LabelService.RemoveLabelFromNoteAsync(Id.Value, label.Id);
             noteLabels.RemoveAll(l => l.Id == label.Id);
         }
         else
         {
-            await LabelService.AddLabelToNoteAsync(Id.Value, label.Id);
+            if (Id is not null)
+                await LabelService.AddLabelToNoteAsync(Id.Value, label.Id);
 
             // Apply category exclusivity in local state
             if (label.CategoryId.HasValue)
@@ -385,8 +387,8 @@
 
     private async Task RemoveLabel(Guid labelId)
     {
-        if (Id is null) return;
-        await LabelService.RemoveLabelFromNoteAsync(Id.Value, labelId);
+        if (Id is not null)
+            await LabelService.RemoveLabelFromNoteAsync(Id.Value, labelId);
         noteLabels.RemoveAll(l => l.Id == labelId);
     }
 

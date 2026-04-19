@@ -37,10 +37,10 @@ public class LabelService(HttpClient http)
         {
             var json = await response.Content.ReadFromJsonAsync<JsonElement>();
             if (json.TryGetProperty("error", out var err))
-                return err.GetString() ?? "오류가 발생했습니다.";
+                return err.GetString() ?? "An error occurred.";
         }
         catch { }
-        return "오류가 발생했습니다.";
+        return "An error occurred.";
     }
 
     public Task DeleteCategoryAsync(Guid id) =>
