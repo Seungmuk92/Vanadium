@@ -284,13 +284,21 @@ window.tiptapInterop = {
             },
         });
 
-        // Ctrl+K shortcut
+        // Ctrl+K / Ctrl+S shortcuts
         editor.view.dom.addEventListener('keydown', (e) => {
             if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
                 e.preventDefault();
                 showLinkPopover(elementId);
             }
         });
+
+        const onCtrlS = (e) => {
+            if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+                e.preventDefault();
+                dotnetRef.invokeMethodAsync('OnSaveShortcut');
+            }
+        };
+        document.addEventListener('keydown', onCtrlS);
 
         // Clipboard image paste — upload to server, insert URL
         editor.view.dom.addEventListener('paste', async (e) => {
@@ -398,7 +406,7 @@ window.tiptapInterop = {
             }
         });
 
-        _editors[elementId] = { editor, bubbleMenuEl, linkPopover };
+        _editors[elementId] = { editor, bubbleMenuEl, linkPopover, onCtrlS };
     },
 
     focus(elementId) {
@@ -412,6 +420,7 @@ window.tiptapInterop = {
     destroy(elementId) {
         const entry = _editors[elementId];
         if (entry) {
+            document.removeEventListener('keydown', entry.onCtrlS);
             entry.editor.destroy();
             entry.bubbleMenuEl.remove();
             entry.linkPopover.popover.remove();

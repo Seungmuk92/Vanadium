@@ -28,6 +28,15 @@
 @code {
     private bool _isDarkMode = false;
 
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            _isDarkMode = await JS.InvokeAsync<bool>("getSystemDarkMode");
+            StateHasChanged();
+        }
+    }
+
     private async Task ToggleDarkMode()
     {
         _isDarkMode = !_isDarkMode;
