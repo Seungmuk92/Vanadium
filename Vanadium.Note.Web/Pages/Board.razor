@@ -119,6 +119,10 @@
                    @bind:event="oninput"
                    @onkeydown="OnDialogKeyDown"
                    autofocus />
+            @if (string.IsNullOrWhiteSpace(newNoteTitle))
+            {
+                <div class="board-dialog-hint">Title is empty — will be saved as <em>(No title)</em></div>
+            }
             @if (dialogError is not null)
             {
                 <div class="board-dialog-error">@dialogError</div>

@@ -45,12 +45,13 @@
         }
 
         <div class="label-add-wrapper">
-            <button class="label-add-btn" @onclick="ToggleLabelPicker">
-                @(showLabelPicker ? "Close" : "+ Label")
+            <button class="label-add-btn @(showLabelPicker ? "label-add-btn-active" : "")" @onclick="ToggleLabelPicker">
+                + Label
             </button>
 
             @if (showLabelPicker)
             {
+                <div class="label-picker-backdrop" @onclick="CloseLabelPicker"></div>
                 <div class="label-picker">
                     @{
                         var generalLabels = availableLabels.Where(l => !l.CategoryId.HasValue).ToList();
@@ -255,6 +256,12 @@
         ScheduleAutoSave();
     }
 
+    [JSInvokable]
+    public async Task OnSaveShortcut()
+    {
+        await InvokeAsync(SaveNote);
+    }
+
     private void OnTitleInput(ChangeEventArgs e)
     {
         title = e.Value?.ToString() ?? string.Empty;
@@ -358,6 +365,11 @@
     {
         showLabelPicker = !showLabelPicker;
         if (showLabelPicker) showLabelManager = false;
+    }
+
+    private void CloseLabelPicker()
+    {
+        showLabelPicker = false;
     }
 
     private void ToggleLabelManager()

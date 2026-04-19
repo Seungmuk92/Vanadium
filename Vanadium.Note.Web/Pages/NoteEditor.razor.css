@@ -219,7 +219,19 @@
     border-color: var(--mud-palette-primary);
 }
 
+.label-add-btn-active {
+    opacity: 1;
+    border-color: var(--mud-palette-primary);
+    color: var(--mud-palette-primary);
+}
+
 /* ── Label picker dropdown ──────────────────────────────────────────────── */
+
+.label-picker-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 199;
+}
 
 .label-picker {
     position: absolute;
