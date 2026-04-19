@@ -206,7 +206,7 @@
         selectedCategoryId = catId;
 
     private void EditNote(Guid id) =>
-        Nav.NavigateTo($"/editor/{id}");
+        Nav.NavigateTo($"/editor/{id}?returnUrl=/board");
 
     // ── Add note dialog ───────────────────────────────────────────────────────
 

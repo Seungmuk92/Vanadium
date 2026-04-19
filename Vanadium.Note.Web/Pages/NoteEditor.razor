@@ -173,6 +173,9 @@
 
 @code {
     [Parameter] public Guid? Id { get; set; }
+    [SupplyParameterFromQuery(Name = "returnUrl")] public string? ReturnUrl { get; set; }
+
+    private string BackUrl => string.IsNullOrWhiteSpace(ReturnUrl) ? "/" : ReturnUrl;
 
     private string title = string.Empty;
     private string content = string.Empty;
@@ -333,7 +336,7 @@
             foreach (var label in noteLabels.ToList())
                 await LabelService.AddLabelToNoteAsync(savedNote.Id, label.Id);
         }
-        Nav.NavigateTo("/");
+        Nav.NavigateTo(BackUrl);
     }
 
     private async Task DeleteNote()
@@ -346,7 +349,7 @@
 
     private void GoBack()
     {
-        Nav.NavigateTo("/");
+        Nav.NavigateTo(BackUrl);
     }
 
     // ── Label actions ─────────────────────────────────────────────────────────
