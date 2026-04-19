@@ -10,6 +10,11 @@
 
 <div class="notes-header">
     <h1>Notes</h1>
+    <input class="notes-search"
+           type="search"
+           placeholder="Search by title..."
+           value="@searchText"
+           @oninput="e => searchText = e.Value?.ToString() ?? string.Empty" />
     <button class="btn btn-primary" @onclick="CreateNote">New Note</button>
 </div>
 
@@ -106,6 +111,7 @@ else
     private List<Label> allLabels = [];
     private HashSet<Guid> selectedIds = [];
     private HashSet<Guid> activeFilters = [];
+    private string searchText = string.Empty;
     private DotNetObjectReference<Home>? dotNetRef;
 
     private enum SortColumn { Title, Date }
@@ -123,9 +129,18 @@ else
         _ => notes
     };
 
-    private IEnumerable<NoteItem> FilteredNotes => activeFilters.Count == 0
-        ? SortedNotes
-        : SortedNotes.Where(n => activeFilters.All(f => n.Labels.Any(l => l.Id == f)));
+    private IEnumerable<NoteItem> FilteredNotes
+    {
+        get
+        {
+            var result = SortedNotes;
+            if (!string.IsNullOrWhiteSpace(searchText))
+                result = result.Where(n => n.Title.Contains(searchText, StringComparison.OrdinalIgnoreCase));
+            if (activeFilters.Count > 0)
+                result = result.Where(n => activeFilters.All(f => n.Labels.Any(l => l.Id == f)));
+            return result;
+        }
+    }
 
     private bool IsAllSelected => notes.Count > 0 && selectedIds.Count == notes.Count;
 
