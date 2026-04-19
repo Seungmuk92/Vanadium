@@ -89,3 +89,117 @@
 .note-header .col-date {
     color: var(--vn-note-header-color);
 }
+
+/* ── Label filter bar ───────────────────────────────────────────────────── */
+
+.label-filter-bar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.35rem;
+    margin-bottom: 0.75rem;
+    padding: 0.4rem 0.6rem;
+    border: 1px solid var(--mud-palette-divider);
+    border-radius: 6px;
+    background-color: var(--mud-palette-surface);
+}
+
+.label-filter-title {
+    font-size: 0.75rem;
+    opacity: 0.55;
+    font-weight: 600;
+    margin-right: 0.1rem;
+}
+
+.filter-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.15rem;
+    padding: 0.15rem 0.5rem;
+    border-radius: 999px;
+    font-size: 0.78rem;
+    border: 1px solid var(--mud-palette-divider);
+    cursor: pointer;
+    opacity: 0.65;
+    transition: opacity 0.15s, border-color 0.15s, background-color 0.15s;
+    user-select: none;
+}
+
+.filter-chip:hover {
+    opacity: 1;
+}
+
+.filter-chip-active {
+    opacity: 1;
+    background-color: var(--mud-palette-primary);
+    border-color: var(--mud-palette-primary);
+    color: var(--mud-palette-primary-text);
+}
+
+.filter-chip-cat {
+    border-style: solid;
+}
+
+.filter-chip-cat-prefix {
+    font-size: 0.7rem;
+    opacity: 0.75;
+}
+
+.filter-clear-btn {
+    background: none;
+    border: none;
+    cursor: pointer;
+    font-size: 0.78rem;
+    opacity: 0.55;
+    color: inherit;
+    padding: 0.1rem 0.3rem;
+    margin-left: 0.2rem;
+}
+
+.filter-clear-btn:hover {
+    opacity: 1;
+    color: #dc3545;
+}
+
+/* ── Note label chips (in list rows) ────────────────────────────────────── */
+
+.note-title-text {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.note-label-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.25rem;
+    margin-top: 0.25rem;
+}
+
+.note-label-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.15rem;
+    padding: 0.1rem 0.4rem;
+    border-radius: 999px;
+    font-size: 0.7rem;
+    border: 1px solid var(--mud-palette-divider);
+    cursor: pointer;
+    opacity: 0.75;
+    transition: opacity 0.15s;
+    user-select: none;
+}
+
+.note-label-chip:hover {
+    opacity: 1;
+    border-color: var(--mud-palette-primary);
+}
+
+.note-label-chip-cat {
+    border-color: var(--mud-palette-primary-darken);
+}
+
+.note-label-cat-prefix {
+    font-size: 0.65rem;
+    opacity: 0.65;
+}
