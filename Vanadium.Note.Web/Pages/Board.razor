@@ -202,7 +202,7 @@
     // ── General helpers ───────────────────────────────────────────────────────
 
     private List<NoteItem> GetNotesForLabel(Guid labelId) =>
-        notes.Where(n => n.Labels.Any(l => l.Id == labelId))
+        notes.Where(n => (n.Labels ?? []).Any(l => l.Id == labelId))
              .OrderByDescending(n => n.UpdatedAt)
              .ToList();
 
