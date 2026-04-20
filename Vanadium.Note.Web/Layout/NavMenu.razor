@@ -1,3 +1,9 @@
+@using Microsoft.AspNetCore.Components.Authorization
+@implements IDisposable
+@inject AuthenticationStateProvider AuthStateProvider
+@inject Vanadium.Note.Web.Auth.AuthService AuthService
+@inject NavigationManager Navigation
+
 <div class="top-row ps-3 navbar navbar-dark">
     <div class="container-fluid">
         <a class="navbar-brand" href="">Vanadium Note</a>
@@ -11,19 +17,47 @@
     </div>
 </div>
 
-<div class="@NavMenuCssClass nav-scrollable" @onclick="ToggleNavMenu">
-    <nav class="nav flex-column">
-        <div class="nav-item px-3">
-            <NavLink class="nav-link" href="" Match="NavLinkMatch.All">
-                <span class="bi bi-journal-text-nav-menu" aria-hidden="true"></span> Notes
-            </NavLink>
-        </div>
-        <div class="nav-item px-3">
-            <NavLink class="nav-link" href="board">
-                <span class="bi bi-kanban-nav-menu" aria-hidden="true"></span> Board
-            </NavLink>
-        </div>
-    </nav>
+<div class="nav-wrapper">
+    <div class="@NavMenuCssClass nav-scrollable" @onclick="ToggleNavMenu">
+        <nav class="nav flex-column">
+            <div class="nav-item px-3">
+                <NavLink class="nav-link" href="" Match="NavLinkMatch.All">
+                    <span class="bi bi-journal-text-nav-menu" aria-hidden="true"></span> Notes
+                </NavLink>
+            </div>
+            <div class="nav-item px-3">
+                <NavLink class="nav-link" href="board">
+                    <span class="bi bi-kanban-nav-menu" aria-hidden="true"></span> Board
+                </NavLink>
+            </div>
+        </nav>
+    </div>
+
+    <div class="user-footer">
+        @if (_username is not null)
+        {
+            <MudAvatar Color="Color.Primary" Size="Size.Small">
+                @char.ToUpper(_username[0]).ToString()
+            </MudAvatar>
+            <span class="user-name">@_username</span>
+            <MudTooltip Text="Logout" Placement="Placement.Right">
+                <MudIconButton Icon="@Icons.Material.Filled.Logout"
+                               Color="Color.Inherit"
+                               Size="Size.Small"
+                               OnClick="Logout" />
+            </MudTooltip>
+        }
+        else
+        {
+            <MudButton Href="/login"
+                       StartIcon="@Icons.Material.Filled.Login"
+                       Color="Color.Inherit"
+                       FullWidth="true"
+                       Class="justify-start">
+                Login
+            </MudButton>
+        }
+    </div>
 </div>
 
 @code {
@@ -31,11 +65,49 @@
     [CascadingParameter(Name = "ToggleDarkMode")] public EventCallback ToggleDarkMode { get; set; }
 
     private bool collapseNavMenu = true;
+    private string? _username;
 
     private string? NavMenuCssClass => collapseNavMenu ? "collapse" : null;
+
+    protected override async Task OnInitializedAsync()
+    {
+        AuthStateProvider.AuthenticationStateChanged += OnAuthStateChanged;
+        await UpdateUsernameAsync();
+    }
+
+    private async void OnAuthStateChanged(Task<AuthenticationState> task)
+    {
+        var state = await task;
+        _username = GetUsername(state);
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task UpdateUsernameAsync()
+    {
+        var state = await AuthStateProvider.GetAuthenticationStateAsync();
+        _username = GetUsername(state);
+    }
+
+    private static string? GetUsername(AuthenticationState state)
+    {
+        var user = state.User;
+        if (user.Identity?.IsAuthenticated != true) return null;
+        return user.FindFirst("unique_name")?.Value ?? user.Identity.Name;
+    }
 
     private void ToggleNavMenu()
     {
         collapseNavMenu = !collapseNavMenu;
+    }
+
+    private async Task Logout()
+    {
+        await AuthService.LogoutAsync();
+        Navigation.NavigateTo("/login");
+    }
+
+    public void Dispose()
+    {
+        AuthStateProvider.AuthenticationStateChanged -= OnAuthStateChanged;
     }
 }

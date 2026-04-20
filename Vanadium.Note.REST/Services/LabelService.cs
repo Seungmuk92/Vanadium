@@ -31,7 +31,7 @@ public class LabelService(NoteDbContext db)
         var duplicate = await db.LabelCategories
             .AnyAsync(c => c.Name.ToLower() == name.ToLower());
         if (duplicate)
-            throw new InvalidOperationException($"카테고리 '{name}'은(는) 이미 존재합니다.");
+            throw new InvalidOperationException($"Category '{name}' already exists.");
 
         var category = new LabelCategory { Name = name };
         db.LabelCategories.Add(category);
@@ -68,7 +68,7 @@ public class LabelService(NoteDbContext db)
         var duplicate = await db.Labels
             .AnyAsync(l => l.Name.ToLower() == name.ToLower());
         if (duplicate)
-            throw new InvalidOperationException($"라벨 '{name}'은(는) 이미 존재합니다.");
+            throw new InvalidOperationException($"Label '{name}' already exists.");
 
         var label = new Label { Name = name, CategoryId = categoryId };
         db.Labels.Add(label);
