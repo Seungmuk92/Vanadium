@@ -1,12 +1,26 @@
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
+using Serilog;
 using System.Text;
 using Vanadium.Note.REST.Data;
 using Vanadium.Note.REST.Middleware;
 using Vanadium.Note.REST.Services;
 
 var builder = WebApplication.CreateBuilder(args);
+
+builder.Host.UseSerilog((context, services, config) =>
+{
+    config
+        .ReadFrom.Configuration(context.Configuration)
+        .ReadFrom.Services(services)
+        .Enrich.FromLogContext();
+
+    var seqUrl = context.Configuration["Seq:ServerUrl"];
+    var seqApiKey = context.Configuration["Seq:ApiKey"];
+    if (!string.IsNullOrWhiteSpace(seqUrl) && !string.IsNullOrWhiteSpace(seqApiKey))
+        config.WriteTo.Seq(seqUrl, apiKey: seqApiKey);
+});
 
 // Remove Kestrel's default 30MB request body size limit to allow large file uploads
 builder.WebHost.ConfigureKestrel(options =>
@@ -59,6 +73,14 @@ builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
 var app = builder.Build();
+
+var seqConfigUrl = app.Configuration["Seq:ServerUrl"];
+var seqConfigKey = app.Configuration["Seq:ApiKey"];
+if (!string.IsNullOrWhiteSpace(seqConfigUrl) && string.IsNullOrWhiteSpace(seqConfigKey))
+    app.Logger.LogWarning(
+        "Seq URL is configured ({SeqUrl}) but SEQ_API_KEY is not set — Seq logging is disabled. " +
+        "Set SEQ_API_KEY to enable authenticated log ingestion.",
+        seqConfigUrl);
 
 app.UseExceptionHandler(errorApp =>
 {

@@ -8,6 +8,8 @@ services:
       ConnectionStrings__DefaultConnection: "Host=${DB_HOST:-host.docker.internal};Port=${DB_PORT:-5432};Database=${DB_NAME:-vanadium};Username=${DB_USER:-postgres};Password=${DB_PASSWORD}"
       Auth__JwtSecret: ${AUTH_JWT_SECRET}
       Cors__AllowedOrigins: ${CORS_ALLOWED_ORIGINS:-http://localhost}
+      Seq__ServerUrl: ${SEQ_URL:-}
+      Seq__ApiKey: ${SEQ_API_KEY:-}
 
   web:
     image: smoh92/vanadium-web:latest
