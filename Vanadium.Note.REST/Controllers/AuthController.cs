@@ -1,51 +1,69 @@
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Security.Cryptography;
 using System.Text;
+using Vanadium.Note.REST.Data;
 using Vanadium.Note.REST.Models;
 
 namespace Vanadium.Note.REST.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]
-public class AuthController(IConfiguration config, IWebHostEnvironment env) : ControllerBase
+public class AuthController(IConfiguration config, IWebHostEnvironment env, NoteDbContext db) : ControllerBase
 {
     [HttpPost("login")]
-    public IActionResult Login([FromBody] LoginRequest request)
+    public async Task<IActionResult> Login([FromBody] LoginRequest request)
     {
-        var username = config["Auth:Username"];
-        var passwordHash = config["Auth:PasswordHash"];
+        var user = await db.Users
+            .FirstOrDefaultAsync(u => u.Username == request.Username);
 
-        if (string.IsNullOrEmpty(username) || string.IsNullOrEmpty(passwordHash))
-            return StatusCode(503, new { message = "Authentication is not configured. Use the /api/auth/setup endpoint to set a password first." });
-
-        if (!request.Username.Equals(username, StringComparison.OrdinalIgnoreCase)
-            || !VerifyPassword(request.Password, passwordHash))
+        if (user is null || !VerifyPassword(request.Password, user.PasswordHash))
             return Unauthorized(new { message = "Invalid username or password." });
 
-        var token = GenerateJwtToken();
+        var token = GenerateJwtToken(user.Username);
         return Ok(new { token });
     }
 
     /// <summary>
-    /// Development only: generates a password hash.
-    /// Store the returned hash value in the Auth:PasswordHash configuration.
+    /// Development only: creates or updates a user in the database.
     /// </summary>
     [HttpPost("setup")]
-    public IActionResult Setup([FromBody] SetupRequest request)
+    public async Task<IActionResult> Setup([FromBody] SetupRequest request)
     {
         if (!env.IsDevelopment())
             return NotFound();
 
+        if (string.IsNullOrWhiteSpace(request.Username))
+            return BadRequest(new { message = "Username is required." });
+
         if (string.IsNullOrWhiteSpace(request.Password))
             return BadRequest(new { message = "Password is required." });
 
-        return Ok(new { hash = HashPassword(request.Password) });
+        var existing = await db.Users
+            .FirstOrDefaultAsync(u => u.Username == request.Username);
+
+        if (existing is not null)
+        {
+            existing.PasswordHash = HashPassword(request.Password);
+        }
+        else
+        {
+            db.Users.Add(new User
+            {
+                Id = Guid.NewGuid(),
+                Username = request.Username,
+                PasswordHash = HashPassword(request.Password)
+            });
+        }
+
+        await db.SaveChangesAsync();
+        return Ok(new { message = $"User '{request.Username}' has been set up successfully." });
     }
 
-    private string GenerateJwtToken()
+    private string GenerateJwtToken(string username)
     {
         var secret = config["Auth:JwtSecret"]
             ?? throw new InvalidOperationException("Auth:JwtSecret is not configured.");
@@ -55,7 +73,7 @@ public class AuthController(IConfiguration config, IWebHostEnvironment env) : Co
         var credentials = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
 
         var token = new JwtSecurityToken(
-            claims: [new Claim(ClaimTypes.Name, config["Auth:Username"]!)],
+            claims: [new Claim(ClaimTypes.Name, username)],
             expires: DateTime.UtcNow.AddMinutes(expirationMinutes),
             signingCredentials: credentials
         );
