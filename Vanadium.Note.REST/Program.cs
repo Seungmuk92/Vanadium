@@ -59,6 +59,20 @@ builder.Services.AddSwaggerGen();
 
 var app = builder.Build();
 
+app.UseExceptionHandler(errorApp =>
+{
+    errorApp.Run(async context =>
+    {
+        var logger = context.RequestServices.GetRequiredService<ILogger<Program>>();
+        var feature = context.Features.Get<Microsoft.AspNetCore.Diagnostics.IExceptionHandlerFeature>();
+        if (feature?.Error is not null)
+            logger.LogError(feature.Error, "Unhandled exception: {Method} {Path}",
+                context.Request.Method, context.Request.Path);
+        context.Response.StatusCode = 500;
+        await context.Response.WriteAsJsonAsync(new { error = "An unexpected error occurred." });
+    });
+});
+
 if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();
@@ -66,7 +80,12 @@ if (app.Environment.IsDevelopment())
 }
 
 using (var scope = app.Services.CreateScope())
+{
+    var startupLogger = scope.ServiceProvider.GetRequiredService<ILogger<Program>>();
+    startupLogger.LogInformation("Applying database migrations...");
     scope.ServiceProvider.GetRequiredService<NoteDbContext>().Database.Migrate();
+    startupLogger.LogInformation("Database migrations applied.");
+}
 
 app.UseCors();
 app.UseAuthentication();
