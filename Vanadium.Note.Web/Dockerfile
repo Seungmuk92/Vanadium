@@ -11,6 +11,7 @@ COPY entrypoint.sh /entrypoint.sh
 # Rename appsettings.json to template for runtime substitution
 RUN mv /usr/share/nginx/html/appsettings.json \
        /usr/share/nginx/html/appsettings.template.json \
+    && sed -i 's/\r//' /entrypoint.sh \
     && chmod +x /entrypoint.sh
 
 EXPOSE 80
