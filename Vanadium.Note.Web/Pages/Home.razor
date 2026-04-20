@@ -80,7 +80,7 @@ else
                     <div class="note-title-text">
                         @(string.IsNullOrWhiteSpace(note.Title) ? "(No title)" : note.Title)
                     </div>
-                    @if (note.Labels.Any())
+                    @if (note.Labels?.Any() == true)
                     {
                         <div class="note-label-chips">
                             @foreach (var label in note.Labels)
@@ -135,9 +135,9 @@ else
         {
             var result = SortedNotes;
             if (!string.IsNullOrWhiteSpace(searchText))
-                result = result.Where(n => n.Title.Contains(searchText, StringComparison.OrdinalIgnoreCase));
+                result = result.Where(n => (n.Title ?? string.Empty).Contains(searchText, StringComparison.OrdinalIgnoreCase));
             if (activeFilters.Count > 0)
-                result = result.Where(n => activeFilters.All(f => n.Labels.Any(l => l.Id == f)));
+                result = result.Where(n => activeFilters.All(f => (n.Labels ?? []).Any(l => l.Id == f)));
             return result;
         }
     }
