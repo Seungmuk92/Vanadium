@@ -5,6 +5,7 @@ namespace Vanadium.Note.REST.Data;
 
 public class NoteDbContext(DbContextOptions<NoteDbContext> options) : DbContext(options)
 {
+    public DbSet<User> Users => Set<User>();
     public DbSet<NoteItem> Notes => Set<NoteItem>();
     public DbSet<FileAttachment> FileAttachments => Set<FileAttachment>();
     public DbSet<LabelCategory> LabelCategories => Set<LabelCategory>();
