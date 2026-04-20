@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using System.Text;
 using Vanadium.Note.REST.Data;
+using Vanadium.Note.REST.Middleware;
 using Vanadium.Note.REST.Services;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -87,6 +88,7 @@ using (var scope = app.Services.CreateScope())
     startupLogger.LogInformation("Database migrations applied.");
 }
 
+app.UseMiddleware<RequestLoggingMiddleware>();
 app.UseCors();
 app.UseAuthentication();
 app.UseAuthorization();
