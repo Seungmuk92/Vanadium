@@ -65,6 +65,23 @@
     color: var(--mud-palette-text-primary);
 }
 
+.user-footer {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    padding: 0.75rem 0.75rem 0.75rem 1rem;
+    border-top: 1px solid var(--mud-palette-divider);
+}
+
+.user-name {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 0.875rem;
+    color: var(--mud-palette-drawer-text);
+}
+
 @media (min-width: 641px) {
     .navbar-toggler {
         display: none;
@@ -74,8 +91,14 @@
         display: block;
     }
 
-    .nav-scrollable {
+    .nav-wrapper {
+        display: flex;
+        flex-direction: column;
         height: calc(100vh - 3.5rem);
+    }
+
+    .nav-scrollable {
+        flex: 1;
         overflow-y: auto;
     }
 }
