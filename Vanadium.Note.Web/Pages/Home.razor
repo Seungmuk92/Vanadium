@@ -164,11 +164,14 @@ else
 
     protected override async Task OnInitializedAsync()
     {
-        notes = await NoteService.GetAllAsync() ?? [];
-        allLabels = await LabelService.GetLabelsAsync() ?? [];
+        var loadedNotes = await NoteService.GetAllAsync();
+        if (loadedNotes is null)
+            Logger.LogWarning("Failed to load notes on initialization.");
+        else if (loadedNotes.Count == 0)
+            Logger.LogDebug("Notes list loaded successfully — no notes yet.");
+        notes = loadedNotes ?? [];
 
-        if (notes.Count == 0)
-            Logger.LogDebug("Notes list loaded empty or failed to load.");
+        allLabels = await LabelService.GetLabelsAsync() ?? [];
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
