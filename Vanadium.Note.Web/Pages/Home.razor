@@ -4,6 +4,7 @@
 @inject LabelService LabelService
 @inject NavigationManager Nav
 @inject IJSRuntime JS
+@inject ILogger<Home> Logger
 @implements IAsyncDisposable
 
 <PageTitle>Notes</PageTitle>
@@ -165,6 +166,9 @@ else
     {
         notes = await NoteService.GetAllAsync() ?? [];
         allLabels = await LabelService.GetLabelsAsync() ?? [];
+
+        if (notes.Count == 0)
+            Logger.LogDebug("Notes list loaded empty or failed to load.");
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
@@ -184,8 +188,13 @@ else
         var confirmed = await JS.InvokeAsync<bool>("confirm", $"Delete {selectedIds.Count} selected note(s)?");
         if (!confirmed) return;
 
+        Logger.LogInformation("Deleting {Count} note(s).", selectedIds.Count);
         foreach (var id in selectedIds)
-            await NoteService.DeleteAsync(id);
+        {
+            var success = await NoteService.DeleteAsync(id);
+            if (!success)
+                Logger.LogWarning("Failed to delete note {NoteId}.", id);
+        }
 
         selectedIds.Clear();
         notes = await NoteService.GetAllAsync() ?? [];

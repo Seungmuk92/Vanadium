@@ -4,6 +4,7 @@
 @inject LabelService LabelService
 @inject NavigationManager Nav
 @inject IJSRuntime JS
+@inject ILogger<Board> Logger
 @implements IAsyncDisposable
 
 <PageTitle>Board</PageTitle>
@@ -181,7 +182,11 @@
 
         // Resolve target label object from current category
         var targetLabel = selectedCategory?.Labels.FirstOrDefault(l => l.Id == toLabelId);
-        if (targetLabel is null) return;
+        if (targetLabel is null)
+        {
+            Logger.LogWarning("Drop target label {LabelId} not found in current category.", toLabelId);
+            return;
+        }
 
         // Optimistic local update
         var note = notes.FirstOrDefault(n => n.Id == noteId);
@@ -193,6 +198,9 @@
         }
 
         StateHasChanged();
+
+        Logger.LogInformation("Moving note {NoteId}: label {FromLabel} → {ToLabel}.",
+            noteId, fromLabelId, toLabelId);
 
         // Persist to server
         await LabelService.RemoveLabelFromNoteAsync(noteId, fromLabelId);
@@ -249,12 +257,19 @@
                 await LabelService.AddLabelToNoteAsync(saved.Id, dialogLabel.Id);
                 notes = await NoteService.GetAllAsync() ?? [];
             }
+            else
+            {
+                Logger.LogError("Failed to create note from board dialog (label '{LabelName}').",
+                    dialogLabel.Name);
+                dialogError = "Failed to add note. Please try again.";
+            }
             showDialog = false;
             dialogLabel = null;
             newNoteTitle = "";
         }
-        catch
+        catch (Exception ex)
         {
+            Logger.LogError(ex, "Unexpected error creating note from board dialog.");
             dialogError = "Failed to add note. Please try again.";
         }
         finally
