@@ -13,14 +13,12 @@ public class NotesController(NoteService noteService, ILogger<NotesController> l
     [HttpGet]
     public async Task<ActionResult<IReadOnlyList<NoteItem>>> GetAll()
     {
-        logger.LogDebug("GetAll notes requested");
         return Ok(await noteService.GetAll());
     }
 
     [HttpGet("{id:guid}")]
     public async Task<ActionResult<NoteItem>> Get(Guid id)
     {
-        logger.LogDebug("Get note {NoteId}", id);
         var note = await noteService.Get(id);
         if (note is null)
         {

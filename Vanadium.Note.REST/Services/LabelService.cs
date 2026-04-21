@@ -36,21 +36,15 @@ public class LabelService(NoteDbContext db, ILogger<LabelService> logger)
         var category = new LabelCategory { Name = name };
         db.LabelCategories.Add(category);
         await db.SaveChangesAsync();
-        logger.LogInformation("Label category created: {CategoryId} ({CategoryName}).", category.Id, category.Name);
         return new LabelCategoryDto { Id = category.Id, Name = category.Name };
     }
 
     public async Task<bool> DeleteCategoryAsync(Guid id)
     {
         var category = await db.LabelCategories.FindAsync(id);
-        if (category is null)
-        {
-            logger.LogDebug("Label category {CategoryId} not found for deletion.", id);
-            return false;
-        }
+        if (category is null) return false;
         db.LabelCategories.Remove(category);
         await db.SaveChangesAsync();
-        logger.LogInformation("Label category deleted: {CategoryId} ({CategoryName}).", id, category.Name);
         return true;
     }
 
@@ -84,22 +78,15 @@ public class LabelService(NoteDbContext db, ILogger<LabelService> logger)
         if (categoryId.HasValue)
             categoryName = (await db.LabelCategories.FindAsync(categoryId.Value))?.Name;
 
-        logger.LogInformation("Label created: {LabelId} ({LabelName}), CategoryId: {CategoryId}.",
-            label.Id, label.Name, categoryId);
         return new LabelSummary { Id = label.Id, Name = label.Name, CategoryId = categoryId, CategoryName = categoryName };
     }
 
     public async Task<bool> DeleteLabelAsync(Guid id)
     {
         var label = await db.Labels.FindAsync(id);
-        if (label is null)
-        {
-            logger.LogDebug("Label {LabelId} not found for deletion.", id);
-            return false;
-        }
+        if (label is null) return false;
         db.Labels.Remove(label);
         await db.SaveChangesAsync();
-        logger.LogInformation("Label deleted: {LabelId} ({LabelName}).", id, label.Name);
         return true;
     }
 
@@ -139,20 +126,14 @@ public class LabelService(NoteDbContext db, ILogger<LabelService> logger)
 
         db.NoteLabels.Add(new NoteLabel { NoteId = noteId, LabelId = labelId });
         await db.SaveChangesAsync();
-        logger.LogInformation("Label {LabelId} assigned to note {NoteId}.", labelId, noteId);
     }
 
     public async Task<bool> RemoveLabelFromNoteAsync(Guid noteId, Guid labelId)
     {
         var noteLabel = await db.NoteLabels.FindAsync(noteId, labelId);
-        if (noteLabel is null)
-        {
-            logger.LogDebug("Label {LabelId} not assigned to note {NoteId}.", labelId, noteId);
-            return false;
-        }
+        if (noteLabel is null) return false;
         db.NoteLabels.Remove(noteLabel);
         await db.SaveChangesAsync();
-        logger.LogInformation("Label {LabelId} removed from note {NoteId}.", labelId, noteId);
         return true;
     }
 }
