@@ -110,6 +110,7 @@ using (var scope = app.Services.CreateScope())
     startupLogger.LogInformation("Database migrations applied.");
 }
 
+app.UseMiddleware<CorrelationIdMiddleware>();
 app.UseMiddleware<RequestLoggingMiddleware>();
 app.UseCors();
 app.UseAuthentication();
