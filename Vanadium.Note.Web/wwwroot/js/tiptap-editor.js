@@ -253,7 +253,10 @@ function runCommand(editor, cmd) {
 window.tiptapInterop = {
     init(elementId, dotnetRef, initialContent, apiBaseUrl, authToken) {
         const el = document.getElementById(elementId);
-        if (!el) return;
+        if (!el) {
+            console.error(`[tiptap] Element not found: '${elementId}'`);
+            return;
+        }
 
         const bubbleMenuEl = createBubbleMenu(elementId);
         const linkPopover  = createLinkPopover(elementId);
@@ -280,7 +283,8 @@ window.tiptapInterop = {
             ],
             content: initialContent || '',
             onUpdate({ editor }) {
-                dotnetRef.invokeMethodAsync('OnEditorContentChanged', editor.getHTML());
+                dotnetRef.invokeMethodAsync('OnEditorContentChanged', editor.getHTML())
+                    .catch(err => console.error('[tiptap] OnEditorContentChanged failed', err));
             },
         });
 
@@ -295,7 +299,8 @@ window.tiptapInterop = {
         const onCtrlS = (e) => {
             if ((e.ctrlKey || e.metaKey) && e.key === 's') {
                 e.preventDefault();
-                dotnetRef.invokeMethodAsync('OnSaveShortcut');
+                dotnetRef.invokeMethodAsync('OnSaveShortcut')
+                    .catch(err => console.error('[tiptap] OnSaveShortcut failed', err));
             }
         };
         document.addEventListener('keydown', onCtrlS);
@@ -321,10 +326,11 @@ window.tiptapInterop = {
                             (ratio) => toast.update(ratio)
                         );
                         toast.done();
+                        console.log(`[tiptap] Image pasted and uploaded: ${file.name} (${file.size}B)`);
                         editor.chain().focus().setImage({ src: `${apiBaseUrl}${url}` }).run();
                     } catch (err) {
                         toast.error();
-                        console.error('Image upload failed', err);
+                        console.error('[tiptap] Paste image upload failed', { file: file.name, size: file.size, error: err.message });
                     }
                     break;
                 }
@@ -383,6 +389,7 @@ window.tiptapInterop = {
                             (ratio) => toast.update(ratio)
                         );
                         toast.done();
+                        console.log(`[tiptap] Image dropped and uploaded: ${file.name} (${file.size}B) -> ${url}`);
                         editor.chain().focus().insertContentAt(insertPos, {
                             type: 'image',
                             attrs: { src: `${apiBaseUrl}${url}`, class: 'tiptap-image' },
@@ -394,6 +401,7 @@ window.tiptapInterop = {
                             (ratio) => toast.update(ratio)
                         );
                         toast.done();
+                        console.log(`[tiptap] File dropped and uploaded: ${file.name} (${file.size}B) -> ${url}`);
                         editor.chain().focus().insertContentAt(insertPos, {
                             type: 'fileAttachment',
                             attrs: { href: `${apiBaseUrl}${url}`, filename },
@@ -401,12 +409,13 @@ window.tiptapInterop = {
                     }
                 } catch (err) {
                     toast.error();
-                    console.error('File upload failed', err);
+                    console.error('[tiptap] Drop file upload failed', { file: file.name, size: file.size, error: err.message });
                 }
             }
         });
 
         _editors[elementId] = { editor, bubbleMenuEl, linkPopover, onCtrlS };
+        console.log(`[tiptap] Editor initialized: ${elementId}`);
     },
 
     focus(elementId) {
@@ -425,6 +434,7 @@ window.tiptapInterop = {
             entry.bubbleMenuEl.remove();
             entry.linkPopover.popover.remove();
             delete _editors[elementId];
+            console.log(`[tiptap] Editor destroyed: ${elementId}`);
         }
     },
 };

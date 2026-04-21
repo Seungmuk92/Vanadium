@@ -10,7 +10,7 @@ public class ImageUploadRequest
 
 [ApiController]
 [Route("api/[controller]")]
-public class ImagesController(IWebHostEnvironment env) : ControllerBase
+public class ImagesController(IWebHostEnvironment env, ILogger<ImagesController> logger) : ControllerBase
 {
     private string UploadsPath => Path.Combine(env.ContentRootPath, "uploads");
 
@@ -20,6 +20,9 @@ public class ImagesController(IWebHostEnvironment env) : ControllerBase
     [Consumes("multipart/form-data")]
     public async Task<ActionResult> Upload([FromForm] ImageUploadRequest request)
     {
+        logger.LogInformation("Image upload requested: '{FileName}' ({Size} bytes, {ContentType})",
+            request.File.FileName, request.File.Length, request.File.ContentType);
+
         Directory.CreateDirectory(UploadsPath);
 
         var id = Guid.NewGuid();
@@ -29,6 +32,7 @@ public class ImagesController(IWebHostEnvironment env) : ControllerBase
         await using var stream = System.IO.File.Create(path);
         await request.File.CopyToAsync(stream);
 
+        logger.LogInformation("Image saved: {ImageId}{Ext}", id, ext);
         return Ok(new { url = $"/api/images/{id}" });
     }
 
@@ -36,8 +40,13 @@ public class ImagesController(IWebHostEnvironment env) : ControllerBase
     [ResponseCache(Duration = 31536000, Location = ResponseCacheLocation.Any)]
     public IActionResult Get(Guid id)
     {
+        logger.LogDebug("Image requested: {ImageId}", id);
         var file = new DirectoryInfo(UploadsPath).GetFiles($"{id}.*").FirstOrDefault();
-        if (file is null) return NotFound();
+        if (file is null)
+        {
+            logger.LogWarning("Image not found: {ImageId}", id);
+            return NotFound();
+        }
         return PhysicalFile(file.FullName, ToContentType(file.Extension));
     }
 

@@ -4,7 +4,9 @@ using System.Text.Json;
 
 namespace Vanadium.Note.Web.Auth;
 
-public class JwtAuthenticationStateProvider(TokenStore tokenStore) : AuthenticationStateProvider
+public class JwtAuthenticationStateProvider(
+    TokenStore tokenStore,
+    ILogger<JwtAuthenticationStateProvider> logger) : AuthenticationStateProvider
 {
     private static readonly AuthenticationState Anonymous =
         new(new ClaimsPrincipal(new ClaimsIdentity()));
@@ -25,10 +27,14 @@ public class JwtAuthenticationStateProvider(TokenStore tokenStore) : Authenticat
         NotifyAuthenticationStateChanged(GetAuthenticationStateAsync());
     }
 
-    private static IEnumerable<Claim> ParseClaimsFromJwt(string jwt)
+    private IEnumerable<Claim> ParseClaimsFromJwt(string jwt)
     {
         var payload = jwt.Split('.').ElementAtOrDefault(1);
-        if (payload is null) return [];
+        if (payload is null)
+        {
+            logger.LogWarning("JWT is malformed — missing payload segment.");
+            return [];
+        }
 
         var padded = (payload.Length % 4) switch
         {
@@ -43,8 +49,9 @@ public class JwtAuthenticationStateProvider(TokenStore tokenStore) : Authenticat
             var pairs = JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(jsonBytes);
             return pairs?.Select(p => new Claim(p.Key, p.Value.ToString())) ?? [];
         }
-        catch
+        catch (Exception ex)
         {
+            logger.LogWarning(ex, "Failed to parse JWT claims — token may be malformed or corrupted.");
             return [];
         }
     }

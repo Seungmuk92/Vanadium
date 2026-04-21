@@ -8,23 +8,31 @@ namespace Vanadium.Note.REST.Controllers;
 [Authorize]
 [ApiController]
 [Route("api/[controller]")]
-public class NotesController(NoteService noteService) : ControllerBase
+public class NotesController(NoteService noteService, ILogger<NotesController> logger) : ControllerBase
 {
     [HttpGet]
-    public async Task<ActionResult<IReadOnlyList<NoteItem>>> GetAll() =>
-        Ok(await noteService.GetAll());
+    public async Task<ActionResult<IReadOnlyList<NoteItem>>> GetAll()
+    {
+        return Ok(await noteService.GetAll());
+    }
 
     [HttpGet("{id:guid}")]
     public async Task<ActionResult<NoteItem>> Get(Guid id)
     {
         var note = await noteService.Get(id);
-        return note is null ? NotFound() : Ok(note);
+        if (note is null)
+        {
+            logger.LogWarning("Note {NoteId} not found", id);
+            return NotFound();
+        }
+        return Ok(note);
     }
 
     [HttpPost]
     public async Task<ActionResult<NoteItem>> Create([FromBody] NoteItem note)
     {
         var created = await noteService.Create(note);
+        logger.LogInformation("Note created: {NoteId}", created.Id);
         return CreatedAtAction(nameof(Get), new { id = created.Id }, created);
     }
 
@@ -32,15 +40,24 @@ public class NotesController(NoteService noteService) : ControllerBase
     public async Task<ActionResult<NoteItem>> Update(Guid id, [FromBody] NoteItem note)
     {
         var updated = await noteService.Update(id, note);
-        return updated is null ? NotFound() : Ok(updated);
+        if (updated is null)
+        {
+            logger.LogWarning("Update failed — note {NoteId} not found", id);
+            return NotFound();
+        }
+        logger.LogInformation("Note updated: {NoteId}", id);
+        return Ok(updated);
     }
 
     [HttpDelete("{id:guid}")]
     public async Task<IActionResult> Delete(Guid id)
     {
         if (!await noteService.Delete(id))
+        {
+            logger.LogWarning("Delete failed — note {NoteId} not found", id);
             return NotFound();
-
+        }
+        logger.LogInformation("Note deleted: {NoteId}", id);
         return NoContent();
     }
 }
