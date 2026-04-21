@@ -41,12 +41,20 @@ public class FileCleanupService(NoteDbContext db, IWebHostEnvironment env, ILogg
         if (fileIds.Count == 0 && imageIds.Count == 0)
             return;
 
+        logger.LogDebug("On-delete orphan check: {FileCount} file(s) and {ImageCount} image(s) referenced in deleted content.",
+            fileIds.Count, imageIds.Count);
+
         // Combine all surviving notes' content into one string for fast lookup
         var survivingContent = string.Join(' ',
             await db.Notes.Select(n => n.Content).ToListAsync(ct));
 
-        await DeleteFileAttachmentsAsync(fileIds, survivingContent, ct);
-        DeleteImageFiles(imageIds, survivingContent);
+        var filesRemoved  = await DeleteFileAttachmentsAsync(fileIds, survivingContent, ct);
+        var imagesRemoved = DeleteImageFiles(imageIds, survivingContent);
+
+        if (filesRemoved > 0 || imagesRemoved > 0)
+            logger.LogInformation(
+                "On-delete cleanup complete — {Files} file attachment(s) and {Images} image(s) removed.",
+                filesRemoved, imagesRemoved);
     }
 
     /// <summary>
@@ -60,6 +68,9 @@ public class FileCleanupService(NoteDbContext db, IWebHostEnvironment env, ILogg
 
         // --- File attachments (have DB records) ---
         var attachments = await db.FileAttachments.ToListAsync(ct);
+
+        logger.LogDebug("Periodic orphan scan: checking {AttachmentCount} file attachment record(s).", attachments.Count);
+
         int filesRemoved = 0;
 
         foreach (var attachment in attachments)
@@ -69,6 +80,8 @@ public class FileCleanupService(NoteDbContext db, IWebHostEnvironment env, ILogg
 
             db.FileAttachments.Remove(attachment);
             DeletePhysicalFile(Path.Combine(UploadsPath, $"file_{attachment.Id}"));
+            logger.LogDebug("Periodic scan: removed orphaned file attachment {FileId} ('{FileName}').",
+                attachment.Id, attachment.OriginalName);
             filesRemoved++;
         }
 
@@ -77,7 +90,11 @@ public class FileCleanupService(NoteDbContext db, IWebHostEnvironment env, ILogg
 
         // --- Images (disk-only, no DB record) ---
         if (!Directory.Exists(UploadsPath))
+        {
+            logger.LogInformation(
+                "Orphan cleanup complete — {Files} file attachment(s) and 0 image(s) removed.", filesRemoved);
             return;
+        }
 
         int imagesRemoved = 0;
 
@@ -95,6 +112,7 @@ public class FileCleanupService(NoteDbContext db, IWebHostEnvironment env, ILogg
                 continue;
 
             DeletePhysicalFile(file.FullName);
+            logger.LogDebug("Periodic scan: removed orphaned image {ImageFile}.", file.Name);
             imagesRemoved++;
         }
 
@@ -105,10 +123,10 @@ public class FileCleanupService(NoteDbContext db, IWebHostEnvironment env, ILogg
 
     // ── Helpers ──────────────────────────────────────────────────────────────
 
-    private async Task DeleteFileAttachmentsAsync(
+    private async Task<int> DeleteFileAttachmentsAsync(
         IEnumerable<Guid> ids, string survivingContent, CancellationToken ct)
     {
-        bool changed = false;
+        int removed = 0;
 
         foreach (var id in ids)
         {
@@ -120,16 +138,22 @@ public class FileCleanupService(NoteDbContext db, IWebHostEnvironment env, ILogg
 
             db.FileAttachments.Remove(attachment);
             DeletePhysicalFile(Path.Combine(UploadsPath, $"file_{id}"));
-            changed = true;
+            logger.LogDebug("On-delete: removed orphaned file attachment {FileId} ('{FileName}').",
+                id, attachment.OriginalName);
+            removed++;
         }
 
-        if (changed)
+        if (removed > 0)
             await db.SaveChangesAsync(ct);
+
+        return removed;
     }
 
-    private void DeleteImageFiles(IEnumerable<Guid> ids, string survivingContent)
+    private int DeleteImageFiles(IEnumerable<Guid> ids, string survivingContent)
     {
-        if (!Directory.Exists(UploadsPath)) return;
+        if (!Directory.Exists(UploadsPath)) return 0;
+
+        int removed = 0;
 
         foreach (var id in ids)
         {
@@ -140,9 +164,14 @@ public class FileCleanupService(NoteDbContext db, IWebHostEnvironment env, ILogg
                 .EnumerateFiles($"{id}.*")
                 .FirstOrDefault();
 
-            if (file is not null)
-                DeletePhysicalFile(file.FullName);
+            if (file is null) continue;
+
+            DeletePhysicalFile(file.FullName);
+            logger.LogDebug("On-delete: removed orphaned image {ImageId}.", id);
+            removed++;
         }
+
+        return removed;
     }
 
     private void DeletePhysicalFile(string path)

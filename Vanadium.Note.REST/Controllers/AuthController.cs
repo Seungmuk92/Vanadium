@@ -12,18 +12,24 @@ namespace Vanadium.Note.REST.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]
-public class AuthController(IConfiguration config, IWebHostEnvironment env, NoteDbContext db) : ControllerBase
+public class AuthController(IConfiguration config, IWebHostEnvironment env, NoteDbContext db, ILogger<AuthController> logger) : ControllerBase
 {
     [HttpPost("login")]
     public async Task<IActionResult> Login([FromBody] LoginRequest request)
     {
+        logger.LogInformation("Login attempt for user '{Username}'", request.Username);
+
         var user = await db.Users
             .FirstOrDefaultAsync(u => u.Username == request.Username);
 
         if (user is null || !VerifyPassword(request.Password, user.PasswordHash))
+        {
+            logger.LogWarning("Failed login attempt for user '{Username}'", request.Username);
             return Unauthorized(new { message = "Invalid username or password." });
+        }
 
         var token = GenerateJwtToken(user.Username);
+        logger.LogInformation("User '{Username}' authenticated successfully", user.Username);
         return Ok(new { token });
     }
 
