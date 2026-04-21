@@ -1,3 +1,5 @@
+using System.Diagnostics;
+
 namespace Vanadium.Note.REST.Services;
 
 /// <summary>
@@ -25,20 +27,29 @@ public class OrphanFileCleanupJob(IServiceScopeFactory scopeFactory, ILogger<Orp
     private async Task RunAsync(CancellationToken ct)
     {
         logger.LogInformation("Orphan file cleanup job started.");
+        var sw = Stopwatch.StartNew();
         try
         {
             // FileCleanupService is Scoped, so create a scope for each run
             await using var scope = scopeFactory.CreateAsyncScope();
             var cleanupService = scope.ServiceProvider.GetRequiredService<FileCleanupService>();
             await cleanupService.DeleteAllOrphansAsync(ct);
+            sw.Stop();
+            logger.LogInformation(
+                "Orphan file cleanup job completed in {ElapsedMs}ms. Next run in ~{IntervalHours}h.",
+                sw.ElapsedMilliseconds, (int)Interval.TotalHours);
         }
         catch (OperationCanceledException)
         {
-            // Normal shutdown — do not log as error
+            logger.LogInformation(
+                "Orphan file cleanup job cancelled after {ElapsedMs}ms (application shutting down).",
+                sw.ElapsedMilliseconds);
         }
         catch (Exception ex)
         {
-            logger.LogError(ex, "Orphan file cleanup job encountered an error.");
+            logger.LogError(ex,
+                "Orphan file cleanup job encountered an error after {ElapsedMs}ms.",
+                sw.ElapsedMilliseconds);
         }
     }
 }

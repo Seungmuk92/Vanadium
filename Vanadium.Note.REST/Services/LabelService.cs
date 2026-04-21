@@ -4,7 +4,7 @@ using Vanadium.Note.REST.Models;
 
 namespace Vanadium.Note.REST.Services;
 
-public class LabelService(NoteDbContext db)
+public class LabelService(NoteDbContext db, ILogger<LabelService> logger)
 {
     // ── Categories ────────────────────────────────────────────────────────────
 
@@ -95,7 +95,11 @@ public class LabelService(NoteDbContext db)
     public async Task AddLabelToNoteAsync(Guid noteId, Guid labelId)
     {
         var exists = await db.NoteLabels.AnyAsync(nl => nl.NoteId == noteId && nl.LabelId == labelId);
-        if (exists) return;
+        if (exists)
+        {
+            logger.LogDebug("Label {LabelId} already assigned to note {NoteId}.", labelId, noteId);
+            return;
+        }
 
         var label = await db.Labels
             .Include(l => l.Category)
@@ -109,7 +113,15 @@ public class LabelService(NoteDbContext db)
                 .Include(nl => nl.Label)
                 .Where(nl => nl.NoteId == noteId && nl.Label.CategoryId == label.CategoryId)
                 .ToListAsync();
-            db.NoteLabels.RemoveRange(conflicting);
+
+            if (conflicting.Count > 0)
+            {
+                logger.LogInformation(
+                    "Category constraint: removing {Count} conflicting label(s) from note {NoteId} " +
+                    "(category {CategoryId}) before assigning label {LabelId}.",
+                    conflicting.Count, noteId, label.CategoryId, labelId);
+                db.NoteLabels.RemoveRange(conflicting);
+            }
         }
 
         db.NoteLabels.Add(new NoteLabel { NoteId = noteId, LabelId = labelId });

@@ -4,7 +4,7 @@ using Vanadium.Note.REST.Models;
 
 namespace Vanadium.Note.REST.Services;
 
-public class NoteService(NoteDbContext db, FileCleanupService fileCleanup)
+public class NoteService(NoteDbContext db, FileCleanupService fileCleanup, ILogger<NoteService> logger)
 {
     public async Task<List<NoteItem>> GetAll()
     {
@@ -18,6 +18,7 @@ public class NoteService(NoteDbContext db, FileCleanupService fileCleanup)
         foreach (var note in notes)
             PopulateLabels(note);
 
+        logger.LogDebug("Retrieved {Count} note(s).", notes.Count);
         return notes;
     }
 

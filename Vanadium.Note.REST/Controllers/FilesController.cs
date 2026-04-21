@@ -12,7 +12,7 @@ public class FileUploadRequest
 
 [ApiController]
 [Route("api/[controller]")]
-public class FilesController(IWebHostEnvironment env, NoteDbContext db) : ControllerBase
+public class FilesController(IWebHostEnvironment env, NoteDbContext db, ILogger<FilesController> logger) : ControllerBase
 {
     private string UploadsPath => Path.Combine(env.ContentRootPath, "uploads");
 
@@ -22,10 +22,13 @@ public class FilesController(IWebHostEnvironment env, NoteDbContext db) : Contro
     [Consumes("multipart/form-data")]
     public async Task<ActionResult> Upload([FromForm] FileUploadRequest request)
     {
+        var originalName = Path.GetFileName(request.File.FileName);
+        logger.LogInformation("File upload requested: '{FileName}' ({Size} bytes, {ContentType})",
+            originalName, request.File.Length, request.File.ContentType);
+
         Directory.CreateDirectory(UploadsPath);
 
         var id = Guid.NewGuid();
-        var originalName = Path.GetFileName(request.File.FileName);
         var path = Path.Combine(UploadsPath, $"file_{id}");
 
         await using var stream = System.IO.File.Create(path);
@@ -42,17 +45,28 @@ public class FilesController(IWebHostEnvironment env, NoteDbContext db) : Contro
         db.FileAttachments.Add(attachment);
         await db.SaveChangesAsync();
 
+        logger.LogInformation("File saved: {FileId} ('{FileName}')", id, originalName);
         return Ok(new { url = $"/api/files/{id}", filename = originalName });
     }
 
     [HttpGet("{id:guid}")]
     public async Task<IActionResult> Get(Guid id)
     {
+        logger.LogDebug("File download requested: {FileId}", id);
+
         var attachment = await db.FileAttachments.FindAsync(id);
-        if (attachment is null) return NotFound();
+        if (attachment is null)
+        {
+            logger.LogWarning("File attachment record not found: {FileId}", id);
+            return NotFound();
+        }
 
         var path = Path.Combine(UploadsPath, $"file_{id}");
-        if (!System.IO.File.Exists(path)) return NotFound();
+        if (!System.IO.File.Exists(path))
+        {
+            logger.LogWarning("Physical file missing for attachment {FileId}: {Path}", id, path);
+            return NotFound();
+        }
 
         return PhysicalFile(path, attachment.ContentType, attachment.OriginalName);
     }

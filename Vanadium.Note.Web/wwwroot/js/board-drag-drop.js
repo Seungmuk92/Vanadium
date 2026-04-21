@@ -28,6 +28,7 @@ window.boardDragDrop = (() => {
 
         _draggingNoteId    = card.dataset.noteId;
         _draggingFromLabelId = card.dataset.labelId;
+        console.debug(`[board] Drag started: noteId=${_draggingNoteId}, fromLabel=${_draggingFromLabelId}`);
 
         // Required: without setData the drag simply won't start in most browsers
         e.dataTransfer.setData('text/plain', _draggingNoteId);
@@ -93,7 +94,9 @@ window.boardDragDrop = (() => {
         _draggingFromLabelId = null;
 
         if (toLabelId !== fromLabelId && _dotNetRef) {
-            _dotNetRef.invokeMethodAsync('OnDropFromJs', noteId, fromLabelId, toLabelId);
+            console.debug(`[board] Drop: noteId=${noteId}, from=${fromLabelId} -> to=${toLabelId}`);
+            _dotNetRef.invokeMethodAsync('OnDropFromJs', noteId, fromLabelId, toLabelId)
+                .catch(err => console.error('[board] OnDropFromJs failed', err));
         }
     };
 
@@ -101,6 +104,7 @@ window.boardDragDrop = (() => {
         init(dotNetRef) {
             _dotNetRef = dotNetRef;
             document.addEventListener('dragstart',  _h.dragstart);
+            console.log('[board] Drag-drop initialized.');
             document.addEventListener('dragend',    _h.dragend);
             document.addEventListener('dragover',   _h.dragover);
             document.addEventListener('dragenter',  _h.dragenter);
@@ -115,6 +119,7 @@ window.boardDragDrop = (() => {
             document.removeEventListener('dragleave',  _h.dragleave);
             document.removeEventListener('drop',       _h.drop);
             _dotNetRef = null;
+            console.log('[board] Drag-drop disposed.');
         }
     };
 })();

@@ -7,6 +7,7 @@
 @inject IJSRuntime JS
 @inject HttpClient Http
 @inject TokenStore TokenStore
+@inject ILogger<NoteEditor> Logger
 @implements IDisposable
 
 <PageTitle>@(isNew ? "New Note" : "Edit Note")</PageTitle>
@@ -221,6 +222,10 @@
                 noteLabels = note.Labels ?? [];
                 _contentJustLoaded = true;
             }
+            else
+            {
+                Logger.LogWarning("Note {NoteId} could not be loaded.", Id.Value);
+            }
         }
 
         await LoadLabelsAsync();
@@ -239,8 +244,15 @@
             _objRef = DotNetObjectReference.Create(this);
             var apiBase = Http.BaseAddress?.ToString().TrimEnd('/') ?? string.Empty;
             var token = await TokenStore.GetAsync() ?? string.Empty;
-            await JS.InvokeVoidAsync("tiptapInterop.init", _editorId, _objRef, content, apiBase, token);
-            _editorMounted = true;
+            try
+            {
+                await JS.InvokeVoidAsync("tiptapInterop.init", _editorId, _objRef, content, apiBase, token);
+                _editorMounted = true;
+            }
+            catch (Exception ex)
+            {
+                Logger.LogError(ex, "Failed to initialize Tiptap editor for element '{EditorId}'.", _editorId);
+            }
         }
         else if (_contentJustLoaded && _editorMounted)
         {
@@ -307,7 +319,15 @@
 
         var savedNote = await NoteService.SaveAsync(note);
 
-        if (isNew && savedNote is not null)
+        if (savedNote is null)
+        {
+            Logger.LogError("Auto-save failed for note {NoteId}.", note.Id);
+            SetStatus("Save failed", "status-error");
+            StateHasChanged();
+            return;
+        }
+
+        if (isNew)
         {
             foreach (var label in noteLabels.ToList())
                 await LabelService.AddLabelToNoteAsync(savedNote.Id, label.Id);
