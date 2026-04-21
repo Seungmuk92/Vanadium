@@ -41,6 +41,9 @@ public class FileCleanupService(NoteDbContext db, IWebHostEnvironment env, ILogg
         if (fileIds.Count == 0 && imageIds.Count == 0)
             return;
 
+        logger.LogDebug("Orphan check triggered: {FileCount} file(s) and {ImageCount} image(s) referenced in deleted content.",
+            fileIds.Count, imageIds.Count);
+
         // Combine all surviving notes' content into one string for fast lookup
         var survivingContent = string.Join(' ',
             await db.Notes.Select(n => n.Content).ToListAsync(ct));
@@ -120,6 +123,7 @@ public class FileCleanupService(NoteDbContext db, IWebHostEnvironment env, ILogg
 
             db.FileAttachments.Remove(attachment);
             DeletePhysicalFile(Path.Combine(UploadsPath, $"file_{id}"));
+            logger.LogDebug("Orphaned file attachment deleted: {FileId} ({FileName}).", id, attachment.OriginalName);
             changed = true;
         }
 
@@ -140,8 +144,10 @@ public class FileCleanupService(NoteDbContext db, IWebHostEnvironment env, ILogg
                 .EnumerateFiles($"{id}.*")
                 .FirstOrDefault();
 
-            if (file is not null)
-                DeletePhysicalFile(file.FullName);
+            if (file is null) continue;
+
+            DeletePhysicalFile(file.FullName);
+            logger.LogDebug("Orphaned image deleted: {ImageId}.", id);
         }
     }
 
