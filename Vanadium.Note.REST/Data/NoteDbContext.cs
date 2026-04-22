@@ -34,5 +34,10 @@ public class NoteDbContext(DbContextOptions<NoteDbContext> options) : DbContext(
             .WithMany(c => c.Labels)
             .HasForeignKey(l => l.CategoryId)
             .OnDelete(DeleteBehavior.Cascade);
+
+        modelBuilder.Entity<NoteItem>()
+            .HasIndex(n => new { n.Title, n.ContentText })
+            .HasMethod("GIN")
+            .IsTsVectorExpressionIndex("simple");
     }
 }
