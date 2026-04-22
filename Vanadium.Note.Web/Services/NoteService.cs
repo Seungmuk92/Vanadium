@@ -1,19 +1,46 @@
 using System.Net.Http.Json;
+using System.Text;
 using Vanadium.Note.Web.Models;
 
 namespace Vanadium.Note.Web.Services;
 
 public class NoteService(HttpClient http, ILogger<NoteService> logger)
 {
-    public async Task<IReadOnlyList<NoteItem>?> GetAllAsync()
+    public async Task<PagedResult<NoteSummary>?> GetAllAsync(
+        int page = 1,
+        int pageSize = 30,
+        string? search = null,
+        string sortBy = "date",
+        string sortDir = "desc",
+        IEnumerable<Guid>? labelIds = null)
     {
         try
         {
-            return await http.GetFromJsonAsync<IReadOnlyList<NoteItem>>("api/notes");
+            var sb = new StringBuilder($"api/notes?page={page}&pageSize={pageSize}&sortBy={sortBy}&sortDir={sortDir}");
+            if (!string.IsNullOrWhiteSpace(search))
+                sb.Append($"&search={Uri.EscapeDataString(search)}");
+            if (labelIds is not null)
+                foreach (var id in labelIds)
+                    sb.Append($"&labelIds={id}");
+
+            return await http.GetFromJsonAsync<PagedResult<NoteSummary>>(sb.ToString());
         }
         catch (Exception ex)
         {
             logger.LogError(ex, "Failed to load notes list.");
+            return null;
+        }
+    }
+
+    public async Task<IReadOnlyList<NoteSummary>?> GetAllSummariesAsync()
+    {
+        try
+        {
+            return await http.GetFromJsonAsync<IReadOnlyList<NoteSummary>>("api/notes/summaries");
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Failed to load note summaries.");
             return null;
         }
     }

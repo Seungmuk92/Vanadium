@@ -6,7 +6,56 @@ namespace Vanadium.Note.REST.Services;
 
 public class NoteService(NoteDbContext db, FileCleanupService fileCleanup, ILogger<NoteService> logger)
 {
-    public async Task<List<NoteItem>> GetAll()
+    public async Task<PagedResult<NoteSummary>> GetPaged(
+        int page,
+        int pageSize,
+        string? search,
+        string sortBy,
+        string sortDir,
+        Guid[]? labelIds)
+    {
+        var query = db.Notes
+            .Include(n => n.NoteLabels)
+            .ThenInclude(nl => nl.Label)
+            .ThenInclude(l => l.Category)
+            .AsQueryable();
+
+        if (!string.IsNullOrWhiteSpace(search))
+            query = query.Where(n => n.Title.Contains(search));
+
+        if (labelIds is { Length: > 0 })
+        {
+            foreach (var id in labelIds)
+                query = query.Where(n => n.NoteLabels.Any(nl => nl.LabelId == id));
+        }
+
+        query = (sortBy.ToLowerInvariant(), sortDir.ToLowerInvariant()) switch
+        {
+            ("title", "asc")  => query.OrderBy(n => n.Title),
+            ("title", "desc") => query.OrderByDescending(n => n.Title),
+            ("date",  "asc")  => query.OrderBy(n => n.UpdatedAt),
+            _                 => query.OrderByDescending(n => n.UpdatedAt)
+        };
+
+        var totalCount = await query.CountAsync();
+
+        var notes = await query
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .ToListAsync();
+
+        logger.LogDebug("GetPaged: page={Page}, pageSize={PageSize}, total={Total}.", page, pageSize, totalCount);
+
+        return new PagedResult<NoteSummary>
+        {
+            Items = notes.Select(ToSummary).ToList(),
+            TotalCount = totalCount,
+            Page = page,
+            PageSize = pageSize
+        };
+    }
+
+    public async Task<List<NoteSummary>> GetAllSummaries()
     {
         var notes = await db.Notes
             .Include(n => n.NoteLabels)
@@ -15,11 +64,8 @@ public class NoteService(NoteDbContext db, FileCleanupService fileCleanup, ILogg
             .OrderByDescending(n => n.UpdatedAt)
             .ToListAsync();
 
-        foreach (var note in notes)
-            PopulateLabels(note);
-
-        logger.LogDebug("Retrieved {Count} note(s).", notes.Count);
-        return notes;
+        logger.LogDebug("GetAllSummaries: {Count} note(s).", notes.Count);
+        return notes.Select(ToSummary).ToList();
     }
 
     public async Task<NoteItem?> Get(Guid id)
@@ -63,14 +109,28 @@ public class NoteService(NoteDbContext db, FileCleanupService fileCleanup, ILogg
         if (note is null) return false;
 
         var content = note.Content;
-
         db.Notes.Remove(note);
         await db.SaveChangesAsync();
-
         await fileCleanup.DeleteOrphanedFromContentAsync(content);
-
         return true;
     }
+
+    private static NoteSummary ToSummary(NoteItem note) => new()
+    {
+        Id = note.Id,
+        Title = note.Title,
+        UpdatedAt = note.UpdatedAt,
+        Labels = note.NoteLabels
+            .Select(nl => new LabelSummary
+            {
+                Id = nl.Label.Id,
+                Name = nl.Label.Name,
+                CategoryId = nl.Label.CategoryId,
+                CategoryName = nl.Label.Category?.Name
+            })
+            .OrderBy(l => l.Name)
+            .ToList()
+    };
 
     private static void PopulateLabels(NoteItem note)
     {

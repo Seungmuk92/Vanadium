@@ -139,7 +139,7 @@
 }
 
 @code {
-    private IReadOnlyList<NoteItem> notes = [];
+    private IReadOnlyList<NoteSummary> notes = [];
     private List<LabelCategory> categories = [];
     private Guid? selectedCategoryId;
     private DotNetObjectReference<Board>? _dotNetRef;
@@ -156,7 +156,7 @@
 
     protected override async Task OnInitializedAsync()
     {
-        notes = await NoteService.GetAllAsync() ?? [];
+        notes = await NoteService.GetAllSummariesAsync() ?? [];
         categories = await LabelService.GetCategoriesAsync() ?? [];
         if (categories.Any())
             selectedCategoryId = categories[0].Id;
@@ -194,7 +194,13 @@
         {
             note.Labels.RemoveAll(l => l.Id == fromLabelId);
             if (!note.Labels.Any(l => l.Id == toLabelId))
-                note.Labels.Add(targetLabel);
+                note.Labels.Add(new Label
+                {
+                    Id = targetLabel.Id,
+                    Name = targetLabel.Name,
+                    CategoryId = targetLabel.CategoryId,
+                    CategoryName = selectedCategory?.Name
+                });
         }
 
         StateHasChanged();
@@ -209,8 +215,8 @@
 
     // ── General helpers ───────────────────────────────────────────────────────
 
-    private List<NoteItem> GetNotesForLabel(Guid labelId) =>
-        notes.Where(n => (n.Labels ?? []).Any(l => l.Id == labelId))
+    private List<NoteSummary> GetNotesForLabel(Guid labelId) =>
+        notes.Where(n => n.Labels.Any(l => l.Id == labelId))
              .OrderByDescending(n => n.UpdatedAt)
              .ToList();
 
@@ -255,7 +261,7 @@
             if (saved is not null)
             {
                 await LabelService.AddLabelToNoteAsync(saved.Id, dialogLabel.Id);
-                notes = await NoteService.GetAllAsync() ?? [];
+                notes = await NoteService.GetAllSummariesAsync() ?? [];
             }
             else
             {
