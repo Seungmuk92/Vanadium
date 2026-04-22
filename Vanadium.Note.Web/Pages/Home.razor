@@ -83,8 +83,22 @@
                                @onclick:stopPropagation="true" />
                     </div>
                     <div class="col-title" @onclick="() => EditNote(note.Id)">
-                        <div class="note-title-text">
-                            @(string.IsNullOrWhiteSpace(note.Title) ? "(No title)" : note.Title)
+                        <div class="note-title-row">
+                            @if (note.ChildCount > 0)
+                            {
+                                <button class="expand-btn @(expandedNoteIds.Contains(note.Id) ? "expanded" : "")"
+                                        @onclick:stopPropagation="true"
+                                        @onclick="() => ToggleExpand(note.Id)">
+                                    ▶
+                                </button>
+                            }
+                            else
+                            {
+                                <span class="expand-btn-placeholder"></span>
+                            }
+                            <div class="note-title-text">
+                                @(string.IsNullOrWhiteSpace(note.Title) ? "(No title)" : note.Title)
+                            </div>
                         </div>
                         @if (note.Labels?.Any() == true)
                         {
@@ -108,6 +122,65 @@
                         @note.UpdatedAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm")
                     </div>
                 </div>
+
+                @if (expandedNoteIds.Contains(note.Id))
+                {
+                    @if (loadingChildrenIds.Contains(note.Id))
+                    {
+                        <div class="note-row note-child-row">
+                            <div class="col-check"></div>
+                            <div class="col-title" style="opacity:0.45; font-size:0.82rem; padding-left:1.75rem;">Loading...</div>
+                            <div class="col-date"></div>
+                        </div>
+                    }
+                    else if (childrenCache.TryGetValue(note.Id, out var children))
+                    {
+                        @foreach (var child in children)
+                        {
+                            <div class="note-row note-item note-child-row @(selectedIds.Contains(child.Id) ? "selected" : "")">
+                                <div class="col-check">
+                                    <input type="checkbox"
+                                           class="note-checkbox"
+                                           checked="@selectedIds.Contains(child.Id)"
+                                           @onchange="() => ToggleSelect(child.Id)"
+                                           @onclick:stopPropagation="true" />
+                                </div>
+                                <div class="col-title" @onclick="() => EditNote(child.Id)">
+                                    <div class="note-title-row note-child-indent">
+                                        <span class="child-indicator">└</span>
+                                        <div class="note-title-text">
+                                            @(string.IsNullOrWhiteSpace(child.Title) ? "(No title)" : child.Title)
+                                        </div>
+                                        @if (child.ChildCount > 0)
+                                        {
+                                            <span class="child-count-badge">+@child.ChildCount</span>
+                                        }
+                                    </div>
+                                    @if (child.Labels?.Any() == true)
+                                    {
+                                        <div class="note-label-chips" style="padding-left:1.75rem;">
+                                            @foreach (var label in child.Labels)
+                                            {
+                                                <span class="note-label-chip @(label.CategoryId.HasValue ? "note-label-chip-cat" : "")"
+                                                      @onclick:stopPropagation="true"
+                                                      @onclick="() => ToggleFilter(label.Id)">
+                                                    @if (label.CategoryId.HasValue)
+                                                    {
+                                                        <span class="note-label-cat-prefix">@label.CategoryName:</span>
+                                                    }
+                                                    @label.Name
+                                                </span>
+                                            }
+                                        </div>
+                                    }
+                                </div>
+                                <div class="col-date" @onclick="() => EditNote(child.Id)">
+                                    @child.UpdatedAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm")
+                                </div>
+                            </div>
+                        }
+                    }
+                }
             }
         </div>
 
@@ -136,6 +209,9 @@
     private List<Label> allLabels = [];
     private HashSet<Guid> selectedIds = [];
     private HashSet<Guid> activeFilters = [];
+    private HashSet<Guid> expandedNoteIds = [];
+    private HashSet<Guid> loadingChildrenIds = [];
+    private Dictionary<Guid, List<NoteSummary>> childrenCache = [];
     private string _searchText = string.Empty;
     private CancellationTokenSource? _searchCts;
     private CancellationTokenSource? _loadCts;
@@ -244,7 +320,31 @@
             return;
         }
 
+        expandedNoteIds.Clear();
+        childrenCache.Clear();
         isLoading = false;
+        StateHasChanged();
+    }
+
+    private async Task ToggleExpand(Guid noteId)
+    {
+        if (!expandedNoteIds.Remove(noteId))
+        {
+            expandedNoteIds.Add(noteId);
+            if (!childrenCache.ContainsKey(noteId))
+            {
+                loadingChildrenIds.Add(noteId);
+                StateHasChanged();
+
+                var result = await NoteService.GetChildrenAsync(noteId);
+                loadingChildrenIds.Remove(noteId);
+
+                if (result.IsSuccess)
+                    childrenCache[noteId] = result.Value!;
+                else
+                    Snackbar.Add(result.Error ?? "Failed to load sub-notes.", Severity.Warning);
+            }
+        }
         StateHasChanged();
     }
 
@@ -326,7 +426,15 @@
     {
         if (selectedIds.Count == 0) return;
 
-        var confirmed = await JS.InvokeAsync<bool>("confirm", $"Delete {selectedIds.Count} selected note(s)?");
+        var hasChildren = notes
+            .Where(n => selectedIds.Contains(n.Id))
+            .Any(n => n.ChildCount > 0);
+
+        var message = hasChildren
+            ? $"Delete {selectedIds.Count} note(s)? Some notes have sub-notes that will also be permanently deleted."
+            : $"Delete {selectedIds.Count} selected note(s)?";
+
+        var confirmed = await JS.InvokeAsync<bool>("confirm", message);
         if (!confirmed) return;
 
         Logger.LogInformation("Deleting {Count} note(s).", selectedIds.Count);

@@ -15,10 +15,19 @@
 
 <div class="editor-header">
     <button class="btn btn-outline-secondary" @onclick="GoBack">← Back</button>
+    @if (parentNoteId.HasValue || parentTitle is not null)
+    {
+        <div class="editor-breadcrumb">
+            <a href="/">Notes</a>
+            <span class="breadcrumb-sep">/</span>
+            <a href="/editor/@parentNoteId">@(string.IsNullOrWhiteSpace(parentTitle) ? "(Untitled)" : parentTitle)</a>
+        </div>
+    }
     <span class="save-status @saveStatusCss">@saveStatusText</span>
     <div class="editor-actions">
         @if (!isNew)
         {
+            <button class="btn btn-outline-secondary" @onclick="CreateSubNote">+ Sub-note</button>
             <button class="btn btn-outline-danger" @onclick="DeleteNote">Delete</button>
         }
         <button class="btn btn-primary" @onclick="SaveNote">Save</button>
@@ -177,12 +186,24 @@
 @code {
     [Parameter] public Guid? Id { get; set; }
     [SupplyParameterFromQuery(Name = "returnUrl")] public string? ReturnUrl { get; set; }
+    [SupplyParameterFromQuery(Name = "parentId")] public Guid? ParentId { get; set; }
 
-    private string BackUrl => string.IsNullOrWhiteSpace(ReturnUrl) ? "/" : ReturnUrl;
+    private string BackUrl
+    {
+        get
+        {
+            if (!string.IsNullOrWhiteSpace(ReturnUrl)) return ReturnUrl;
+            if (parentNoteId.HasValue) return $"/editor/{parentNoteId}";
+            return "/";
+        }
+    }
 
     private string title = string.Empty;
     private string content = string.Empty;
     private bool isNew => Id is null;
+    private Guid? parentNoteId;
+    private string? parentTitle;
+    private int childCount;
 
     private bool _initialized = false;
     private bool _editorMounted = false;
@@ -221,6 +242,9 @@
                 title = result.Value!.Title;
                 content = result.Value!.Content;
                 noteLabels = result.Value!.Labels ?? [];
+                parentNoteId = result.Value!.ParentNoteId;
+                parentTitle = result.Value!.ParentTitle;
+                childCount = result.Value!.ChildCount;
                 _contentJustLoaded = true;
             }
             else
@@ -229,6 +253,13 @@
                 Nav.NavigateTo("/");
                 return;
             }
+        }
+        else if (ParentId.HasValue)
+        {
+            parentNoteId = ParentId;
+            var parentResult = await NoteService.GetAsync(ParentId.Value);
+            if (parentResult.IsSuccess)
+                parentTitle = parentResult.Value!.Title;
         }
 
         await LoadLabelsAsync();
@@ -324,7 +355,8 @@
         {
             Id = Id ?? Guid.Empty,
             Title = title,
-            Content = content
+            Content = content,
+            ParentNoteId = parentNoteId
         };
 
         var saveResult = await NoteService.SaveAsync(note);
@@ -365,7 +397,8 @@
         {
             Id = Id ?? Guid.Empty,
             Title = title,
-            Content = content
+            Content = content,
+            ParentNoteId = parentNoteId
         };
         var saveResult = await NoteService.SaveAsync(note);
         if (!saveResult.IsSuccess)
@@ -386,6 +419,13 @@
         _debounceCts?.Cancel();
         if (Id is not null)
         {
+            if (childCount > 0)
+            {
+                var confirmed = await JS.InvokeAsync<bool>("confirm",
+                    $"This note has {childCount} sub-note(s) that will also be permanently deleted. Continue?");
+                if (!confirmed) return;
+            }
+
             var result = await NoteService.DeleteAsync(Id.Value);
             if (!result.IsSuccess)
             {
@@ -393,8 +433,10 @@
                 return;
             }
         }
-        Nav.NavigateTo("/");
+        Nav.NavigateTo(parentNoteId.HasValue ? $"/editor/{parentNoteId}" : "/");
     }
+
+    private void CreateSubNote() => Nav.NavigateTo($"/editor?parentId={Id}");
 
     private void GoBack()
     {

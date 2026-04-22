@@ -40,6 +40,12 @@ public class NotesController(NoteService noteService, LabelService labelService,
         return Ok(await noteService.GetAllSummaries(labelIds));
     }
 
+    [HttpGet("{id:guid}/children")]
+    public async Task<ActionResult<List<NoteSummary>>> GetChildren(Guid id)
+    {
+        return Ok(await noteService.GetChildren(id));
+    }
+
     [HttpGet("{id:guid}")]
     public async Task<ActionResult<NoteItem>> Get(Guid id)
     {

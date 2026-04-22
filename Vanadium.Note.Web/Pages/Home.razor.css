@@ -109,8 +109,62 @@
     font-size: 1rem;
     cursor: pointer;
     overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+}
+
+.note-title-row {
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+    overflow: hidden;
+}
+
+.expand-btn {
+    flex-shrink: 0;
+    background: none;
+    border: none;
+    cursor: pointer;
+    font-size: 0.65rem;
+    padding: 0.1rem 0.2rem;
+    color: inherit;
+    opacity: 0.45;
+    transition: opacity 0.15s, transform 0.15s;
+    line-height: 1;
+}
+
+.expand-btn:hover {
+    opacity: 1;
+}
+
+.expand-btn.expanded {
+    transform: rotate(90deg);
+    opacity: 0.7;
+}
+
+.expand-btn-placeholder {
+    flex-shrink: 0;
+    width: 1.2rem;
+}
+
+.note-child-row {
+    background-color: var(--mud-palette-background);
+}
+
+.note-child-indent {
+    padding-left: 1rem;
+}
+
+.child-indicator {
+    flex-shrink: 0;
+    font-size: 0.75rem;
+    opacity: 0.35;
+    margin-right: 0.1rem;
+}
+
+.child-count-badge {
+    flex-shrink: 0;
+    font-size: 0.65rem;
+    opacity: 0.45;
+    margin-left: 0.25rem;
 }
 
 .col-date {
