@@ -1,3 +1,4 @@
+using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
 using System.Text.Json.Serialization;
 
@@ -6,7 +7,9 @@ namespace Vanadium.Note.REST.Models;
 public class NoteItem
 {
     public Guid Id { get; set; } = Guid.NewGuid();
+    [MaxLength(500)]
     public string Title { get; set; } = string.Empty;
+    [MaxLength(2_000_000)]
     public string Content { get; set; } = string.Empty;
     [JsonIgnore]
     public string ContentText { get; set; } = string.Empty;
