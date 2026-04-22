@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using Microsoft.EntityFrameworkCore;
 using Vanadium.Note.REST.Data;
 using Vanadium.Note.REST.Models;
@@ -28,13 +29,17 @@ public class NoteService(NoteDbContext db, FileCleanupService fileCleanup, ILogg
             search,
             labelIds);
 
-        dataQuery = (sortBy.ToLowerInvariant(), sortDir.ToLowerInvariant()) switch
-        {
-            ("title", "asc")  => dataQuery.OrderBy(n => n.Title),
-            ("title", "desc") => dataQuery.OrderByDescending(n => n.Title),
-            ("date",  "asc")  => dataQuery.OrderBy(n => n.UpdatedAt),
-            _                 => dataQuery.OrderByDescending(n => n.UpdatedAt)
-        };
+        dataQuery = !string.IsNullOrWhiteSpace(search)
+            ? dataQuery.OrderByDescending(n =>
+                EF.Functions.ToTsVector("simple", n.Title + " " + n.ContentText)
+                    .Rank(EF.Functions.WebSearchToTsQuery("simple", search)))
+            : (sortBy.ToLowerInvariant(), sortDir.ToLowerInvariant()) switch
+            {
+                ("title", "asc")  => dataQuery.OrderBy(n => n.Title),
+                ("title", "desc") => dataQuery.OrderByDescending(n => n.Title),
+                ("date",  "asc")  => dataQuery.OrderBy(n => n.UpdatedAt),
+                _                 => dataQuery.OrderByDescending(n => n.UpdatedAt)
+            };
 
         var notes = await dataQuery
             .Skip((page - 1) * pageSize)
@@ -90,6 +95,7 @@ public class NoteService(NoteDbContext db, FileCleanupService fileCleanup, ILogg
     {
         note.Id = Guid.NewGuid();
         note.UpdatedAt = DateTime.UtcNow;
+        note.ContentText = StripHtml(note.Content);
         db.Notes.Add(note);
         await db.SaveChangesAsync();
         return note;
@@ -102,6 +108,7 @@ public class NoteService(NoteDbContext db, FileCleanupService fileCleanup, ILogg
 
         existing.Title = note.Title;
         existing.Content = note.Content;
+        existing.ContentText = StripHtml(note.Content);
         existing.UpdatedAt = DateTime.UtcNow;
         await db.SaveChangesAsync();
         return existing;
@@ -123,13 +130,27 @@ public class NoteService(NoteDbContext db, FileCleanupService fileCleanup, ILogg
         IQueryable<NoteItem> query, string? search, Guid[]? labelIds)
     {
         if (!string.IsNullOrWhiteSpace(search))
-            query = query.Where(n => n.Title.Contains(search));
+            query = query.Where(n =>
+                EF.Functions.ToTsVector("simple", n.Title + " " + n.ContentText)
+                    .Matches(EF.Functions.WebSearchToTsQuery("simple", search)));
 
         if (labelIds is { Length: > 0 })
             foreach (var id in labelIds)
                 query = query.Where(n => n.NoteLabels.Any(nl => nl.LabelId == id));
 
         return query;
+    }
+
+    private static readonly Regex HtmlTagRegex = new("<[^>]*>", RegexOptions.Compiled);
+    private static readonly Regex HtmlEntityRegex = new("&[a-zA-Z]+;|&#[0-9]+;", RegexOptions.Compiled);
+    private static readonly Regex WhitespaceRegex = new(@"\s+", RegexOptions.Compiled);
+
+    private static string StripHtml(string html)
+    {
+        if (string.IsNullOrEmpty(html)) return string.Empty;
+        var text = HtmlTagRegex.Replace(html, " ");
+        text = HtmlEntityRegex.Replace(text, " ");
+        return WhitespaceRegex.Replace(text, " ").Trim();
     }
 
     private static NoteSummary ToSummary(NoteItem note) => new()
