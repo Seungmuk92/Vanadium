@@ -12,7 +12,8 @@ public class NoteService(HttpClient http, ILogger<NoteService> logger)
         string? search = null,
         string sortBy = "date",
         string sortDir = "desc",
-        IEnumerable<Guid>? labelIds = null)
+        IEnumerable<Guid>? labelIds = null,
+        CancellationToken cancellationToken = default)
     {
         try
         {
@@ -23,7 +24,11 @@ public class NoteService(HttpClient http, ILogger<NoteService> logger)
                 foreach (var id in labelIds)
                     sb.Append($"&labelIds={id}");
 
-            return await http.GetFromJsonAsync<PagedResult<NoteSummary>>(sb.ToString());
+            return await http.GetFromJsonAsync<PagedResult<NoteSummary>>(sb.ToString(), cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
         }
         catch (Exception ex)
         {

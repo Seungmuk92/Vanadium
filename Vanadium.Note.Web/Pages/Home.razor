@@ -132,6 +132,7 @@
     private HashSet<Guid> activeFilters = [];
     private string _searchText = string.Empty;
     private CancellationTokenSource? _searchCts;
+    private CancellationTokenSource? _loadCts;
     private DotNetObjectReference<Home>? dotNetRef;
 
     private int currentPage = 1;
@@ -169,29 +170,45 @@
 
     private async Task LoadNotes()
     {
+        // Cancel any in-flight request so only the latest call updates the UI
+        _loadCts?.Cancel();
+        _loadCts?.Dispose();
+        _loadCts = new CancellationTokenSource();
+        var token = _loadCts.Token;
+
         isLoading = true;
         StateHasChanged();
 
-        var result = await NoteService.GetAllAsync(
-            currentPage,
-            PageSize,
-            string.IsNullOrWhiteSpace(_searchText) ? null : _searchText,
-            currentSort == SortColumn.Title ? "title" : "date",
-            sortAscending ? "asc" : "desc",
-            activeFilters.Count > 0 ? activeFilters : null);
-
-        if (result is not null)
+        try
         {
-            notes = result.Items;
-            totalCount = result.TotalCount;
+            var result = await NoteService.GetAllAsync(
+                currentPage,
+                PageSize,
+                string.IsNullOrWhiteSpace(_searchText) ? null : _searchText,
+                currentSort == SortColumn.Title ? "title" : "date",
+                sortAscending ? "asc" : "desc",
+                activeFilters.Count > 0 ? activeFilters : null,
+                token);
 
-            if (currentPage > TotalPages && TotalPages > 0)
+            if (result is not null)
             {
-                currentPage = TotalPages;
-                isLoading = false;
-                await LoadNotes();
-                return;
+                notes = result.Items;
+                totalCount = result.TotalCount;
+
+                // If current page is beyond the last page (e.g. after deletion), clamp and reload
+                var totalPages = TotalPages;
+                if (currentPage > totalPages && totalPages > 0)
+                {
+                    currentPage = totalPages;
+                    await LoadNotes();
+                    return;
+                }
             }
+        }
+        catch (OperationCanceledException)
+        {
+            // A newer LoadNotes() call took over — do not update UI state
+            return;
         }
 
         isLoading = false;
@@ -314,6 +331,8 @@
     {
         _searchCts?.Cancel();
         _searchCts?.Dispose();
+        _loadCts?.Cancel();
+        _loadCts?.Dispose();
         await JS.InvokeVoidAsync("unregisterDeleteKey");
         dotNetRef?.Dispose();
     }
