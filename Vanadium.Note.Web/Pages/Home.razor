@@ -181,28 +181,27 @@
 
         try
         {
-            var result = await NoteService.GetAllAsync(
-                currentPage,
-                PageSize,
-                string.IsNullOrWhiteSpace(_searchText) ? null : _searchText,
-                currentSort == SortColumn.Title ? "title" : "date",
-                sortAscending ? "asc" : "desc",
-                activeFilters.Count > 0 ? activeFilters : null,
-                token);
-
-            if (result is not null)
+            while (true)
             {
+                var result = await NoteService.GetAllAsync(
+                    currentPage,
+                    PageSize,
+                    string.IsNullOrWhiteSpace(_searchText) ? null : _searchText,
+                    currentSort == SortColumn.Title ? "title" : "date",
+                    sortAscending ? "asc" : "desc",
+                    activeFilters.Count > 0 ? activeFilters : null,
+                    token);
+
+                if (result is null) break;
+
                 notes = result.Items;
                 totalCount = result.TotalCount;
 
-                // If current page is beyond the last page (e.g. after deletion), clamp and reload
-                var totalPages = TotalPages;
-                if (currentPage > totalPages && totalPages > 0)
-                {
-                    currentPage = totalPages;
-                    await LoadNotes();
-                    return;
-                }
+                // Page out of range after deletion — clamp and retry with the same token
+                if (currentPage > TotalPages && TotalPages > 0)
+                    currentPage = TotalPages;
+                else
+                    break;
             }
         }
         catch (OperationCanceledException)
