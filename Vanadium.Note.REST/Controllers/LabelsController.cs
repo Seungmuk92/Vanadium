@@ -1,3 +1,4 @@
+using System.ComponentModel.DataAnnotations;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Vanadium.Note.REST.Models;
@@ -108,6 +109,6 @@ public class LabelsController(LabelService labelService, ILogger<LabelsControlle
     }
 }
 
-public record NameRequest(string Name);
-public record CreateLabelRequest(string Name, Guid? CategoryId);
+public record NameRequest([Required][MaxLength(100)] string Name);
+public record CreateLabelRequest([Required][MaxLength(100)] string Name, Guid? CategoryId);
 public record AddLabelRequest(Guid LabelId);
