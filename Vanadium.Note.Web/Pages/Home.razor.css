@@ -250,6 +250,41 @@
     padding: 0.5rem 0 0.25rem;
 }
 
+.pagination-controls {
+    display: flex;
+    gap: 3px;
+    align-items: center;
+}
+
+.page-btn {
+    min-width: 30px;
+    height: 30px;
+    padding: 0 6px;
+    border: 1px solid var(--mud-palette-divider);
+    background: transparent;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 0.85rem;
+    color: inherit;
+    transition: background-color 0.12s;
+    line-height: 1;
+}
+
+.page-btn:hover:not(:disabled) {
+    background-color: var(--mud-palette-action-default-hover);
+}
+
+.page-btn:disabled {
+    opacity: 0.3;
+    cursor: default;
+}
+
+.page-btn-active {
+    background-color: var(--mud-palette-primary);
+    color: var(--mud-palette-primary-text);
+    border-color: var(--mud-palette-primary);
+}
+
 .pagination-info {
     font-size: 0.78rem;
     opacity: 0.5;

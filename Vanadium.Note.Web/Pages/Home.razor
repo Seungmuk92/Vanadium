@@ -1,7 +1,6 @@
 @page "/"
 @attribute [Authorize]
 @inject NoteService NoteService
-@inject LabelService LabelService
 @inject NavigationManager Nav
 @inject IJSRuntime JS
 @inject ILogger<Home> Logger
@@ -114,11 +113,17 @@
         @if (TotalPages > 1)
         {
             <div class="pagination-bar">
-                <MudPagination Count="@TotalPages"
-                               Selected="@currentPage"
-                               SelectedChanged="OnPageChanged"
-                               ShowFirstButton="true"
-                               ShowLastButton="true" />
+                <div class="pagination-controls">
+                    <button class="page-btn" disabled="@(currentPage == 1)" @onclick="() => OnPageChanged(1)">«</button>
+                    <button class="page-btn" disabled="@(currentPage == 1)" @onclick="() => OnPageChanged(currentPage - 1)">‹</button>
+                    @for (int i = Math.Max(1, currentPage - 2); i <= Math.Min(TotalPages, currentPage + 2); i++)
+                    {
+                        var p = i;
+                        <button class="page-btn @(p == currentPage ? "page-btn-active" : "")" @onclick="() => OnPageChanged(p)">@p</button>
+                    }
+                    <button class="page-btn" disabled="@(currentPage == TotalPages)" @onclick="() => OnPageChanged(currentPage + 1)">›</button>
+                    <button class="page-btn" disabled="@(currentPage == TotalPages)" @onclick="() => OnPageChanged(TotalPages)">»</button>
+                </div>
                 <span class="pagination-info">@totalCount notes</span>
             </div>
         }
@@ -159,20 +164,17 @@
         var token = _loadCts.Token;
         isLoading = true;
 
-        var labelsTask = LabelService.GetLabelsAsync();
-        var notesTask = NoteService.GetAllAsync(
+        var result = await NoteService.GetAllAsync(
             currentPage, PageSize, null,
             currentSort == SortColumn.Title ? "title" : "date",
             sortAscending ? "asc" : "desc",
-            null, token);
+            null,
+            includeLabels: true,
+            cancellationToken: token);
 
-        await Task.WhenAll(labelsTask, notesTask);
-
-        allLabels = labelsTask.Result ?? [];
-
-        var result = notesTask.Result;
         if (result is not null)
         {
+            allLabels = result.Labels ?? [];
             notes = result.Items;
             totalCount = result.TotalCount;
             if (currentPage > TotalPages && TotalPages > 0)
@@ -213,7 +215,7 @@
                     currentSort == SortColumn.Title ? "title" : "date",
                     sortAscending ? "asc" : "desc",
                     activeFilters.Count > 0 ? activeFilters : null,
-                    token);
+                    cancellationToken: token);
 
                 if (result is null) break;
 

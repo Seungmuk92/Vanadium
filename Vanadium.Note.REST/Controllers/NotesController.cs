@@ -8,7 +8,7 @@ namespace Vanadium.Note.REST.Controllers;
 [Authorize]
 [ApiController]
 [Route("api/[controller]")]
-public class NotesController(NoteService noteService, ILogger<NotesController> logger) : ControllerBase
+public class NotesController(NoteService noteService, LabelService labelService, ILogger<NotesController> logger) : ControllerBase
 {
     [HttpGet]
     public async Task<ActionResult<PagedResult<NoteSummary>>> GetAll(
@@ -17,11 +17,15 @@ public class NotesController(NoteService noteService, ILogger<NotesController> l
         [FromQuery] string? search = null,
         [FromQuery] string sortBy = "date",
         [FromQuery] string sortDir = "desc",
-        [FromQuery] Guid[]? labelIds = null)
+        [FromQuery] Guid[]? labelIds = null,
+        [FromQuery] bool includeLabels = false)
     {
         page = Math.Max(1, page);
         pageSize = Math.Clamp(pageSize, 1, 200);
-        return Ok(await noteService.GetPaged(page, pageSize, search, sortBy, sortDir, labelIds));
+        var result = await noteService.GetPaged(page, pageSize, search, sortBy, sortDir, labelIds);
+        if (includeLabels)
+            result.Labels = await labelService.GetAllLabelsAsync();
+        return Ok(result);
     }
 
     [HttpGet("summaries")]
