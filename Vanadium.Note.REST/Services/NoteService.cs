@@ -14,32 +14,29 @@ public class NoteService(NoteDbContext db, FileCleanupService fileCleanup, ILogg
         string sortDir,
         Guid[]? labelIds)
     {
-        var query = db.Notes
-            .Include(n => n.NoteLabels)
-            .ThenInclude(nl => nl.Label)
-            .ThenInclude(l => l.Category)
-            .AsQueryable();
+        // Lean query for COUNT — no joins to label/category tables
+        var countQuery = ApplyFilters(db.Notes.AsQueryable(), search, labelIds);
+        var totalCount = await countQuery.CountAsync();
 
-        if (!string.IsNullOrWhiteSpace(search))
-            query = query.Where(n => n.Title.Contains(search));
+        // Full query for data — includes needed for label projection
+        var dataQuery = ApplyFilters(
+            db.Notes
+                .Include(n => n.NoteLabels)
+                .ThenInclude(nl => nl.Label)
+                .ThenInclude(l => l.Category)
+                .AsQueryable(),
+            search,
+            labelIds);
 
-        if (labelIds is { Length: > 0 })
+        dataQuery = (sortBy.ToLowerInvariant(), sortDir.ToLowerInvariant()) switch
         {
-            foreach (var id in labelIds)
-                query = query.Where(n => n.NoteLabels.Any(nl => nl.LabelId == id));
-        }
-
-        query = (sortBy.ToLowerInvariant(), sortDir.ToLowerInvariant()) switch
-        {
-            ("title", "asc")  => query.OrderBy(n => n.Title),
-            ("title", "desc") => query.OrderByDescending(n => n.Title),
-            ("date",  "asc")  => query.OrderBy(n => n.UpdatedAt),
-            _                 => query.OrderByDescending(n => n.UpdatedAt)
+            ("title", "asc")  => dataQuery.OrderBy(n => n.Title),
+            ("title", "desc") => dataQuery.OrderByDescending(n => n.Title),
+            ("date",  "asc")  => dataQuery.OrderBy(n => n.UpdatedAt),
+            _                 => dataQuery.OrderByDescending(n => n.UpdatedAt)
         };
 
-        var totalCount = await query.CountAsync();
-
-        var notes = await query
+        var notes = await dataQuery
             .Skip((page - 1) * pageSize)
             .Take(pageSize)
             .ToListAsync();
@@ -113,6 +110,19 @@ public class NoteService(NoteDbContext db, FileCleanupService fileCleanup, ILogg
         await db.SaveChangesAsync();
         await fileCleanup.DeleteOrphanedFromContentAsync(content);
         return true;
+    }
+
+    private static IQueryable<NoteItem> ApplyFilters(
+        IQueryable<NoteItem> query, string? search, Guid[]? labelIds)
+    {
+        if (!string.IsNullOrWhiteSpace(search))
+            query = query.Where(n => n.Title.Contains(search));
+
+        if (labelIds is { Length: > 0 })
+            foreach (var id in labelIds)
+                query = query.Where(n => n.NoteLabels.Any(nl => nl.LabelId == id));
+
+        return query;
     }
 
     private static NoteSummary ToSummary(NoteItem note) => new()
