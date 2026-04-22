@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using System.IdentityModel.Tokens.Jwt;
@@ -15,6 +16,7 @@ namespace Vanadium.Note.REST.Controllers;
 public class AuthController(IConfiguration config, IWebHostEnvironment env, NoteDbContext db, ILogger<AuthController> logger) : ControllerBase
 {
     [HttpPost("login")]
+    [EnableRateLimiting("login")]
     public async Task<IActionResult> Login([FromBody] LoginRequest request)
     {
         logger.LogInformation("Login attempt for user '{Username}'", request.Username);
