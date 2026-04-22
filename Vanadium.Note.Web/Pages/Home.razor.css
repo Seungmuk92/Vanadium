@@ -1,3 +1,11 @@
+.home-page {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
+}
+
 .notes-header {
     display: flex;
     align-items: center;
@@ -35,8 +43,11 @@
     flex-direction: column;
     border: 1px solid var(--mud-palette-divider);
     border-radius: 4px;
-    overflow: hidden;
+    overflow-y: auto;
+    overflow-x: hidden;
     background-color: var(--mud-palette-surface);
+    flex: 1;
+    min-height: 0;
 }
 
 .note-row {
@@ -56,6 +67,9 @@
     font-weight: 600;
     font-size: 0.875rem;
     color: var(--vn-note-header-color);
+    position: sticky;
+    top: 0;
+    z-index: 1;
 }
 
 .note-item {
