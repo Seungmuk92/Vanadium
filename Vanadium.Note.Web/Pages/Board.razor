@@ -5,6 +5,7 @@
 @inject NavigationManager Nav
 @inject IJSRuntime JS
 @inject ILogger<Board> Logger
+@inject ISnackbar Snackbar
 @implements IAsyncDisposable
 
 <PageTitle>Board</PageTitle>
@@ -201,8 +202,12 @@
             return;
         }
 
-        // Optimistic local update
         var note = notes.FirstOrDefault(n => n.Id == noteId);
+
+        // Snapshot labels before mutation for rollback
+        var originalLabels = note?.Labels.ToList();
+
+        // Optimistic update — move card immediately
         if (note is not null)
         {
             note.Labels.RemoveAll(l => l.Id == fromLabelId);
@@ -222,8 +227,26 @@
             noteId, fromLabelId, toLabelId);
 
         // Persist to server
-        await LabelService.RemoveLabelFromNoteAsync(noteId, fromLabelId);
-        await LabelService.AddLabelToNoteAsync(noteId, toLabelId);
+        var removeOk = await LabelService.RemoveLabelFromNoteAsync(noteId, fromLabelId);
+        var addOk = removeOk && await LabelService.AddLabelToNoteAsync(noteId, toLabelId);
+
+        if (!removeOk || !addOk)
+        {
+            Logger.LogError(
+                "Failed to persist label move for note {NoteId} ({FromLabel} → {ToLabel}).",
+                noteId, fromLabelId, toLabelId);
+
+            // Immediate visual rollback before server sync
+            if (note is not null && originalLabels is not null)
+            {
+                note.Labels = originalLabels;
+                StateHasChanged();
+            }
+
+            // Reload from server to guarantee UI matches DB
+            await LoadNotesForCurrentCategory();
+            Snackbar.Add("Failed to move note. Changes have been reverted.", Severity.Error);
+        }
     }
 
     // ── General helpers ───────────────────────────────────────────────────────
