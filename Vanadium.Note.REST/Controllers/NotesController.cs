@@ -1,3 +1,4 @@
+using System.ComponentModel.DataAnnotations;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Vanadium.Note.REST.Models;
@@ -14,7 +15,7 @@ public class NotesController(NoteService noteService, LabelService labelService,
     public async Task<ActionResult<PagedResult<NoteSummary>>> GetAll(
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = 30,
-        [FromQuery] string? search = null,
+        [FromQuery][MaxLength(200)] string? search = null,
         [FromQuery] string sortBy = "date",
         [FromQuery] string sortDir = "desc",
         [FromQuery] Guid[]? labelIds = null,
