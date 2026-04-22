@@ -37,11 +37,19 @@ public class NoteService(HttpClient http, ILogger<NoteService> logger)
         }
     }
 
-    public async Task<IReadOnlyList<NoteSummary>?> GetAllSummariesAsync()
+    public async Task<IReadOnlyList<NoteSummary>?> GetAllSummariesAsync(
+        IEnumerable<Guid>? labelIds = null)
     {
         try
         {
-            return await http.GetFromJsonAsync<IReadOnlyList<NoteSummary>>("api/notes/summaries");
+            var url = "api/notes/summaries";
+            if (labelIds is not null)
+            {
+                var ids = labelIds.ToList();
+                if (ids.Count > 0)
+                    url += "?" + string.Join("&", ids.Select(id => $"labelIds={id}"));
+            }
+            return await http.GetFromJsonAsync<IReadOnlyList<NoteSummary>>(url);
         }
         catch (Exception ex)
         {

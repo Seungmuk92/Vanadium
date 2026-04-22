@@ -25,9 +25,10 @@ public class NotesController(NoteService noteService, ILogger<NotesController> l
     }
 
     [HttpGet("summaries")]
-    public async Task<ActionResult<List<NoteSummary>>> GetSummaries()
+    public async Task<ActionResult<List<NoteSummary>>> GetSummaries(
+        [FromQuery] Guid[]? labelIds = null)
     {
-        return Ok(await noteService.GetAllSummaries());
+        return Ok(await noteService.GetAllSummaries(labelIds));
     }
 
     [HttpGet("{id:guid}")]

@@ -156,10 +156,23 @@
 
     protected override async Task OnInitializedAsync()
     {
-        notes = await NoteService.GetAllSummariesAsync() ?? [];
         categories = await LabelService.GetCategoriesAsync() ?? [];
         if (categories.Any())
+        {
             selectedCategoryId = categories[0].Id;
+            await LoadNotesForCurrentCategory();
+        }
+    }
+
+    private async Task LoadNotesForCurrentCategory()
+    {
+        if (selectedCategory is null || !selectedCategory.Labels.Any())
+        {
+            notes = [];
+            return;
+        }
+        var labelIds = selectedCategory.Labels.Select(l => l.Id);
+        notes = await NoteService.GetAllSummariesAsync(labelIds) ?? [];
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
@@ -220,8 +233,11 @@
              .OrderByDescending(n => n.UpdatedAt)
              .ToList();
 
-    private void SelectCategory(Guid catId) =>
+    private async Task SelectCategory(Guid catId)
+    {
         selectedCategoryId = catId;
+        await LoadNotesForCurrentCategory();
+    }
 
     private void EditNote(Guid id) =>
         Nav.NavigateTo($"/editor/{id}?returnUrl=/board");
@@ -261,7 +277,7 @@
             if (saved is not null)
             {
                 await LabelService.AddLabelToNoteAsync(saved.Id, dialogLabel.Id);
-                notes = await NoteService.GetAllSummariesAsync() ?? [];
+                await LoadNotesForCurrentCategory();
             }
             else
             {

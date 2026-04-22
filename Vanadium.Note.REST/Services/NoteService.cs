@@ -52,12 +52,19 @@ public class NoteService(NoteDbContext db, FileCleanupService fileCleanup, ILogg
         };
     }
 
-    public async Task<List<NoteSummary>> GetAllSummaries()
+    public async Task<List<NoteSummary>> GetAllSummaries(Guid[]? labelIds = null)
     {
-        var notes = await db.Notes
+        var query = db.Notes
             .Include(n => n.NoteLabels)
             .ThenInclude(nl => nl.Label)
             .ThenInclude(l => l.Category)
+            .AsQueryable();
+
+        // OR logic: notes that have ANY of the specified labels
+        if (labelIds is { Length: > 0 })
+            query = query.Where(n => n.NoteLabels.Any(nl => labelIds.Contains(nl.LabelId)));
+
+        var notes = await query
             .OrderByDescending(n => n.UpdatedAt)
             .ToListAsync();
 
