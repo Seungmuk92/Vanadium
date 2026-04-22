@@ -8,6 +8,7 @@
 @inject HttpClient Http
 @inject TokenStore TokenStore
 @inject ILogger<NoteEditor> Logger
+@inject ISnackbar Snackbar
 @implements IDisposable
 
 <PageTitle>@(isNew ? "New Note" : "Edit Note")</PageTitle>
@@ -214,17 +215,19 @@
 
         if (Id is not null)
         {
-            var note = await NoteService.GetAsync(Id.Value);
-            if (note is not null)
+            var result = await NoteService.GetAsync(Id.Value);
+            if (result.IsSuccess)
             {
-                title = note.Title;
-                content = note.Content;
-                noteLabels = note.Labels ?? [];
+                title = result.Value!.Title;
+                content = result.Value!.Content;
+                noteLabels = result.Value!.Labels ?? [];
                 _contentJustLoaded = true;
             }
             else
             {
-                Logger.LogWarning("Note {NoteId} could not be loaded.", Id.Value);
+                Snackbar.Add("Failed to load note.", Severity.Error);
+                Nav.NavigateTo("/");
+                return;
             }
         }
 
@@ -233,8 +236,15 @@
 
     private async Task LoadLabelsAsync()
     {
-        availableLabels = await LabelService.GetLabelsAsync() ?? [];
-        labelCategories = await LabelService.GetCategoriesAsync() ?? [];
+        var labelsResult = await LabelService.GetLabelsAsync();
+        if (!labelsResult.IsSuccess)
+            Snackbar.Add(labelsResult.Error ?? "Failed to load labels.", Severity.Warning);
+        availableLabels = labelsResult.Value ?? [];
+
+        var categoriesResult = await LabelService.GetCategoriesAsync();
+        if (!categoriesResult.IsSuccess)
+            Snackbar.Add(categoriesResult.Error ?? "Failed to load categories.", Severity.Warning);
+        labelCategories = categoriesResult.Value ?? [];
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
@@ -317,9 +327,9 @@
             Content = content
         };
 
-        var savedNote = await NoteService.SaveAsync(note);
+        var saveResult = await NoteService.SaveAsync(note);
 
-        if (savedNote is null)
+        if (!saveResult.IsSuccess)
         {
             Logger.LogError("Auto-save failed for note {NoteId}.", note.Id);
             SetStatus("Save failed", "status-error");
@@ -330,8 +340,8 @@
         if (isNew)
         {
             foreach (var label in noteLabels.ToList())
-                await LabelService.AddLabelToNoteAsync(savedNote.Id, label.Id);
-            Nav.NavigateTo($"/editor/{savedNote.Id}", replace: true);
+                await LabelService.AddLabelToNoteAsync(saveResult.Value!.Id, label.Id);
+            Nav.NavigateTo($"/editor/{saveResult.Value!.Id}", replace: true);
         }
 
         SetStatus("Saved", "status-saved");
@@ -357,11 +367,16 @@
             Title = title,
             Content = content
         };
-        var savedNote = await NoteService.SaveAsync(note);
-        if (isNew && savedNote is not null)
+        var saveResult = await NoteService.SaveAsync(note);
+        if (!saveResult.IsSuccess)
+        {
+            Snackbar.Add(saveResult.Error ?? "Failed to save note.", Severity.Error);
+            return;
+        }
+        if (isNew)
         {
             foreach (var label in noteLabels.ToList())
-                await LabelService.AddLabelToNoteAsync(savedNote.Id, label.Id);
+                await LabelService.AddLabelToNoteAsync(saveResult.Value!.Id, label.Id);
         }
         Nav.NavigateTo(BackUrl);
     }
@@ -370,7 +385,14 @@
     {
         _debounceCts?.Cancel();
         if (Id is not null)
-            await NoteService.DeleteAsync(Id.Value);
+        {
+            var result = await NoteService.DeleteAsync(Id.Value);
+            if (!result.IsSuccess)
+            {
+                Snackbar.Add(result.Error ?? "Failed to delete note.", Severity.Error);
+                return;
+            }
+        }
         Nav.NavigateTo("/");
     }
 
@@ -403,13 +425,27 @@
         if (noteLabels.Any(l => l.Id == label.Id))
         {
             if (Id is not null)
-                await LabelService.RemoveLabelFromNoteAsync(Id.Value, label.Id);
+            {
+                var result = await LabelService.RemoveLabelFromNoteAsync(Id.Value, label.Id);
+                if (!result.IsSuccess)
+                {
+                    Snackbar.Add(result.Error ?? "Failed to remove label.", Severity.Warning);
+                    return;
+                }
+            }
             noteLabels.RemoveAll(l => l.Id == label.Id);
         }
         else
         {
             if (Id is not null)
-                await LabelService.AddLabelToNoteAsync(Id.Value, label.Id);
+            {
+                var result = await LabelService.AddLabelToNoteAsync(Id.Value, label.Id);
+                if (!result.IsSuccess)
+                {
+                    Snackbar.Add(result.Error ?? "Failed to add label.", Severity.Warning);
+                    return;
+                }
+            }
 
             // Apply category exclusivity in local state
             if (label.CategoryId.HasValue)
@@ -423,21 +459,28 @@
     private async Task RemoveLabel(Guid labelId)
     {
         if (Id is not null)
-            await LabelService.RemoveLabelFromNoteAsync(Id.Value, labelId);
+        {
+            var result = await LabelService.RemoveLabelFromNoteAsync(Id.Value, labelId);
+            if (!result.IsSuccess)
+            {
+                Snackbar.Add(result.Error ?? "Failed to remove label.", Severity.Warning);
+                return;
+            }
+        }
         noteLabels.RemoveAll(l => l.Id == labelId);
     }
 
     private async Task CreateLabel()
     {
         if (string.IsNullOrWhiteSpace(newLabelName)) return;
-        var (label, error) = await LabelService.CreateLabelAsync(newLabelName.Trim(), NewLabelCategoryId);
-        if (error is not null)
+        var result = await LabelService.CreateLabelAsync(newLabelName.Trim(), NewLabelCategoryId);
+        if (!result.IsSuccess)
         {
-            labelError = error;
+            labelError = result.Error;
             return;
         }
         labelError = null;
-        availableLabels.Add(label!);
+        availableLabels.Add(result.Value!);
         availableLabels = [.. availableLabels.OrderBy(l => l.Name)];
         newLabelName = "";
         newLabelCategoryStr = "";
@@ -446,28 +489,38 @@
     private async Task CreateCategory()
     {
         if (string.IsNullOrWhiteSpace(newCategoryName)) return;
-        var (cat, error) = await LabelService.CreateCategoryAsync(newCategoryName.Trim());
-        if (error is not null)
+        var result = await LabelService.CreateCategoryAsync(newCategoryName.Trim());
+        if (!result.IsSuccess)
         {
-            categoryError = error;
+            categoryError = result.Error;
             return;
         }
         categoryError = null;
-        labelCategories.Add(cat!);
+        labelCategories.Add(result.Value!);
         labelCategories = [.. labelCategories.OrderBy(c => c.Name)];
         newCategoryName = "";
     }
 
     private async Task DeleteLabel(Guid labelId)
     {
-        await LabelService.DeleteLabelAsync(labelId);
+        var result = await LabelService.DeleteLabelAsync(labelId);
+        if (!result.IsSuccess)
+        {
+            Snackbar.Add(result.Error ?? "Failed to delete label.", Severity.Error);
+            return;
+        }
         availableLabels.RemoveAll(l => l.Id == labelId);
         noteLabels.RemoveAll(l => l.Id == labelId);
     }
 
     private async Task DeleteCategory(Guid categoryId)
     {
-        await LabelService.DeleteCategoryAsync(categoryId);
+        var result = await LabelService.DeleteCategoryAsync(categoryId);
+        if (!result.IsSuccess)
+        {
+            Snackbar.Add(result.Error ?? "Failed to delete category.", Severity.Error);
+            return;
+        }
         var removedIds = availableLabels
             .Where(l => l.CategoryId == categoryId)
             .Select(l => l.Id)

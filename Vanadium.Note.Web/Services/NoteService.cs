@@ -6,7 +6,7 @@ namespace Vanadium.Note.Web.Services;
 
 public class NoteService(HttpClient http, ILogger<NoteService> logger)
 {
-    public async Task<PagedResult<NoteSummary>?> GetAllAsync(
+    public async Task<ServiceResult<PagedResult<NoteSummary>>> GetAllAsync(
         int page = 1,
         int pageSize = 30,
         string? search = null,
@@ -27,7 +27,10 @@ public class NoteService(HttpClient http, ILogger<NoteService> logger)
             if (includeLabels)
                 sb.Append("&includeLabels=true");
 
-            return await http.GetFromJsonAsync<PagedResult<NoteSummary>>(sb.ToString(), cancellationToken);
+            var result = await http.GetFromJsonAsync<PagedResult<NoteSummary>>(sb.ToString(), cancellationToken);
+            return result is not null
+                ? ServiceResult<PagedResult<NoteSummary>>.Ok(result)
+                : ServiceResult<PagedResult<NoteSummary>>.Fail("Failed to load notes.");
         }
         catch (OperationCanceledException)
         {
@@ -36,11 +39,11 @@ public class NoteService(HttpClient http, ILogger<NoteService> logger)
         catch (Exception ex)
         {
             logger.LogError(ex, "Failed to load notes list.");
-            return null;
+            return ServiceResult<PagedResult<NoteSummary>>.Fail("Failed to load notes.");
         }
     }
 
-    public async Task<IReadOnlyList<NoteSummary>?> GetAllSummariesAsync(
+    public async Task<ServiceResult<IReadOnlyList<NoteSummary>>> GetAllSummariesAsync(
         IEnumerable<Guid>? labelIds = null)
     {
         try
@@ -52,61 +55,70 @@ public class NoteService(HttpClient http, ILogger<NoteService> logger)
                 if (ids.Count > 0)
                     url += "?" + string.Join("&", ids.Select(id => $"labelIds={id}"));
             }
-            return await http.GetFromJsonAsync<IReadOnlyList<NoteSummary>>(url);
+            var result = await http.GetFromJsonAsync<IReadOnlyList<NoteSummary>>(url);
+            return result is not null
+                ? ServiceResult<IReadOnlyList<NoteSummary>>.Ok(result)
+                : ServiceResult<IReadOnlyList<NoteSummary>>.Fail("Failed to load note summaries.");
         }
         catch (Exception ex)
         {
             logger.LogError(ex, "Failed to load note summaries.");
-            return null;
+            return ServiceResult<IReadOnlyList<NoteSummary>>.Fail("Failed to load note summaries.");
         }
     }
 
-    public async Task<NoteItem?> GetAsync(Guid id)
+    public async Task<ServiceResult<NoteItem>> GetAsync(Guid id)
     {
         try
         {
-            return await http.GetFromJsonAsync<NoteItem>($"api/notes/{id}");
+            var result = await http.GetFromJsonAsync<NoteItem>($"api/notes/{id}");
+            return result is not null
+                ? ServiceResult<NoteItem>.Ok(result)
+                : ServiceResult<NoteItem>.Fail("Note not found.");
         }
         catch (Exception ex)
         {
             logger.LogError(ex, "Failed to load note {NoteId}.", id);
-            return null;
+            return ServiceResult<NoteItem>.Fail("Failed to load note.");
         }
     }
 
-    public async Task<NoteItem?> SaveAsync(NoteItem note)
+    public async Task<ServiceResult<NoteItem>> SaveAsync(NoteItem note)
     {
         try
         {
-            if (note.Id == Guid.Empty)
-            {
-                var response = await http.PostAsJsonAsync("api/notes", note);
-                return await response.Content.ReadFromJsonAsync<NoteItem>();
-            }
-            else
-            {
-                var response = await http.PutAsJsonAsync($"api/notes/{note.Id}", note);
-                return await response.Content.ReadFromJsonAsync<NoteItem>();
-            }
+            var response = note.Id == Guid.Empty
+                ? await http.PostAsJsonAsync("api/notes", note)
+                : await http.PutAsJsonAsync($"api/notes/{note.Id}", note);
+
+            if (!response.IsSuccessStatusCode)
+                return ServiceResult<NoteItem>.Fail("Failed to save note.");
+
+            var saved = await response.Content.ReadFromJsonAsync<NoteItem>();
+            return saved is not null
+                ? ServiceResult<NoteItem>.Ok(saved)
+                : ServiceResult<NoteItem>.Fail("Failed to save note.");
         }
         catch (Exception ex)
         {
             logger.LogError(ex, "Failed to save note {NoteId}.", note.Id);
-            return null;
+            return ServiceResult<NoteItem>.Fail("Failed to save note.");
         }
     }
 
-    public async Task<bool> DeleteAsync(Guid id)
+    public async Task<ServiceResult<bool>> DeleteAsync(Guid id)
     {
         try
         {
             var response = await http.DeleteAsync($"api/notes/{id}");
-            return response.IsSuccessStatusCode;
+            return response.IsSuccessStatusCode
+                ? ServiceResult<bool>.Ok(true)
+                : ServiceResult<bool>.Fail("Failed to delete note.");
         }
         catch (Exception ex)
         {
             logger.LogError(ex, "Failed to delete note {NoteId}.", id);
-            return false;
+            return ServiceResult<bool>.Fail("Failed to delete note.");
         }
     }
 }
