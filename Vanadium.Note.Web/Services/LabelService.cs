@@ -94,27 +94,31 @@ public class LabelService(HttpClient http, ILogger<LabelService> logger)
         }
     }
 
-    public async Task AddLabelToNoteAsync(Guid noteId, Guid labelId)
+    public async Task<bool> AddLabelToNoteAsync(Guid noteId, Guid labelId)
     {
         try
         {
-            await http.PostAsJsonAsync($"api/notes/{noteId}/labels", new { labelId });
+            var response = await http.PostAsJsonAsync($"api/notes/{noteId}/labels", new { labelId });
+            return response.IsSuccessStatusCode;
         }
         catch (Exception ex)
         {
             logger.LogError(ex, "Failed to add label {LabelId} to note {NoteId}.", labelId, noteId);
+            return false;
         }
     }
 
-    public async Task RemoveLabelFromNoteAsync(Guid noteId, Guid labelId)
+    public async Task<bool> RemoveLabelFromNoteAsync(Guid noteId, Guid labelId)
     {
         try
         {
-            await http.DeleteAsync($"api/notes/{noteId}/labels/{labelId}");
+            var response = await http.DeleteAsync($"api/notes/{noteId}/labels/{labelId}");
+            return response.IsSuccessStatusCode;
         }
         catch (Exception ex)
         {
             logger.LogError(ex, "Failed to remove label {LabelId} from note {NoteId}.", labelId, noteId);
+            return false;
         }
     }
 

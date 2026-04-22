@@ -1,7 +1,6 @@
 @page "/"
 @attribute [Authorize]
 @inject NoteService NoteService
-@inject LabelService LabelService
 @inject NavigationManager Nav
 @inject IJSRuntime JS
 @inject ILogger<Home> Logger
@@ -9,141 +8,149 @@
 
 <PageTitle>Notes</PageTitle>
 
-<div class="notes-header">
-    <h1>Notes</h1>
-    <input class="notes-search"
-           type="search"
-           placeholder="Search by title..."
-           value="@searchText"
-           @oninput="e => searchText = e.Value?.ToString() ?? string.Empty" />
-    <button class="btn btn-primary" @onclick="CreateNote">New Note</button>
-</div>
-
-@if (allLabels.Any())
-{
-    <div class="label-filter-bar">
-        <span class="label-filter-title">Filter:</span>
-        @foreach (var label in allLabels)
-        {
-            var active = activeFilters.Contains(label.Id);
-            <span class="filter-chip @(active ? "filter-chip-active" : "") @(label.CategoryId.HasValue ? "filter-chip-cat" : "")"
-                  @onclick="() => ToggleFilter(label.Id)">
-                @if (label.CategoryId.HasValue)
-                {
-                    <span class="filter-chip-cat-prefix">@label.CategoryName:</span>
-                }
-                @label.Name
-            </span>
-        }
-        @if (activeFilters.Any())
-        {
-            <button class="filter-clear-btn" @onclick="ClearFilters">× Clear</button>
-        }
+<div class="home-page">
+    <div class="notes-header">
+        <h1>Notes</h1>
+        <input class="notes-search"
+               type="search"
+               placeholder="Search by title..."
+               value="@_searchText"
+               @oninput="OnSearchInput" />
+        <button class="btn btn-primary" @onclick="CreateNote">New Note</button>
     </div>
-}
 
-@if (!notes.Any())
-{
-    <p class="empty-message">No notes yet. Create one!</p>
-}
-else if (!FilteredNotes.Any())
-{
-    <p class="empty-message">No notes match the selected labels.</p>
-}
-else
-{
-    <div class="note-table">
-        <div class="note-row note-header">
-            <div class="col-check">
-                <input type="checkbox"
-                       class="note-checkbox"
-                       checked="@IsAllSelected"
-                       @onchange="ToggleSelectAll" />
-            </div>
-            <div class="col-title sortable" @onclick="() => SetSort(SortColumn.Title)">
-                Title @SortIcon(SortColumn.Title)
-            </div>
-            <div class="col-date sortable" @onclick="() => SetSort(SortColumn.Date)">
-                Modified @SortIcon(SortColumn.Date)
-            </div>
+    @if (allLabels.Any())
+    {
+        <div class="label-filter-bar">
+            <span class="label-filter-title">Filter:</span>
+            @foreach (var label in allLabels)
+            {
+                var active = activeFilters.Contains(label.Id);
+                <span class="filter-chip @(active ? "filter-chip-active" : "") @(label.CategoryId.HasValue ? "filter-chip-cat" : "")"
+                      @onclick="() => ToggleFilter(label.Id)">
+                    @if (label.CategoryId.HasValue)
+                    {
+                        <span class="filter-chip-cat-prefix">@label.CategoryName:</span>
+                    }
+                    @label.Name
+                </span>
+            }
+            @if (activeFilters.Any())
+            {
+                <button class="filter-clear-btn" @onclick="ClearFilters">× Clear</button>
+            }
         </div>
-        @foreach (var note in FilteredNotes)
-        {
-            <div class="note-row note-item @(selectedIds.Contains(note.Id) ? "selected" : "")">
+    }
+
+    @if (isLoading && !notes.Any())
+    {
+        <p class="empty-message">Loading...</p>
+    }
+    else if (!isLoading && !notes.Any())
+    {
+        <p class="empty-message">
+            @(totalCount == 0 && string.IsNullOrWhiteSpace(_searchText) && !activeFilters.Any()
+                ? "No notes yet. Create one!"
+                : "No notes match the current filter.")
+        </p>
+    }
+    else
+    {
+        <div class="note-table">
+            <div class="note-row note-header">
                 <div class="col-check">
                     <input type="checkbox"
                            class="note-checkbox"
-                           checked="@selectedIds.Contains(note.Id)"
-                           @onchange="() => ToggleSelect(note.Id)"
-                           @onclick:stopPropagation="true" />
+                           checked="@IsAllSelected"
+                           @onchange="ToggleSelectAll" />
                 </div>
-                <div class="col-title" @onclick="() => EditNote(note.Id)">
-                    <div class="note-title-text">
-                        @(string.IsNullOrWhiteSpace(note.Title) ? "(No title)" : note.Title)
-                    </div>
-                    @if (note.Labels?.Any() == true)
-                    {
-                        <div class="note-label-chips">
-                            @foreach (var label in note.Labels)
-                            {
-                                <span class="note-label-chip @(label.CategoryId.HasValue ? "note-label-chip-cat" : "")"
-                                      @onclick:stopPropagation="true"
-                                      @onclick="() => ToggleFilter(label.Id)">
-                                    @if (label.CategoryId.HasValue)
-                                    {
-                                        <span class="note-label-cat-prefix">@label.CategoryName:</span>
-                                    }
-                                    @label.Name
-                                </span>
-                            }
-                        </div>
-                    }
+                <div class="col-title sortable" @onclick="() => SetSort(SortColumn.Title)">
+                    Title @SortIcon(SortColumn.Title)
                 </div>
-                <div class="col-date" @onclick="() => EditNote(note.Id)">
-                    @note.UpdatedAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm")
+                <div class="col-date sortable" @onclick="() => SetSort(SortColumn.Date)">
+                    Modified @SortIcon(SortColumn.Date)
                 </div>
             </div>
+            @foreach (var note in notes)
+            {
+                <div class="note-row note-item @(selectedIds.Contains(note.Id) ? "selected" : "")">
+                    <div class="col-check">
+                        <input type="checkbox"
+                               class="note-checkbox"
+                               checked="@selectedIds.Contains(note.Id)"
+                               @onchange="() => ToggleSelect(note.Id)"
+                               @onclick:stopPropagation="true" />
+                    </div>
+                    <div class="col-title" @onclick="() => EditNote(note.Id)">
+                        <div class="note-title-text">
+                            @(string.IsNullOrWhiteSpace(note.Title) ? "(No title)" : note.Title)
+                        </div>
+                        @if (note.Labels?.Any() == true)
+                        {
+                            <div class="note-label-chips">
+                                @foreach (var label in note.Labels)
+                                {
+                                    <span class="note-label-chip @(label.CategoryId.HasValue ? "note-label-chip-cat" : "")"
+                                          @onclick:stopPropagation="true"
+                                          @onclick="() => ToggleFilter(label.Id)">
+                                        @if (label.CategoryId.HasValue)
+                                        {
+                                            <span class="note-label-cat-prefix">@label.CategoryName:</span>
+                                        }
+                                        @label.Name
+                                    </span>
+                                }
+                            </div>
+                        }
+                    </div>
+                    <div class="col-date" @onclick="() => EditNote(note.Id)">
+                        @note.UpdatedAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm")
+                    </div>
+                </div>
+            }
+        </div>
+
+        @if (TotalPages > 1)
+        {
+            <div class="pagination-bar">
+                <div class="pagination-controls">
+                    <button class="page-btn" disabled="@(currentPage == 1)" @onclick="() => OnPageChanged(1)">«</button>
+                    <button class="page-btn" disabled="@(currentPage == 1)" @onclick="() => OnPageChanged(currentPage - 1)">‹</button>
+                    @for (int i = Math.Max(1, currentPage - 2); i <= Math.Min(TotalPages, currentPage + 2); i++)
+                    {
+                        var p = i;
+                        <button class="page-btn @(p == currentPage ? "page-btn-active" : "")" @onclick="() => OnPageChanged(p)">@p</button>
+                    }
+                    <button class="page-btn" disabled="@(currentPage == TotalPages)" @onclick="() => OnPageChanged(currentPage + 1)">›</button>
+                    <button class="page-btn" disabled="@(currentPage == TotalPages)" @onclick="() => OnPageChanged(TotalPages)">»</button>
+                </div>
+                <span class="pagination-info">@totalCount notes</span>
+            </div>
         }
-    </div>
-}
+    }
+</div>
 
 @code {
-    private IReadOnlyList<NoteItem> notes = [];
+    private List<NoteSummary> notes = [];
     private List<Label> allLabels = [];
     private HashSet<Guid> selectedIds = [];
     private HashSet<Guid> activeFilters = [];
-    private string searchText = string.Empty;
+    private string _searchText = string.Empty;
+    private CancellationTokenSource? _searchCts;
+    private CancellationTokenSource? _loadCts;
     private DotNetObjectReference<Home>? dotNetRef;
+
+    private int currentPage = 1;
+    private int totalCount = 0;
+    private const int PageSize = 30;
+    private bool isLoading = false;
 
     private enum SortColumn { Title, Date }
     private SortColumn currentSort = SortColumn.Date;
     private bool sortAscending = false;
 
-    private IEnumerable<NoteItem> SortedNotes => currentSort switch
-    {
-        SortColumn.Title => sortAscending
-            ? notes.OrderBy(n => n.Title)
-            : notes.OrderByDescending(n => n.Title),
-        SortColumn.Date => sortAscending
-            ? notes.OrderBy(n => n.UpdatedAt)
-            : notes.OrderByDescending(n => n.UpdatedAt),
-        _ => notes
-    };
-
-    private IEnumerable<NoteItem> FilteredNotes
-    {
-        get
-        {
-            var result = SortedNotes;
-            if (!string.IsNullOrWhiteSpace(searchText))
-                result = result.Where(n => (n.Title ?? string.Empty).Contains(searchText, StringComparison.OrdinalIgnoreCase));
-            if (activeFilters.Count > 0)
-                result = result.Where(n => activeFilters.All(f => (n.Labels ?? []).Any(l => l.Id == f)));
-            return result;
-        }
-    }
-
-    private bool IsAllSelected => notes.Count > 0 && selectedIds.Count == notes.Count;
+    private int TotalPages => Math.Max(1, (int)Math.Ceiling((double)totalCount / PageSize));
+    private bool IsAllSelected => notes.Count > 0 && notes.All(n => selectedIds.Contains(n.Id));
 
     private string SortIcon(SortColumn col)
     {
@@ -151,27 +158,30 @@ else
         return sortAscending ? "↑" : "↓";
     }
 
-    private void SetSort(SortColumn col)
-    {
-        if (currentSort == col)
-            sortAscending = !sortAscending;
-        else
-        {
-            currentSort = col;
-            sortAscending = true;
-        }
-    }
-
     protected override async Task OnInitializedAsync()
     {
-        var loadedNotes = await NoteService.GetAllAsync();
-        if (loadedNotes is null)
-            Logger.LogWarning("Failed to load notes on initialization.");
-        else if (loadedNotes.Count == 0)
-            Logger.LogDebug("Notes list loaded successfully — no notes yet.");
-        notes = loadedNotes ?? [];
+        _loadCts = new CancellationTokenSource();
+        var token = _loadCts.Token;
+        isLoading = true;
 
-        allLabels = await LabelService.GetLabelsAsync() ?? [];
+        var result = await NoteService.GetAllAsync(
+            currentPage, PageSize, null,
+            currentSort == SortColumn.Title ? "title" : "date",
+            sortAscending ? "asc" : "desc",
+            null,
+            includeLabels: true,
+            cancellationToken: token);
+
+        if (result is not null)
+        {
+            allLabels = result.Labels ?? [];
+            notes = result.Items;
+            totalCount = result.TotalCount;
+            if (currentPage > TotalPages && TotalPages > 0)
+                currentPage = TotalPages;
+        }
+
+        isLoading = false;
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
@@ -183,6 +193,125 @@ else
         }
     }
 
+    private async Task LoadNotes()
+    {
+        // Cancel any in-flight request so only the latest call updates the UI
+        _loadCts?.Cancel();
+        _loadCts?.Dispose();
+        _loadCts = new CancellationTokenSource();
+        var token = _loadCts.Token;
+
+        isLoading = true;
+        StateHasChanged();
+
+        try
+        {
+            while (true)
+            {
+                var result = await NoteService.GetAllAsync(
+                    currentPage,
+                    PageSize,
+                    string.IsNullOrWhiteSpace(_searchText) ? null : _searchText,
+                    currentSort == SortColumn.Title ? "title" : "date",
+                    sortAscending ? "asc" : "desc",
+                    activeFilters.Count > 0 ? activeFilters : null,
+                    cancellationToken: token);
+
+                if (result is null) break;
+
+                notes = result.Items;
+                totalCount = result.TotalCount;
+
+                // Page out of range after deletion — clamp and retry with the same token
+                if (currentPage > TotalPages && TotalPages > 0)
+                    currentPage = TotalPages;
+                else
+                    break;
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // A newer LoadNotes() call took over — do not update UI state
+            return;
+        }
+
+        isLoading = false;
+        StateHasChanged();
+    }
+
+    private async Task OnSearchInput(ChangeEventArgs e)
+    {
+        _searchText = e.Value?.ToString() ?? string.Empty;
+
+        _searchCts?.Cancel();
+        _searchCts?.Dispose();
+        _searchCts = new CancellationTokenSource();
+        var token = _searchCts.Token;
+
+        try
+        {
+            await Task.Delay(300, token);
+            currentPage = 1;
+            selectedIds.Clear();
+            await LoadNotes();
+        }
+        catch (TaskCanceledException) { }
+    }
+
+    private async Task SetSort(SortColumn col)
+    {
+        if (currentSort == col)
+            sortAscending = !sortAscending;
+        else
+        {
+            currentSort = col;
+            sortAscending = true;
+        }
+        currentPage = 1;
+        selectedIds.Clear();
+        await LoadNotes();
+    }
+
+    private async Task ToggleFilter(Guid labelId)
+    {
+        if (activeFilters.Contains(labelId))
+        {
+            activeFilters.Remove(labelId);
+        }
+        else
+        {
+            var label = allLabels.FirstOrDefault(l => l.Id == labelId);
+            if (label?.CategoryId.HasValue == true)
+            {
+                var sameCategory = allLabels
+                    .Where(l => l.CategoryId == label.CategoryId)
+                    .Select(l => l.Id);
+                foreach (var id in sameCategory)
+                    activeFilters.Remove(id);
+            }
+            activeFilters.Add(labelId);
+        }
+
+        currentPage = 1;
+        selectedIds.Clear();
+        await LoadNotes();
+    }
+
+    private async Task ClearFilters()
+    {
+        activeFilters.Clear();
+        currentPage = 1;
+        selectedIds.Clear();
+        await LoadNotes();
+    }
+
+    private async Task OnPageChanged(int page)
+    {
+        currentPage = page;
+        selectedIds.Clear();
+        await LoadNotes();
+    }
+
     [JSInvokable]
     public async Task OnDeleteKeyPressed()
     {
@@ -192,7 +321,7 @@ else
         if (!confirmed) return;
 
         Logger.LogInformation("Deleting {Count} note(s).", selectedIds.Count);
-        foreach (var id in selectedIds)
+        foreach (var id in selectedIds.ToList())
         {
             var success = await NoteService.DeleteAsync(id);
             if (!success)
@@ -200,8 +329,7 @@ else
         }
 
         selectedIds.Clear();
-        notes = await NoteService.GetAllAsync() ?? [];
-        StateHasChanged();
+        await LoadNotes();
     }
 
     private void ToggleSelect(Guid id)
@@ -215,44 +343,20 @@ else
         if (IsAllSelected)
             selectedIds.Clear();
         else
-            selectedIds = notes.Select(n => n.Id).ToHashSet();
+            foreach (var note in notes)
+                selectedIds.Add(note.Id);
     }
 
-    private void ToggleFilter(Guid labelId)
-    {
-        if (activeFilters.Contains(labelId))
-        {
-            activeFilters.Remove(labelId);
-            return;
-        }
+    private void CreateNote() => Nav.NavigateTo("/editor");
 
-        var label = allLabels.FirstOrDefault(l => l.Id == labelId);
-        if (label?.CategoryId.HasValue == true)
-        {
-            var sameCategory = allLabels
-                .Where(l => l.CategoryId == label.CategoryId)
-                .Select(l => l.Id);
-            foreach (var id in sameCategory)
-                activeFilters.Remove(id);
-        }
-
-        activeFilters.Add(labelId);
-    }
-
-    private void ClearFilters() => activeFilters.Clear();
-
-    private void CreateNote()
-    {
-        Nav.NavigateTo("/editor");
-    }
-
-    private void EditNote(Guid id)
-    {
-        Nav.NavigateTo($"/editor/{id}");
-    }
+    private void EditNote(Guid id) => Nav.NavigateTo($"/editor/{id}");
 
     public async ValueTask DisposeAsync()
     {
+        _searchCts?.Cancel();
+        _searchCts?.Dispose();
+        _loadCts?.Cancel();
+        _loadCts?.Dispose();
         await JS.InvokeVoidAsync("unregisterDeleteKey");
         dotNetRef?.Dispose();
     }
