@@ -23,6 +23,8 @@ public class NotesController(NoteService noteService, LabelService labelService,
     {
         page = Math.Max(1, page);
         pageSize = Math.Clamp(pageSize, 1, 200);
+        if (labelIds is { Length: > 50 })
+            return BadRequest("Too many label IDs (maximum 50).");
         var result = await noteService.GetPaged(page, pageSize, search, sortBy, sortDir, labelIds);
         if (includeLabels)
             result.Labels = await labelService.GetAllLabelsAsync();
@@ -33,6 +35,8 @@ public class NotesController(NoteService noteService, LabelService labelService,
     public async Task<ActionResult<List<NoteSummary>>> GetSummaries(
         [FromQuery] Guid[]? labelIds = null)
     {
+        if (labelIds is { Length: > 50 })
+            return BadRequest("Too many label IDs (maximum 50).");
         return Ok(await noteService.GetAllSummaries(labelIds));
     }
 
