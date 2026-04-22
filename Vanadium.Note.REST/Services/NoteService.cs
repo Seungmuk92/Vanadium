@@ -29,13 +29,17 @@ public class NoteService(NoteDbContext db, FileCleanupService fileCleanup, ILogg
             search,
             labelIds);
 
-        dataQuery = (sortBy.ToLowerInvariant(), sortDir.ToLowerInvariant()) switch
-        {
-            ("title", "asc")  => dataQuery.OrderBy(n => n.Title),
-            ("title", "desc") => dataQuery.OrderByDescending(n => n.Title),
-            ("date",  "asc")  => dataQuery.OrderBy(n => n.UpdatedAt),
-            _                 => dataQuery.OrderByDescending(n => n.UpdatedAt)
-        };
+        dataQuery = !string.IsNullOrWhiteSpace(search)
+            ? dataQuery.OrderByDescending(n =>
+                EF.Functions.ToTsVector("simple", n.Title + " " + n.ContentText)
+                    .Rank(EF.Functions.WebSearchToTsQuery("simple", search)))
+            : (sortBy.ToLowerInvariant(), sortDir.ToLowerInvariant()) switch
+            {
+                ("title", "asc")  => dataQuery.OrderBy(n => n.Title),
+                ("title", "desc") => dataQuery.OrderByDescending(n => n.Title),
+                ("date",  "asc")  => dataQuery.OrderBy(n => n.UpdatedAt),
+                _                 => dataQuery.OrderByDescending(n => n.UpdatedAt)
+            };
 
         var notes = await dataQuery
             .Skip((page - 1) * pageSize)
