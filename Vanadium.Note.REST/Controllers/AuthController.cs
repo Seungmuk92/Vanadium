@@ -42,12 +42,6 @@ public class AuthController(IConfiguration config, IWebHostEnvironment env, Note
         if (!env.IsDevelopment())
             return NotFound();
 
-        if (string.IsNullOrWhiteSpace(request.Username))
-            return BadRequest(new { message = "Username is required." });
-
-        if (string.IsNullOrWhiteSpace(request.Password))
-            return BadRequest(new { message = "Password is required." });
-
         var existing = await db.Users
             .FirstOrDefaultAsync(u => u.Username == request.Username);
 
