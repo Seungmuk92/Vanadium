@@ -157,7 +157,10 @@
 
     protected override async Task OnInitializedAsync()
     {
-        categories = await LabelService.GetCategoriesAsync() ?? [];
+        var catResult = await LabelService.GetCategoriesAsync();
+        if (!catResult.IsSuccess)
+            Snackbar.Add(catResult.Error ?? "Failed to load categories.", Severity.Error);
+        categories = catResult.Value ?? [];
         if (categories.Any())
         {
             selectedCategoryId = categories[0].Id;
@@ -173,7 +176,10 @@
             return;
         }
         var labelIds = selectedCategory.Labels.Select(l => l.Id);
-        notes = await NoteService.GetAllSummariesAsync(labelIds) ?? [];
+        var notesResult = await NoteService.GetAllSummariesAsync(labelIds);
+        if (!notesResult.IsSuccess)
+            Snackbar.Add(notesResult.Error ?? "Failed to load notes.", Severity.Error);
+        notes = notesResult.Value ?? [];
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
@@ -227,10 +233,12 @@
             noteId, fromLabelId, toLabelId);
 
         // Persist to server
-        var removeOk = await LabelService.RemoveLabelFromNoteAsync(noteId, fromLabelId);
-        var addOk = removeOk && await LabelService.AddLabelToNoteAsync(noteId, toLabelId);
+        var removeResult = await LabelService.RemoveLabelFromNoteAsync(noteId, fromLabelId);
+        var addResult = removeResult.IsSuccess
+            ? await LabelService.AddLabelToNoteAsync(noteId, toLabelId)
+            : ServiceResult<bool>.Fail("Remove failed");
 
-        if (!removeOk || !addOk)
+        if (!removeResult.IsSuccess || !addResult.IsSuccess)
         {
             Logger.LogError(
                 "Failed to persist label move for note {NoteId} ({FromLabel} → {ToLabel}).",
@@ -296,11 +304,14 @@
         try
         {
             var note = new NoteItem { Id = Guid.Empty, Title = newNoteTitle.Trim() };
-            var saved = await NoteService.SaveAsync(note);
-            if (saved is not null)
+            var saveResult = await NoteService.SaveAsync(note);
+            if (saveResult.IsSuccess)
             {
-                await LabelService.AddLabelToNoteAsync(saved.Id, dialogLabel.Id);
+                await LabelService.AddLabelToNoteAsync(saveResult.Value!.Id, dialogLabel.Id);
                 await LoadNotesForCurrentCategory();
+                showDialog = false;
+                dialogLabel = null;
+                newNoteTitle = "";
             }
             else
             {
@@ -308,9 +319,6 @@
                     dialogLabel.Name);
                 dialogError = "Failed to add note. Please try again.";
             }
-            showDialog = false;
-            dialogLabel = null;
-            newNoteTitle = "";
         }
         catch (Exception ex)
         {

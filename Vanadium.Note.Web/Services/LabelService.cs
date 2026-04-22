@@ -6,119 +6,147 @@ namespace Vanadium.Note.Web.Services;
 
 public class LabelService(HttpClient http, ILogger<LabelService> logger)
 {
-    public async Task<List<Label>?> GetLabelsAsync()
+    public async Task<ServiceResult<List<Label>>> GetLabelsAsync()
     {
         try
         {
-            return await http.GetFromJsonAsync<List<Label>>("api/labels");
+            var result = await http.GetFromJsonAsync<List<Label>>("api/labels");
+            return result is not null
+                ? ServiceResult<List<Label>>.Ok(result)
+                : ServiceResult<List<Label>>.Fail("Failed to load labels.");
         }
         catch (Exception ex)
         {
             logger.LogError(ex, "Failed to load labels.");
-            return null;
+            return ServiceResult<List<Label>>.Fail("Failed to load labels.");
         }
     }
 
-    public async Task<(Label? Result, string? Error)> CreateLabelAsync(string name, Guid? categoryId)
+    public async Task<ServiceResult<Label>> CreateLabelAsync(string name, Guid? categoryId)
     {
         try
         {
             var response = await http.PostAsJsonAsync("api/labels", new { name, categoryId });
             if (response.IsSuccessStatusCode)
-                return (await response.Content.ReadFromJsonAsync<Label>(), null);
+            {
+                var label = await response.Content.ReadFromJsonAsync<Label>();
+                return label is not null
+                    ? ServiceResult<Label>.Ok(label)
+                    : ServiceResult<Label>.Fail("An error occurred.");
+            }
 
             var error = await ReadErrorAsync(response);
             logger.LogWarning("Failed to create label '{Name}': {Error}", name, error);
-            return (null, error);
+            return ServiceResult<Label>.Fail(error);
         }
         catch (Exception ex)
         {
             logger.LogError(ex, "Failed to create label '{Name}'.", name);
-            return (null, "An error occurred.");
+            return ServiceResult<Label>.Fail("An error occurred.");
         }
     }
 
-    public async Task DeleteLabelAsync(Guid id)
+    public async Task<ServiceResult<bool>> DeleteLabelAsync(Guid id)
     {
         try
         {
-            await http.DeleteAsync($"api/labels/{id}");
+            var response = await http.DeleteAsync($"api/labels/{id}");
+            return response.IsSuccessStatusCode
+                ? ServiceResult<bool>.Ok(true)
+                : ServiceResult<bool>.Fail("Failed to delete label.");
         }
         catch (Exception ex)
         {
             logger.LogError(ex, "Failed to delete label {LabelId}.", id);
+            return ServiceResult<bool>.Fail("Failed to delete label.");
         }
     }
 
-    public async Task<List<LabelCategory>?> GetCategoriesAsync()
+    public async Task<ServiceResult<List<LabelCategory>>> GetCategoriesAsync()
     {
         try
         {
-            return await http.GetFromJsonAsync<List<LabelCategory>>("api/label-categories");
+            var result = await http.GetFromJsonAsync<List<LabelCategory>>("api/label-categories");
+            return result is not null
+                ? ServiceResult<List<LabelCategory>>.Ok(result)
+                : ServiceResult<List<LabelCategory>>.Fail("Failed to load categories.");
         }
         catch (Exception ex)
         {
             logger.LogError(ex, "Failed to load label categories.");
-            return null;
+            return ServiceResult<List<LabelCategory>>.Fail("Failed to load categories.");
         }
     }
 
-    public async Task<(LabelCategory? Result, string? Error)> CreateCategoryAsync(string name)
+    public async Task<ServiceResult<LabelCategory>> CreateCategoryAsync(string name)
     {
         try
         {
             var response = await http.PostAsJsonAsync("api/label-categories", new { name });
             if (response.IsSuccessStatusCode)
-                return (await response.Content.ReadFromJsonAsync<LabelCategory>(), null);
+            {
+                var cat = await response.Content.ReadFromJsonAsync<LabelCategory>();
+                return cat is not null
+                    ? ServiceResult<LabelCategory>.Ok(cat)
+                    : ServiceResult<LabelCategory>.Fail("An error occurred.");
+            }
 
             var error = await ReadErrorAsync(response);
             logger.LogWarning("Failed to create category '{Name}': {Error}", name, error);
-            return (null, error);
+            return ServiceResult<LabelCategory>.Fail(error);
         }
         catch (Exception ex)
         {
             logger.LogError(ex, "Failed to create category '{Name}'.", name);
-            return (null, "An error occurred.");
+            return ServiceResult<LabelCategory>.Fail("An error occurred.");
         }
     }
 
-    public async Task DeleteCategoryAsync(Guid id)
+    public async Task<ServiceResult<bool>> DeleteCategoryAsync(Guid id)
     {
         try
         {
-            await http.DeleteAsync($"api/label-categories/{id}");
+            var response = await http.DeleteAsync($"api/label-categories/{id}");
+            return response.IsSuccessStatusCode
+                ? ServiceResult<bool>.Ok(true)
+                : ServiceResult<bool>.Fail("Failed to delete category.");
         }
         catch (Exception ex)
         {
             logger.LogError(ex, "Failed to delete category {CategoryId}.", id);
+            return ServiceResult<bool>.Fail("Failed to delete category.");
         }
     }
 
-    public async Task<bool> AddLabelToNoteAsync(Guid noteId, Guid labelId)
+    public async Task<ServiceResult<bool>> AddLabelToNoteAsync(Guid noteId, Guid labelId)
     {
         try
         {
             var response = await http.PostAsJsonAsync($"api/notes/{noteId}/labels", new { labelId });
-            return response.IsSuccessStatusCode;
+            return response.IsSuccessStatusCode
+                ? ServiceResult<bool>.Ok(true)
+                : ServiceResult<bool>.Fail("Failed to add label.");
         }
         catch (Exception ex)
         {
             logger.LogError(ex, "Failed to add label {LabelId} to note {NoteId}.", labelId, noteId);
-            return false;
+            return ServiceResult<bool>.Fail("Failed to add label.");
         }
     }
 
-    public async Task<bool> RemoveLabelFromNoteAsync(Guid noteId, Guid labelId)
+    public async Task<ServiceResult<bool>> RemoveLabelFromNoteAsync(Guid noteId, Guid labelId)
     {
         try
         {
             var response = await http.DeleteAsync($"api/notes/{noteId}/labels/{labelId}");
-            return response.IsSuccessStatusCode;
+            return response.IsSuccessStatusCode
+                ? ServiceResult<bool>.Ok(true)
+                : ServiceResult<bool>.Fail("Failed to remove label.");
         }
         catch (Exception ex)
         {
             logger.LogError(ex, "Failed to remove label {LabelId} from note {NoteId}.", labelId, noteId);
-            return false;
+            return ServiceResult<bool>.Fail("Failed to remove label.");
         }
     }
 
