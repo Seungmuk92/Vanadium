@@ -16,6 +16,22 @@ public class FilesController(IWebHostEnvironment env, NoteDbContext db, ILogger<
 {
     private string UploadsPath => Path.Combine(env.ContentRootPath, "uploads");
 
+    private static readonly HashSet<string> AllowedContentTypes =
+    [
+        "application/pdf",
+        "application/zip",
+        "application/msword",
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "application/vnd.ms-excel",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "text/plain",
+        "text/markdown",
+        "image/jpeg",
+        "image/png",
+        "image/gif",
+        "image/webp",
+    ];
+
     [Authorize]
     [HttpPost]
     [RequestSizeLimit(100 * 1024 * 1024)]
@@ -23,6 +39,15 @@ public class FilesController(IWebHostEnvironment env, NoteDbContext db, ILogger<
     [Consumes("multipart/form-data")]
     public async Task<ActionResult> Upload([FromForm] FileUploadRequest request)
     {
+        if (request.File is null || request.File.Length == 0)
+            return BadRequest("No file provided.");
+
+        if (!AllowedContentTypes.Contains(request.File.ContentType))
+        {
+            logger.LogWarning("File upload rejected: unsupported content type '{ContentType}'", request.File.ContentType);
+            return BadRequest($"File type '{request.File.ContentType}' is not allowed.");
+        }
+
         var originalName = Path.GetFileName(request.File.FileName);
         logger.LogInformation("File upload requested: '{FileName}' ({Size} bytes, {ContentType})",
             originalName, request.File.Length, request.File.ContentType);

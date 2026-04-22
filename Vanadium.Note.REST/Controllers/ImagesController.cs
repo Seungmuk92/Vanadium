@@ -21,13 +21,24 @@ public class ImagesController(IWebHostEnvironment env, ILogger<ImagesController>
     [Consumes("multipart/form-data")]
     public async Task<ActionResult> Upload([FromForm] ImageUploadRequest request)
     {
+        if (request.File is null || request.File.Length == 0)
+            return BadRequest("No file provided.");
+
+        var imageType = await DetectImageTypeAsync(request.File);
+        if (imageType is null)
+        {
+            logger.LogWarning("Image upload rejected: unrecognized format '{FileName}' ({ContentType})",
+                request.File.FileName, request.File.ContentType);
+            return BadRequest("File is not a supported image (JPEG, PNG, GIF, WebP).");
+        }
+
         logger.LogInformation("Image upload requested: '{FileName}' ({Size} bytes, {ContentType})",
-            request.File.FileName, request.File.Length, request.File.ContentType);
+            request.File.FileName, request.File.Length, imageType);
 
         Directory.CreateDirectory(UploadsPath);
 
         var id = Guid.NewGuid();
-        var ext = ToExtension(request.File.ContentType);
+        var ext = ToExtension(imageType);
         var path = Path.Combine(UploadsPath, $"{id}{ext}");
 
         await using var stream = System.IO.File.Create(path);
@@ -49,6 +60,27 @@ public class ImagesController(IWebHostEnvironment env, ILogger<ImagesController>
             return NotFound();
         }
         return PhysicalFile(file.FullName, ToContentType(file.Extension));
+    }
+
+    private static async Task<string?> DetectImageTypeAsync(IFormFile file)
+    {
+        var buffer = new byte[12];
+        await using var stream = file.OpenReadStream();
+        var read = await stream.ReadAsync(buffer);
+        if (read < 4) return null;
+
+        if (buffer[0] == 0xFF && buffer[1] == 0xD8 && buffer[2] == 0xFF)
+            return "image/jpeg";
+        if (buffer[0] == 0x89 && buffer[1] == 0x50 && buffer[2] == 0x4E && buffer[3] == 0x47)
+            return "image/png";
+        if (buffer[0] == 0x47 && buffer[1] == 0x49 && buffer[2] == 0x46 && buffer[3] == 0x38)
+            return "image/gif";
+        if (read >= 12 &&
+            buffer[0] == 0x52 && buffer[1] == 0x49 && buffer[2] == 0x46 && buffer[3] == 0x46 &&
+            buffer[8] == 0x57 && buffer[9] == 0x45 && buffer[10] == 0x42 && buffer[11] == 0x50)
+            return "image/webp";
+
+        return null;
     }
 
     private static string ToExtension(string contentType) => contentType switch
