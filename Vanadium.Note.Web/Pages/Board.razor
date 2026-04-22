@@ -5,6 +5,7 @@
 @inject NavigationManager Nav
 @inject IJSRuntime JS
 @inject ILogger<Board> Logger
+@inject ISnackbar Snackbar
 @implements IAsyncDisposable
 
 <PageTitle>Board</PageTitle>
@@ -139,7 +140,7 @@
 }
 
 @code {
-    private IReadOnlyList<NoteItem> notes = [];
+    private IReadOnlyList<NoteSummary> notes = [];
     private List<LabelCategory> categories = [];
     private Guid? selectedCategoryId;
     private DotNetObjectReference<Board>? _dotNetRef;
@@ -156,10 +157,23 @@
 
     protected override async Task OnInitializedAsync()
     {
-        notes = await NoteService.GetAllAsync() ?? [];
         categories = await LabelService.GetCategoriesAsync() ?? [];
         if (categories.Any())
+        {
             selectedCategoryId = categories[0].Id;
+            await LoadNotesForCurrentCategory();
+        }
+    }
+
+    private async Task LoadNotesForCurrentCategory()
+    {
+        if (selectedCategory is null || !selectedCategory.Labels.Any())
+        {
+            notes = [];
+            return;
+        }
+        var labelIds = selectedCategory.Labels.Select(l => l.Id);
+        notes = await NoteService.GetAllSummariesAsync(labelIds) ?? [];
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
@@ -188,13 +202,23 @@
             return;
         }
 
-        // Optimistic local update
         var note = notes.FirstOrDefault(n => n.Id == noteId);
+
+        // Snapshot labels before mutation for rollback
+        var originalLabels = note?.Labels.ToList();
+
+        // Optimistic update — move card immediately
         if (note is not null)
         {
             note.Labels.RemoveAll(l => l.Id == fromLabelId);
             if (!note.Labels.Any(l => l.Id == toLabelId))
-                note.Labels.Add(targetLabel);
+                note.Labels.Add(new Label
+                {
+                    Id = targetLabel.Id,
+                    Name = targetLabel.Name,
+                    CategoryId = targetLabel.CategoryId,
+                    CategoryName = selectedCategory?.Name
+                });
         }
 
         StateHasChanged();
@@ -203,19 +227,40 @@
             noteId, fromLabelId, toLabelId);
 
         // Persist to server
-        await LabelService.RemoveLabelFromNoteAsync(noteId, fromLabelId);
-        await LabelService.AddLabelToNoteAsync(noteId, toLabelId);
+        var removeOk = await LabelService.RemoveLabelFromNoteAsync(noteId, fromLabelId);
+        var addOk = removeOk && await LabelService.AddLabelToNoteAsync(noteId, toLabelId);
+
+        if (!removeOk || !addOk)
+        {
+            Logger.LogError(
+                "Failed to persist label move for note {NoteId} ({FromLabel} → {ToLabel}).",
+                noteId, fromLabelId, toLabelId);
+
+            // Immediate visual rollback before server sync
+            if (note is not null && originalLabels is not null)
+            {
+                note.Labels = originalLabels;
+                StateHasChanged();
+            }
+
+            // Reload from server to guarantee UI matches DB
+            await LoadNotesForCurrentCategory();
+            Snackbar.Add("Failed to move note. Changes have been reverted.", Severity.Error);
+        }
     }
 
     // ── General helpers ───────────────────────────────────────────────────────
 
-    private List<NoteItem> GetNotesForLabel(Guid labelId) =>
-        notes.Where(n => (n.Labels ?? []).Any(l => l.Id == labelId))
+    private List<NoteSummary> GetNotesForLabel(Guid labelId) =>
+        notes.Where(n => n.Labels.Any(l => l.Id == labelId))
              .OrderByDescending(n => n.UpdatedAt)
              .ToList();
 
-    private void SelectCategory(Guid catId) =>
+    private async Task SelectCategory(Guid catId)
+    {
         selectedCategoryId = catId;
+        await LoadNotesForCurrentCategory();
+    }
 
     private void EditNote(Guid id) =>
         Nav.NavigateTo($"/editor/{id}?returnUrl=/board");
@@ -255,7 +300,7 @@
             if (saved is not null)
             {
                 await LabelService.AddLabelToNoteAsync(saved.Id, dialogLabel.Id);
-                notes = await NoteService.GetAllAsync() ?? [];
+                await LoadNotesForCurrentCategory();
             }
             else
             {
