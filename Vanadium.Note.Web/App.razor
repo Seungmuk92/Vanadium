@@ -1,14 +1,24 @@
 <CascadingAuthenticationState>
     <Router AppAssembly="@typeof(App).Assembly" NotFoundPage="typeof(Pages.NotFound)">
         <Found Context="routeData">
-            <AuthorizeRouteView RouteData="@routeData" DefaultLayout="@typeof(MainLayout)">
-                <NotAuthorized>
-                    <RedirectToLogin />
-                </NotAuthorized>
-                <Authorizing>
-                    <p>Loading...</p>
-                </Authorizing>
-            </AuthorizeRouteView>
+            <ErrorBoundary>
+                <ChildContent>
+                    <AuthorizeRouteView RouteData="@routeData" DefaultLayout="@typeof(MainLayout)">
+                        <NotAuthorized>
+                            <RedirectToLogin />
+                        </NotAuthorized>
+                        <Authorizing>
+                            <p>Loading...</p>
+                        </Authorizing>
+                    </AuthorizeRouteView>
+                </ChildContent>
+                <ErrorContent>
+                    <div style="padding: 2rem; text-align: center;">
+                        <p>An unexpected error has occurred.</p>
+                        <a href="/">Return to home</a>
+                    </div>
+                </ErrorContent>
+            </ErrorBoundary>
             <FocusOnNavigate RouteData="@routeData" Selector="h1" />
         </Found>
     </Router>

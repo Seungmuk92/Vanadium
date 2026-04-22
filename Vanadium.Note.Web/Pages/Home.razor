@@ -4,6 +4,7 @@
 @inject NavigationManager Nav
 @inject IJSRuntime JS
 @inject ILogger<Home> Logger
+@inject ISnackbar Snackbar
 @implements IAsyncDisposable
 
 <PageTitle>Notes</PageTitle>
@@ -172,13 +173,17 @@
             includeLabels: true,
             cancellationToken: token);
 
-        if (result is not null)
+        if (result.IsSuccess)
         {
-            allLabels = result.Labels ?? [];
-            notes = result.Items;
-            totalCount = result.TotalCount;
+            allLabels = result.Value!.Labels ?? [];
+            notes = result.Value!.Items;
+            totalCount = result.Value!.TotalCount;
             if (currentPage > TotalPages && TotalPages > 0)
                 currentPage = TotalPages;
+        }
+        else
+        {
+            Snackbar.Add(result.Error ?? "Failed to load notes.", Severity.Error);
         }
 
         isLoading = false;
@@ -217,10 +222,14 @@
                     activeFilters.Count > 0 ? activeFilters : null,
                     cancellationToken: token);
 
-                if (result is null) break;
+                if (!result.IsSuccess)
+                {
+                    Snackbar.Add(result.Error ?? "Failed to load notes.", Severity.Error);
+                    break;
+                }
 
-                notes = result.Items;
-                totalCount = result.TotalCount;
+                notes = result.Value!.Items;
+                totalCount = result.Value!.TotalCount;
 
                 // Page out of range after deletion — clamp and retry with the same token
                 if (currentPage > TotalPages && TotalPages > 0)
@@ -321,12 +330,15 @@
         if (!confirmed) return;
 
         Logger.LogInformation("Deleting {Count} note(s).", selectedIds.Count);
+        var failCount = 0;
         foreach (var id in selectedIds.ToList())
         {
-            var success = await NoteService.DeleteAsync(id);
-            if (!success)
-                Logger.LogWarning("Failed to delete note {NoteId}.", id);
+            var result = await NoteService.DeleteAsync(id);
+            if (!result.IsSuccess)
+                failCount++;
         }
+        if (failCount > 0)
+            Snackbar.Add($"Failed to delete {failCount} note(s).", Severity.Error);
 
         selectedIds.Clear();
         await LoadNotes();
