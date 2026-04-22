@@ -155,8 +155,31 @@
 
     protected override async Task OnInitializedAsync()
     {
-        allLabels = await LabelService.GetLabelsAsync() ?? [];
-        await LoadNotes();
+        _loadCts = new CancellationTokenSource();
+        var token = _loadCts.Token;
+        isLoading = true;
+
+        var labelsTask = LabelService.GetLabelsAsync();
+        var notesTask = NoteService.GetAllAsync(
+            currentPage, PageSize, null,
+            currentSort == SortColumn.Title ? "title" : "date",
+            sortAscending ? "asc" : "desc",
+            null, token);
+
+        await Task.WhenAll(labelsTask, notesTask);
+
+        allLabels = labelsTask.Result ?? [];
+
+        var result = notesTask.Result;
+        if (result is not null)
+        {
+            notes = result.Items;
+            totalCount = result.TotalCount;
+            if (currentPage > TotalPages && TotalPages > 0)
+                currentPage = TotalPages;
+        }
+
+        isLoading = false;
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
