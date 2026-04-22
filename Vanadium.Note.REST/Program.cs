@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Serilog;
 using System.Text;
+using Microsoft.AspNetCore.RateLimiting;
 using System.Threading.RateLimiting;
 using Vanadium.Note.REST.Data;
 using Vanadium.Note.REST.Middleware;
