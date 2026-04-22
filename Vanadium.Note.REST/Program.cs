@@ -22,17 +22,6 @@ builder.Host.UseSerilog((context, services, config) =>
         config.WriteTo.Seq(seqUrl, apiKey: seqApiKey);
 });
 
-// Remove Kestrel's default 30MB request body size limit to allow large file uploads
-builder.WebHost.ConfigureKestrel(options =>
-{
-    options.Limits.MaxRequestBodySize = null;
-});
-
-// Remove multipart/form-data body length limit (default is 128MB)
-builder.Services.Configure<Microsoft.AspNetCore.Http.Features.FormOptions>(options =>
-{
-    options.MultipartBodyLengthLimit = long.MaxValue;
-});
 
 var allowedOrigins = builder.Configuration["Cors:AllowedOrigins"]
     ?.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)

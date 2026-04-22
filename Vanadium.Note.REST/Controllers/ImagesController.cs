@@ -16,7 +16,8 @@ public class ImagesController(IWebHostEnvironment env, ILogger<ImagesController>
 
     [Authorize]
     [HttpPost]
-    [DisableRequestSizeLimit]
+    [RequestSizeLimit(10 * 1024 * 1024)]
+    [RequestFormLimits(MultipartBodyLengthLimit = 10 * 1024 * 1024)]
     [Consumes("multipart/form-data")]
     public async Task<ActionResult> Upload([FromForm] ImageUploadRequest request)
     {

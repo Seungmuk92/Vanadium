@@ -18,7 +18,8 @@ public class FilesController(IWebHostEnvironment env, NoteDbContext db, ILogger<
 
     [Authorize]
     [HttpPost]
-    [DisableRequestSizeLimit]
+    [RequestSizeLimit(100 * 1024 * 1024)]
+    [RequestFormLimits(MultipartBodyLengthLimit = 100 * 1024 * 1024)]
     [Consumes("multipart/form-data")]
     public async Task<ActionResult> Upload([FromForm] FileUploadRequest request)
     {
