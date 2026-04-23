@@ -436,7 +436,7 @@
         Nav.NavigateTo(parentNoteId.HasValue ? $"/editor/{parentNoteId}" : "/");
     }
 
-    private void CreateSubNote() => Nav.NavigateTo($"/editor?parentId={Id}");
+    private void CreateSubNote() => Nav.NavigateTo($"/editor?parentId={Id}", forceLoad: true);
 
     private void GoBack()
     {

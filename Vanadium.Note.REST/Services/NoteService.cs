@@ -143,6 +143,7 @@ public class NoteService(NoteDbContext db, FileCleanupService fileCleanup, ILogg
         existing.Title = note.Title;
         existing.Content = note.Content;
         existing.ContentText = StripHtml(note.Content);
+        existing.ParentNoteId = note.ParentNoteId;
         existing.UpdatedAt = DateTime.UtcNow;
         await db.SaveChangesAsync();
         return existing;
