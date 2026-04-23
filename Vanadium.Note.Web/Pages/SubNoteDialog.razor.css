@@ -93,3 +93,149 @@
     text-decoration: underline;
     cursor: pointer;
 }
+
+/* ── Label bar ──────────────────────────────────────────────────────────── */
+
+.dialog-label-bar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.35rem;
+    padding: 0 0 0.5rem;
+    margin-bottom: 0.5rem;
+    border-bottom: 1px solid var(--mud-palette-divider);
+    min-height: 2rem;
+}
+
+.label-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.2rem;
+    padding: 0.15rem 0.45rem;
+    border-radius: 999px;
+    font-size: 0.78rem;
+    background-color: var(--mud-palette-action-default-hover);
+    border: 1px solid var(--mud-palette-divider);
+    color: inherit;
+    white-space: nowrap;
+}
+
+.label-chip-cat {
+    border-color: var(--mud-palette-primary);
+}
+
+.label-cat-prefix {
+    font-size: 0.7rem;
+    opacity: 0.65;
+    margin-right: 0.1rem;
+}
+
+.label-chip-remove {
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: 0 0 0 0.2rem;
+    font-size: 0.85rem;
+    line-height: 1;
+    color: inherit;
+    opacity: 0.55;
+}
+
+.label-chip-remove:hover {
+    opacity: 1;
+}
+
+.label-add-wrapper {
+    position: relative;
+}
+
+.label-add-btn {
+    background: none;
+    border: 1px dashed var(--mud-palette-divider);
+    border-radius: 999px;
+    padding: 0.15rem 0.55rem;
+    font-size: 0.78rem;
+    cursor: pointer;
+    color: inherit;
+    opacity: 0.7;
+    transition: opacity 0.15s;
+}
+
+.label-add-btn:hover {
+    opacity: 1;
+    border-color: var(--mud-palette-primary);
+}
+
+.label-add-btn-active {
+    opacity: 1;
+    border-color: var(--mud-palette-primary);
+    color: var(--mud-palette-primary);
+}
+
+/* Picker backdrop/dropdown — z-index above MudBlazor dialog (1300) */
+
+.label-picker-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 1400;
+}
+
+.label-picker {
+    position: absolute;
+    top: calc(100% + 0.25rem);
+    left: 0;
+    z-index: 1401;
+    min-width: 160px;
+    background-color: var(--mud-palette-surface);
+    border: 1px solid var(--mud-palette-divider);
+    border-radius: 6px;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.18);
+    padding: 0.3rem 0;
+}
+
+.label-picker-section {
+    padding: 0.25rem 0;
+}
+
+.label-picker-section + .label-picker-section {
+    border-top: 1px solid var(--mud-palette-divider);
+}
+
+.label-picker-section-title {
+    font-size: 0.7rem;
+    font-weight: 600;
+    opacity: 0.55;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    padding: 0.2rem 0.75rem 0.1rem;
+}
+
+.label-picker-item {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.3rem 0.75rem;
+    font-size: 0.85rem;
+    cursor: pointer;
+}
+
+.label-picker-item:hover {
+    background-color: var(--mud-palette-action-default-hover);
+}
+
+.label-picker-item.is-added {
+    font-weight: 600;
+}
+
+.label-picker-check {
+    width: 1rem;
+    text-align: center;
+    font-size: 0.75rem;
+    color: var(--mud-palette-primary);
+}
+
+.label-picker-empty {
+    padding: 0.5rem 0.75rem;
+    font-size: 0.82rem;
+    opacity: 0.5;
+}
