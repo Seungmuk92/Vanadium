@@ -193,7 +193,6 @@
         get
         {
             if (!string.IsNullOrWhiteSpace(ReturnUrl)) return ReturnUrl;
-            if (parentNoteId.HasValue) return $"/editor/{parentNoteId}";
             return "/";
         }
     }
@@ -205,7 +204,8 @@
     private string? parentTitle;
     private int childCount;
 
-    private bool _initialized = false;
+    private Guid? _currentId;
+    private Guid? _currentParentId;
     private bool _editorMounted = false;
     private bool _contentJustLoaded = false;
     private readonly string _editorId = "tiptap-" + Guid.NewGuid().ToString("N")[..8];
@@ -231,8 +231,17 @@
 
     protected override async Task OnParametersSetAsync()
     {
-        if (_initialized) return;
-        _initialized = true;
+        if (_currentId == Id && _currentParentId == ParentId) return;
+        _currentId = Id;
+        _currentParentId = ParentId;
+
+        title = string.Empty;
+        content = string.Empty;
+        parentNoteId = null;
+        parentTitle = null;
+        childCount = 0;
+        noteLabels = [];
+        _contentJustLoaded = true;
 
         if (Id is not null)
         {
@@ -245,7 +254,6 @@
                 parentNoteId = result.Value!.ParentNoteId;
                 parentTitle = result.Value!.ParentTitle;
                 childCount = result.Value!.ChildCount;
-                _contentJustLoaded = true;
             }
             else
             {
@@ -433,7 +441,7 @@
                 return;
             }
         }
-        Nav.NavigateTo(parentNoteId.HasValue ? $"/editor/{parentNoteId}" : "/");
+        Nav.NavigateTo("/");
     }
 
     private void CreateSubNote() => Nav.NavigateTo($"/editor?parentId={Id}", forceLoad: true);
