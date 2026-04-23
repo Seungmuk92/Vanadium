@@ -128,6 +128,13 @@ function createSlashCommandsExtension(dotnetRef) {
                         switch (item.id) {
                             case 'page':
                                 dotnetRef.invokeMethodAsync('OnSlashCommandPage')
+                                    .then(result => {
+                                        if (!result) return;
+                                        editor.chain().focus().insertContent({
+                                            type: 'pageLink',
+                                            attrs: { noteId: result.id, title: result.title },
+                                        }).run();
+                                    })
                                     .catch(err => console.error('[tiptap] OnSlashCommandPage failed', err));
                                 break;
                             case 'h1':       editor.chain().focus().setHeading({ level: 1 }).run(); break;
@@ -177,6 +184,40 @@ const FileAttachment = Node.create({
             'data-filename': HTMLAttributes.filename,
             download: HTMLAttributes.filename,
         }, { href: HTMLAttributes.href }), `📎 ${HTMLAttributes.filename}`];
+    },
+});
+
+// ── PageLink node ────────────────────────────────────────────────────────────
+
+const PageLink = Node.create({
+    name: 'pageLink',
+    group: 'block',
+    atom: true,
+
+    addAttributes() {
+        return {
+            noteId: { default: null },
+            title:  { default: 'Untitled' },
+        };
+    },
+
+    parseHTML() {
+        return [{ tag: 'div[data-type="page-link"]', getAttrs: el => ({
+            noteId: el.getAttribute('data-note-id'),
+            title:  el.getAttribute('data-title') || 'Untitled',
+        }) }];
+    },
+
+    renderHTML({ HTMLAttributes }) {
+        return ['div', {
+            'data-type':    'page-link',
+            'data-note-id': HTMLAttributes.noteId,
+            'data-title':   HTMLAttributes.title,
+            class: 'page-link-block',
+        },
+            ['span', { class: 'page-link-icon' }, '📄'],
+            ['span', { class: 'page-link-title' }, HTMLAttributes.title],
+        ];
     },
 });
 
@@ -415,6 +456,7 @@ window.tiptapInterop = {
                     HTMLAttributes: { class: 'tiptap-image' },
                 }),
                 FileAttachment,
+                PageLink,
                 createSlashCommandsExtension(dotnetRef),
                 BubbleMenu.configure({
                     element: bubbleMenuEl,
@@ -438,6 +480,7 @@ window.tiptapInterop = {
 
         const onCtrlS = (e) => {
             if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+                if (!editor.isFocused) return;
                 e.preventDefault();
                 dotnetRef.invokeMethodAsync('OnSaveShortcut')
                     .catch(err => console.error('[tiptap] OnSaveShortcut failed', err));
@@ -489,6 +532,19 @@ window.tiptapInterop = {
             document.body.appendChild(a);
             a.click();
             document.body.removeChild(a);
+        });
+
+        // Page link click — open sub-note in dialog via Blazor
+        editor.view.dom.addEventListener('click', (e) => {
+            const block = e.target.closest('.page-link-block');
+            if (!block) return;
+            e.preventDefault();
+            e.stopPropagation();
+            const noteId = block.getAttribute('data-note-id');
+            if (noteId) {
+                dotnetRef.invokeMethodAsync('OnPageLinkClick', noteId)
+                    .catch(err => console.error('[tiptap] OnPageLinkClick failed', err));
+            }
         });
 
         // File drag & drop
@@ -564,6 +620,25 @@ window.tiptapInterop = {
 
     setContent(elementId, content) {
         _editors[elementId]?.editor.commands.setContent(content, false);
+    },
+
+    updatePageLink(elementId, noteId, newTitle) {
+        const entry = _editors[elementId];
+        if (!entry) return null;
+        const { editor } = entry;
+        let found = false;
+        editor.state.doc.descendants((node, pos) => {
+            if (found) return false;
+            if (node.type.name === 'pageLink' && node.attrs.noteId === noteId) {
+                editor.view.dispatch(
+                    editor.state.tr.setNodeMarkup(pos, null, { ...node.attrs, title: newTitle })
+                );
+                found = true;
+                return false;
+            }
+        });
+        // Read HTML from the updated state
+        return found ? editor.getHTML() : null;
     },
 
     destroy(elementId) {

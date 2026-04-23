@@ -437,3 +437,35 @@ a.file-attachment:hover {
     opacity: 0.6;
     line-height: 1.3;
 }
+
+/* Page link block — inserted by /page slash command */
+.page-link-block {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 14px;
+    margin: 4px 0;
+    border-radius: 6px;
+    background: var(--vn-editor-code-bg);
+    border: 1px solid var(--vn-editor-title-border);
+    cursor: pointer;
+    user-select: none;
+    color: var(--vn-link-popover-color);
+    transition: background 0.15s;
+}
+
+.page-link-block:hover {
+    background: var(--vn-slash-menu-active-bg);
+}
+
+.page-link-icon {
+    font-size: 1rem;
+    flex-shrink: 0;
+    line-height: 1;
+}
+
+.page-link-title {
+    font-size: 0.9rem;
+    font-weight: 500;
+    line-height: 1.4;
+}

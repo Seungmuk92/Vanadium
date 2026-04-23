@@ -1,0 +1,95 @@
+.dialog-title-row {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    width: 100%;
+    min-width: 0;
+}
+
+.dialog-note-title {
+    flex: 1;
+    font-size: 1.1rem;
+    font-weight: 600;
+    border: none;
+    outline: none;
+    background: transparent;
+    color: inherit;
+    min-width: 0;
+}
+
+.dialog-tiptap {
+    min-height: 420px;
+    max-height: 58vh;
+    overflow-y: auto;
+    cursor: text;
+}
+
+.dialog-tiptap ::deep .ProseMirror {
+    outline: none;
+    min-height: 420px;
+    line-height: 1.7;
+    padding-bottom: 2rem;
+}
+
+.dialog-tiptap ::deep .ProseMirror p.is-editor-empty:first-child::before {
+    color: var(--vn-editor-blockquote-color);
+    content: attr(data-placeholder);
+    float: left;
+    height: 0;
+    pointer-events: none;
+}
+
+.dialog-tiptap ::deep h1 { font-size: 1.8rem; font-weight: 700; margin: 1.2em 0 0.3em; }
+.dialog-tiptap ::deep h2 { font-size: 1.4rem; font-weight: 700; margin: 1.1em 0 0.3em; }
+.dialog-tiptap ::deep h3 { font-size: 1.15rem; font-weight: 600; margin: 1em 0 0.3em; }
+
+.dialog-tiptap ::deep p { margin-bottom: 0.5em; }
+
+.dialog-tiptap ::deep ul,
+.dialog-tiptap ::deep ol {
+    padding-left: 1.5em;
+    margin-bottom: 0.5em;
+}
+
+.dialog-tiptap ::deep blockquote {
+    border-left: 3px solid var(--vn-editor-blockquote-border);
+    margin: 0.5em 0;
+    padding: 0.2em 1em;
+    color: var(--vn-editor-blockquote-color);
+}
+
+.dialog-tiptap ::deep code {
+    background: var(--vn-editor-code-bg);
+    border-radius: 3px;
+    padding: 0.1em 0.35em;
+    font-size: 0.88em;
+    color: var(--vn-editor-code-color);
+}
+
+.dialog-tiptap ::deep pre {
+    background: var(--vn-editor-pre-bg);
+    border-radius: 6px;
+    padding: 1em;
+    overflow-x: auto;
+    margin-bottom: 0.75em;
+    border: 1px solid var(--vn-editor-title-border);
+}
+
+.dialog-tiptap ::deep pre code {
+    background: none;
+    padding: 0;
+    color: inherit;
+    font-size: 0.9em;
+}
+
+.dialog-tiptap ::deep hr {
+    border: none;
+    border-top: 1px solid var(--vn-editor-hr-color);
+    margin: 1em 0;
+}
+
+.dialog-tiptap ::deep a {
+    color: #6ea8fe;
+    text-decoration: underline;
+    cursor: pointer;
+}

@@ -1,6 +1,7 @@
 @page "/editor"
 @page "/editor/{Id:guid}"
 @attribute [Authorize]
+@using System.Text.Json.Serialization
 @inject NoteService NoteService
 @inject LabelService LabelService
 @inject NavigationManager Nav
@@ -9,6 +10,7 @@
 @inject TokenStore TokenStore
 @inject ILogger<NoteEditor> Logger
 @inject ISnackbar Snackbar
+@inject IDialogService DialogService
 @implements IDisposable
 
 <PageTitle>@(isNew ? "New Note" : "Edit Note")</PageTitle>
@@ -447,7 +449,43 @@
     private void CreateSubNote() => Nav.NavigateTo($"/editor?parentId={Id}");
 
     [JSInvokable]
-    public void OnSlashCommandPage() => Nav.NavigateTo(Id.HasValue ? $"/editor?parentId={Id}" : "/editor");
+    public async Task<PageLinkDto?> OnSlashCommandPage()
+    {
+        if (!Id.HasValue) return null;
+        var result = await NoteService.SaveAsync(new NoteItem
+        {
+            Id = Guid.Empty,
+            Title = "Untitled",
+            ParentNoteId = Id,
+        });
+        if (!result.IsSuccess) return null;
+        return new PageLinkDto(result.Value!.Id, result.Value!.Title);
+    }
+
+    [JSInvokable]
+    public async Task OnPageLinkClick(string noteId)
+    {
+        if (!Guid.TryParse(noteId, out var id)) return;
+        var parameters = new DialogParameters<SubNoteDialog> { { x => x.NoteId, id } };
+        var options = new DialogOptions { MaxWidth = MaxWidth.Large, FullWidth = true, CloseOnEscapeKey = true };
+        var dialog = await DialogService.ShowAsync<SubNoteDialog>(string.Empty, parameters, options);
+        var result = await dialog.Result;
+        if (result is { Canceled: false, Data: string newTitle })
+        {
+            var newContent = await JS.InvokeAsync<string>("tiptapInterop.updatePageLink", _editorId, noteId, newTitle);
+            if (!string.IsNullOrEmpty(newContent))
+            {
+                content = newContent;
+                _debounceCts?.Cancel();
+                await DoAutoSave();
+            }
+        }
+    }
+
+    public record PageLinkDto(
+        [property: JsonPropertyName("id")] Guid Id,
+        [property: JsonPropertyName("title")] string Title
+    );
 
     private void GoBack()
     {

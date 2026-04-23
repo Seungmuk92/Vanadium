@@ -1,0 +1,161 @@
+@implements IDisposable
+@inject NoteService NoteService
+@inject NavigationManager Nav
+@inject IJSRuntime JS
+@inject HttpClient Http
+@inject TokenStore TokenStore
+@inject ISnackbar Snackbar
+@inject ILogger<SubNoteDialog> Logger
+
+<MudDialog>
+    <TitleContent>
+        <div class="dialog-title-row">
+            <input class="dialog-note-title"
+                   value="@title"
+                   placeholder="Untitled"
+                   @oninput="OnTitleInput"
+                   @onkeydown="OnTitleKeyDown" />
+            <MudTooltip Text="Open in full page" Placement="Placement.Left">
+                <MudIconButton Icon="@Icons.Material.Outlined.OpenInFull"
+                               Size="Size.Small"
+                               OnClick="ExpandToFullPage" />
+            </MudTooltip>
+        </div>
+    </TitleContent>
+    <DialogContent>
+        <div id="@_editorId" class="tiptap-wrapper dialog-tiptap"></div>
+    </DialogContent>
+    <DialogActions>
+        <span class="save-status @saveStatusCss">@saveStatusText</span>
+        <MudSpacer />
+        <MudButton Variant="Variant.Text" OnClick="Close">Close</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] IMudDialogInstance MudDialog { get; set; } = null!;
+    [Parameter] public Guid NoteId { get; set; }
+
+    private string title = string.Empty;
+    private string content = string.Empty;
+    private Guid? _parentNoteId;
+    private string saveStatusText = string.Empty;
+    private string saveStatusCss = string.Empty;
+
+    private readonly string _editorId = "tiptap-" + Guid.NewGuid().ToString("N")[..8];
+    private DotNetObjectReference<SubNoteDialog>? _objRef;
+    private CancellationTokenSource? _debounceCts;
+    private bool _editorMounted = false;
+    private bool _contentJustLoaded = false;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var result = await NoteService.GetAsync(NoteId);
+        if (result.IsSuccess)
+        {
+            title = result.Value!.Title;
+            content = result.Value!.Content;
+            _parentNoteId = result.Value!.ParentNoteId;
+        }
+        else
+        {
+            Snackbar.Add("Failed to load note.", Severity.Error);
+            MudDialog.Close();
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            _objRef = DotNetObjectReference.Create(this);
+            var apiBase = Http.BaseAddress?.ToString().TrimEnd('/') ?? string.Empty;
+            var token = await TokenStore.GetAsync() ?? string.Empty;
+            try
+            {
+                await JS.InvokeVoidAsync("tiptapInterop.init", _editorId, _objRef, content, apiBase, token);
+                _editorMounted = true;
+            }
+            catch (Exception ex)
+            {
+                Logger.LogError(ex, "Failed to initialize Tiptap editor for dialog '{EditorId}'.", _editorId);
+            }
+        }
+        else if (_contentJustLoaded && _editorMounted)
+        {
+            _contentJustLoaded = false;
+            await JS.InvokeVoidAsync("tiptapInterop.setContent", _editorId, content);
+        }
+    }
+
+    [JSInvokable]
+    public void OnEditorContentChanged(string html)
+    {
+        content = html;
+        ScheduleAutoSave();
+    }
+
+    [JSInvokable]
+    public async Task OnSaveShortcut() => await InvokeAsync(DoAutoSave);
+
+    private void OnTitleInput(ChangeEventArgs e)
+    {
+        title = e.Value?.ToString() ?? string.Empty;
+        ScheduleAutoSave();
+    }
+
+    private async Task OnTitleKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter")
+            await JS.InvokeVoidAsync("tiptapInterop.focus", _editorId);
+    }
+
+    private void ScheduleAutoSave()
+    {
+        _debounceCts?.Cancel();
+        _debounceCts = new CancellationTokenSource();
+        var token = _debounceCts.Token;
+        saveStatusText = "Unsaved changes";
+        saveStatusCss = "status-pending";
+        StateHasChanged();
+
+        _ = Task.Delay(1500, token).ContinueWith(async t =>
+        {
+            if (t.IsCanceled) return;
+            await InvokeAsync(DoAutoSave);
+        }, TaskScheduler.Default);
+    }
+
+    private async Task DoAutoSave()
+    {
+        saveStatusText = "Saving…";
+        saveStatusCss = "status-saving";
+        StateHasChanged();
+
+        var result = await NoteService.SaveAsync(new NoteItem { Id = NoteId, Title = title, Content = content, ParentNoteId = _parentNoteId });
+        saveStatusText = result.IsSuccess ? "Saved" : "Save failed";
+        saveStatusCss = result.IsSuccess ? "status-saved" : string.Empty;
+        StateHasChanged();
+    }
+
+    private async Task ExpandToFullPage()
+    {
+        _debounceCts?.Cancel();
+        await DoAutoSave();
+        MudDialog.Close(DialogResult.Ok(title));
+        Nav.NavigateTo($"/editor/{NoteId}");
+    }
+
+    private void Close()
+    {
+        _debounceCts?.Cancel();
+        MudDialog.Close(DialogResult.Ok(title));
+    }
+
+    public void Dispose()
+    {
+        _debounceCts?.Cancel();
+        _objRef?.Dispose();
+        _ = JS.InvokeVoidAsync("tiptapInterop.destroy", _editorId);
+    }
+}
