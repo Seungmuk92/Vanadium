@@ -460,7 +460,7 @@ window.tiptapInterop = {
                 createSlashCommandsExtension(dotnetRef),
                 BubbleMenu.configure({
                     element: bubbleMenuEl,
-                    shouldShow: ({ from, to }) => from !== to,
+                    shouldShow: ({ editor, from, to }) => editor.isFocused && from !== to,
                 }),
             ],
             content: initialContent || '',
@@ -542,6 +542,8 @@ window.tiptapInterop = {
             e.stopPropagation();
             const noteId = block.getAttribute('data-note-id');
             if (noteId) {
+                // Blur the editor before the async dialog opens so the bubble menu hides immediately
+                editor.commands.blur();
                 dotnetRef.invokeMethodAsync('OnPageLinkClick', noteId)
                     .catch(err => console.error('[tiptap] OnPageLinkClick failed', err));
             }
