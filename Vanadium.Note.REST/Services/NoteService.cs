@@ -168,6 +168,25 @@ public class NoteService(NoteDbContext db, FileCleanupService fileCleanup, ILogg
         return existing;
     }
 
+    /// <summary>
+    /// Returns true if making <paramref name="proposedParentId"/> the parent of
+    /// <paramref name="noteId"/> would create a cycle in the ancestor chain.
+    /// </summary>
+    public async Task<bool> HasCircularReference(Guid noteId, Guid proposedParentId)
+    {
+        const int maxDepth = 100;
+        var current = (Guid?)proposedParentId;
+        for (var depth = 0; current.HasValue && depth < maxDepth; depth++)
+        {
+            if (current.Value == noteId) return true;
+            current = await db.Notes
+                .Where(n => n.Id == current.Value)
+                .Select(n => n.ParentNoteId)
+                .FirstOrDefaultAsync();
+        }
+        return false;
+    }
+
     public async Task<bool> Delete(Guid id)
     {
         var note = await db.Notes.FindAsync(id);

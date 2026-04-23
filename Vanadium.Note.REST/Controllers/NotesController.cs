@@ -69,6 +69,20 @@ public class NotesController(NoteService noteService, LabelService labelService,
     [HttpPut("{id:guid}")]
     public async Task<ActionResult<NoteItem>> Update(Guid id, [FromBody] NoteItem note)
     {
+        if (note.ParentNoteId.HasValue)
+        {
+            if (note.ParentNoteId.Value == id)
+            {
+                logger.LogWarning("Update rejected — note {NoteId} cannot be its own parent.", id);
+                return BadRequest("A note cannot be its own parent.");
+            }
+            if (await noteService.HasCircularReference(id, note.ParentNoteId.Value))
+            {
+                logger.LogWarning("Update rejected — circular parent reference detected for note {NoteId}.", id);
+                return BadRequest("Setting this parent would create a circular reference.");
+            }
+        }
+
         var updated = await noteService.Update(id, note);
         if (updated is null)
         {
