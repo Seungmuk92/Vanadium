@@ -6,6 +6,7 @@ public class NoteSummary
     public string Title { get; set; } = string.Empty;
     public DateTime UpdatedAt { get; set; }
     public Guid? ParentNoteId { get; set; }
+    public string? ParentTitle { get; set; }
     public int ChildCount { get; set; }
     public List<Label> Labels { get; set; } = [];
 }

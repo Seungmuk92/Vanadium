@@ -52,11 +52,30 @@ public class NoteService(NoteDbContext db, FileCleanupService fileCleanup, ILogg
 
         var childCounts = await GetChildCountsAsync(notes.Select(n => n.Id));
 
+        // Batch-fetch parent titles for sub-notes that surfaced via search
+        Dictionary<Guid, string> parentTitles = [];
+        if (!rootOnly)
+        {
+            var parentIds = notes
+                .Where(n => n.ParentNoteId.HasValue)
+                .Select(n => n.ParentNoteId!.Value)
+                .Distinct()
+                .ToList();
+            if (parentIds.Count > 0)
+                parentTitles = await db.Notes
+                    .Where(n => parentIds.Contains(n.Id))
+                    .ToDictionaryAsync(n => n.Id, n => n.Title);
+        }
+
         logger.LogDebug("GetPaged: page={Page}, pageSize={PageSize}, total={Total}.", page, pageSize, totalCount);
 
         return new PagedResult<NoteSummary>
         {
-            Items = notes.Select(n => ToSummary(n, childCounts.GetValueOrDefault(n.Id))).ToList(),
+            Items = notes.Select(n => ToSummary(
+                n,
+                childCounts.GetValueOrDefault(n.Id),
+                n.ParentNoteId.HasValue ? parentTitles.GetValueOrDefault(n.ParentNoteId.Value) : null
+            )).ToList(),
             TotalCount = totalCount,
             Page = page,
             PageSize = pageSize
@@ -225,12 +244,13 @@ public class NoteService(NoteDbContext db, FileCleanupService fileCleanup, ILogg
             .ToDictionaryAsync(x => x.ParentId, x => x.Count);
     }
 
-    private static NoteSummary ToSummary(NoteItem note, int childCount = 0) => new()
+    private static NoteSummary ToSummary(NoteItem note, int childCount = 0, string? parentTitle = null) => new()
     {
         Id = note.Id,
         Title = note.Title,
         UpdatedAt = note.UpdatedAt,
         ParentNoteId = note.ParentNoteId,
+        ParentTitle = parentTitle,
         ChildCount = childCount,
         Labels = note.NoteLabels
             .Select(nl => new LabelSummary

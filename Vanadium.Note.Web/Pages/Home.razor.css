@@ -258,6 +258,32 @@
     white-space: nowrap;
 }
 
+.note-parent-crumb {
+    display: flex;
+    align-items: center;
+    gap: 0.2rem;
+    margin-bottom: 0.1rem;
+    font-size: 0.68rem;
+    opacity: 0.45;
+    overflow: hidden;
+}
+
+.parent-crumb-icon {
+    flex-shrink: 0;
+    font-size: 0.6rem;
+}
+
+.parent-crumb-text {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.parent-crumb-sep {
+    flex-shrink: 0;
+    opacity: 0.6;
+}
+
 .note-label-chips {
     display: flex;
     flex-wrap: wrap;

@@ -83,6 +83,14 @@
                                @onclick:stopPropagation="true" />
                     </div>
                     <div class="col-title" @onclick="() => EditNote(note.Id)">
+                        @if (!string.IsNullOrWhiteSpace(_searchText) && !string.IsNullOrWhiteSpace(note.ParentTitle))
+                        {
+                            <div class="note-parent-crumb">
+                                <span class="parent-crumb-icon">📁</span>
+                                <span class="parent-crumb-text">@note.ParentTitle</span>
+                                <span class="parent-crumb-sep">›</span>
+                            </div>
+                        }
                         <div class="note-title-row">
                             @if (note.ChildCount > 0)
                             {
