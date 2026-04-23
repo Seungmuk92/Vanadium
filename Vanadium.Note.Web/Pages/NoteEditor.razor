@@ -444,7 +444,7 @@
         Nav.NavigateTo("/");
     }
 
-    private void CreateSubNote() => Nav.NavigateTo($"/editor?parentId={Id}", forceLoad: true);
+    private void CreateSubNote() => Nav.NavigateTo($"/editor?parentId={Id}");
 
     private void GoBack()
     {
