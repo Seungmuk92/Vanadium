@@ -446,6 +446,9 @@
 
     private void CreateSubNote() => Nav.NavigateTo($"/editor?parentId={Id}");
 
+    [JSInvokable]
+    public void OnSlashCommandPage() => Nav.NavigateTo(Id.HasValue ? $"/editor?parentId={Id}" : "/editor");
+
     private void GoBack()
     {
         Nav.NavigateTo(BackUrl);
