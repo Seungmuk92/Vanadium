@@ -429,10 +429,16 @@
         _debounceCts?.Cancel();
         if (Id is not null)
         {
+            var parts = new List<string>();
             if (childCount > 0)
+                parts.Add($"This note has {childCount} sub-note(s) that will also be permanently deleted.");
+            if (parentNoteId.HasValue)
+                parts.Add("Any page link to this note in the parent note will also be removed.");
+
+            if (parts.Count > 0)
             {
-                var confirmed = await JS.InvokeAsync<bool>("confirm",
-                    $"This note has {childCount} sub-note(s) that will also be permanently deleted. Continue?");
+                parts.Add("Delete this note?");
+                var confirmed = await JS.InvokeAsync<bool>("confirm", string.Join("\n\n", parts));
                 if (!confirmed) return;
             }
 

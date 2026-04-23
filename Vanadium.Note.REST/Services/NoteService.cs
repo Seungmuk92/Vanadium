@@ -154,11 +154,37 @@ public class NoteService(NoteDbContext db, FileCleanupService fileCleanup, ILogg
         var note = await db.Notes.FindAsync(id);
         if (note is null) return false;
 
+        // Remove any page-link blocks referencing this note from the parent's content
+        if (note.ParentNoteId.HasValue)
+        {
+            var parent = await db.Notes.FindAsync(note.ParentNoteId.Value);
+            if (parent is not null)
+            {
+                var cleaned = RemovePageLinkFromContent(parent.Content, id);
+                if (cleaned != parent.Content)
+                {
+                    parent.Content = cleaned;
+                    parent.ContentText = StripHtml(cleaned);
+                }
+            }
+        }
+
         var content = note.Content;
         db.Notes.Remove(note);
         await db.SaveChangesAsync();
         await fileCleanup.DeleteOrphanedFromContentAsync(content);
         return true;
+    }
+
+    private static string RemovePageLinkFromContent(string content, Guid noteId)
+    {
+        if (string.IsNullOrEmpty(content)) return content;
+        var idStr = noteId.ToString();
+        return Regex.Replace(
+            content,
+            $@"<div\s[^>]*data-note-id=""{Regex.Escape(idStr)}""[^>]*>.*?</div>",
+            string.Empty,
+            RegexOptions.Singleline | RegexOptions.IgnoreCase);
     }
 
     private static IQueryable<NoteItem> ApplyFilters(
