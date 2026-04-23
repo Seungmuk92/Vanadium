@@ -24,39 +24,50 @@ public class NoteService(NoteDbContext db, FileCleanupService fileCleanup, ILogg
             search, labelIds);
         var totalCount = await countQuery.CountAsync();
 
-        // Full query for data — includes needed for label projection
-        var dataQuery = ApplyFilters(
-            (rootOnly ? db.Notes.Where(n => n.ParentNoteId == null) : db.Notes.AsQueryable())
-                .Include(n => n.NoteLabels)
-                .ThenInclude(nl => nl.Label)
-                .ThenInclude(l => l.Category),
+        // Full query for data — projects to NoteSummary to avoid fetching large Content column
+        var baseDataQuery = ApplyFilters(
+            rootOnly ? db.Notes.Where(n => n.ParentNoteId == null) : db.Notes.AsQueryable(),
             search,
             labelIds);
 
-        dataQuery = !string.IsNullOrWhiteSpace(search)
-            ? dataQuery.OrderByDescending(n =>
+        var orderedQuery = !string.IsNullOrWhiteSpace(search)
+            ? baseDataQuery.OrderByDescending(n =>
                 EF.Functions.ToTsVector("simple", n.Title + " " + n.ContentText)
                     .Rank(EF.Functions.WebSearchToTsQuery("simple", search)))
             : (sortBy.ToLowerInvariant(), sortDir.ToLowerInvariant()) switch
             {
-                ("title", "asc")  => dataQuery.OrderBy(n => n.Title),
-                ("title", "desc") => dataQuery.OrderByDescending(n => n.Title),
-                ("date",  "asc")  => dataQuery.OrderBy(n => n.UpdatedAt),
-                _                 => dataQuery.OrderByDescending(n => n.UpdatedAt)
+                ("title", "asc")  => baseDataQuery.OrderBy(n => n.Title),
+                ("title", "desc") => baseDataQuery.OrderByDescending(n => n.Title),
+                ("date",  "asc")  => baseDataQuery.OrderBy(n => n.UpdatedAt),
+                _                 => baseDataQuery.OrderByDescending(n => n.UpdatedAt)
             };
 
-        var notes = await dataQuery
+        var summaries = await orderedQuery
             .Skip((page - 1) * pageSize)
             .Take(pageSize)
+            .Select(n => new
+            {
+                n.Id,
+                n.Title,
+                n.UpdatedAt,
+                n.ParentNoteId,
+                Labels = n.NoteLabels.Select(nl => new LabelSummary
+                {
+                    Id = nl.Label.Id,
+                    Name = nl.Label.Name,
+                    CategoryId = nl.Label.CategoryId,
+                    CategoryName = nl.Label.Category == null ? null : nl.Label.Category.Name
+                }).ToList()
+            })
             .ToListAsync();
 
-        var childCounts = await GetChildCountsAsync(notes.Select(n => n.Id));
+        var childCounts = await GetChildCountsAsync(summaries.Select(n => n.Id));
 
         // Batch-fetch parent titles for sub-notes that surfaced via search
         Dictionary<Guid, string> parentTitles = [];
         if (!rootOnly)
         {
-            var parentIds = notes
+            var parentIds = summaries
                 .Where(n => n.ParentNoteId.HasValue)
                 .Select(n => n.ParentNoteId!.Value)
                 .Distinct()
@@ -71,11 +82,16 @@ public class NoteService(NoteDbContext db, FileCleanupService fileCleanup, ILogg
 
         return new PagedResult<NoteSummary>
         {
-            Items = notes.Select(n => ToSummary(
-                n,
-                childCounts.GetValueOrDefault(n.Id),
-                n.ParentNoteId.HasValue ? parentTitles.GetValueOrDefault(n.ParentNoteId.Value) : null
-            )).ToList(),
+            Items = summaries.Select(n => new NoteSummary
+            {
+                Id = n.Id,
+                Title = n.Title,
+                UpdatedAt = n.UpdatedAt,
+                ParentNoteId = n.ParentNoteId,
+                ParentTitle = n.ParentNoteId.HasValue ? parentTitles.GetValueOrDefault(n.ParentNoteId.Value) : null,
+                ChildCount = childCounts.GetValueOrDefault(n.Id),
+                Labels = n.Labels.OrderBy(l => l.Name).ToList()
+            }).ToList(),
             TotalCount = totalCount,
             Page = page,
             PageSize = pageSize
@@ -84,40 +100,77 @@ public class NoteService(NoteDbContext db, FileCleanupService fileCleanup, ILogg
 
     public async Task<List<NoteSummary>> GetAllSummaries(Guid[]? labelIds = null)
     {
-        var query = db.Notes
-            .Include(n => n.NoteLabels)
-            .ThenInclude(nl => nl.Label)
-            .ThenInclude(l => l.Category)
-            .AsQueryable();
+        var query = db.Notes.AsQueryable();
 
         // OR logic: notes that have ANY of the specified labels
         if (labelIds is { Length: > 0 })
             query = query.Where(n => n.NoteLabels.Any(nl => labelIds.Contains(nl.LabelId)));
 
-        var notes = await query
+        var summaries = await query
             .OrderByDescending(n => n.UpdatedAt)
+            .Select(n => new
+            {
+                n.Id,
+                n.Title,
+                n.UpdatedAt,
+                n.ParentNoteId,
+                Labels = n.NoteLabels.Select(nl => new LabelSummary
+                {
+                    Id = nl.Label.Id,
+                    Name = nl.Label.Name,
+                    CategoryId = nl.Label.CategoryId,
+                    CategoryName = nl.Label.Category == null ? null : nl.Label.Category.Name
+                }).ToList()
+            })
             .ToListAsync();
 
-        var childCounts = await GetChildCountsAsync(notes.Select(n => n.Id));
+        var childCounts = await GetChildCountsAsync(summaries.Select(n => n.Id));
 
-        logger.LogDebug("GetAllSummaries: {Count} note(s).", notes.Count);
-        return notes.Select(n => ToSummary(n, childCounts.GetValueOrDefault(n.Id))).ToList();
+        logger.LogDebug("GetAllSummaries: {Count} note(s).", summaries.Count);
+        return summaries.Select(n => new NoteSummary
+        {
+            Id = n.Id,
+            Title = n.Title,
+            UpdatedAt = n.UpdatedAt,
+            ParentNoteId = n.ParentNoteId,
+            ChildCount = childCounts.GetValueOrDefault(n.Id),
+            Labels = n.Labels.OrderBy(l => l.Name).ToList()
+        }).ToList();
     }
 
     public async Task<List<NoteSummary>> GetChildren(Guid parentId)
     {
-        var notes = await db.Notes
-            .Include(n => n.NoteLabels)
-            .ThenInclude(nl => nl.Label)
-            .ThenInclude(l => l.Category)
+        var summaries = await db.Notes
             .Where(n => n.ParentNoteId == parentId)
             .OrderByDescending(n => n.UpdatedAt)
+            .Select(n => new
+            {
+                n.Id,
+                n.Title,
+                n.UpdatedAt,
+                n.ParentNoteId,
+                Labels = n.NoteLabels.Select(nl => new LabelSummary
+                {
+                    Id = nl.Label.Id,
+                    Name = nl.Label.Name,
+                    CategoryId = nl.Label.CategoryId,
+                    CategoryName = nl.Label.Category == null ? null : nl.Label.Category.Name
+                }).ToList()
+            })
             .ToListAsync();
 
-        var childCounts = await GetChildCountsAsync(notes.Select(n => n.Id));
+        var childCounts = await GetChildCountsAsync(summaries.Select(n => n.Id));
 
-        logger.LogDebug("GetChildren: parentId={ParentId}, count={Count}.", parentId, notes.Count);
-        return notes.Select(n => ToSummary(n, childCounts.GetValueOrDefault(n.Id))).ToList();
+        logger.LogDebug("GetChildren: parentId={ParentId}, count={Count}.", parentId, summaries.Count);
+        return summaries.Select(n => new NoteSummary
+        {
+            Id = n.Id,
+            Title = n.Title,
+            UpdatedAt = n.UpdatedAt,
+            ParentNoteId = n.ParentNoteId,
+            ChildCount = childCounts.GetValueOrDefault(n.Id),
+            Labels = n.Labels.OrderBy(l => l.Name).ToList()
+        }).ToList();
     }
 
     public async Task<NoteItem?> Get(Guid id)
@@ -262,26 +315,6 @@ public class NoteService(NoteDbContext db, FileCleanupService fileCleanup, ILogg
             .Select(g => new { ParentId = g.Key, Count = g.Count() })
             .ToDictionaryAsync(x => x.ParentId, x => x.Count);
     }
-
-    private static NoteSummary ToSummary(NoteItem note, int childCount = 0, string? parentTitle = null) => new()
-    {
-        Id = note.Id,
-        Title = note.Title,
-        UpdatedAt = note.UpdatedAt,
-        ParentNoteId = note.ParentNoteId,
-        ParentTitle = parentTitle,
-        ChildCount = childCount,
-        Labels = note.NoteLabels
-            .Select(nl => new LabelSummary
-            {
-                Id = nl.Label.Id,
-                Name = nl.Label.Name,
-                CategoryId = nl.Label.CategoryId,
-                CategoryName = nl.Label.Category?.Name
-            })
-            .OrderBy(l => l.Name)
-            .ToList()
-    };
 
     private static void PopulateLabels(NoteItem note)
     {
