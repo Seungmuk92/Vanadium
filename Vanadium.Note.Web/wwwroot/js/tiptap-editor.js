@@ -6,6 +6,8 @@ import Link from 'https://esm.sh/@tiptap/extension-link@2'
 import Image from 'https://esm.sh/@tiptap/extension-image@2'
 import Suggestion from 'https://esm.sh/@tiptap/suggestion@2'
 import { Markdown } from 'https://esm.sh/tiptap-markdown?deps=@tiptap/core@2'
+import TaskList from 'https://esm.sh/@tiptap/extension-task-list@2'
+import TaskItem from 'https://esm.sh/@tiptap/extension-task-item@2'
 
 const _editors = {};
 
@@ -19,6 +21,7 @@ const SLASH_COMMANDS = [
     { id: 'bullet',   label: 'Bullet List',   desc: 'Unordered list',       icon: '•',  keywords: ['list', 'ul'] },
     { id: 'numbered', label: 'Numbered List', desc: 'Ordered list',         icon: '1.', keywords: ['list', 'ol'] },
     { id: 'quote',    label: 'Quote',         desc: 'Block quotation',      icon: '"',  keywords: ['blockquote'] },
+    { id: 'todo',     label: 'Task List',     desc: 'Checkbox list',        icon: '☑',  keywords: ['todo', 'task', 'check', 'checkbox'] },
     { id: 'code',     label: 'Code Block',    desc: 'Monospace code block', icon: '</>', keywords: ['codeblock'] },
     { id: 'divider',  label: 'Divider',       desc: 'Horizontal rule',      icon: '—',  keywords: ['hr', 'rule'] },
 ];
@@ -144,6 +147,7 @@ function createSlashCommandsExtension(dotnetRef) {
                             case 'bullet':   editor.chain().focus().toggleBulletList().run(); break;
                             case 'numbered': editor.chain().focus().toggleOrderedList().run(); break;
                             case 'quote':    editor.chain().focus().toggleBlockquote().run(); break;
+                            case 'todo':     editor.chain().focus().toggleTaskList().run(); break;
                             case 'code':     editor.chain().focus().toggleCodeBlock().run(); break;
                             case 'divider':  editor.chain().focus().setHorizontalRule().run(); break;
                         }
@@ -465,6 +469,8 @@ window.tiptapInterop = {
                     inline: false,
                     HTMLAttributes: { class: 'tiptap-image' },
                 }),
+                TaskList,
+                TaskItem.configure({ nested: true }),
                 FileAttachment,
                 PageLink,
                 createSlashCommandsExtension(dotnetRef),

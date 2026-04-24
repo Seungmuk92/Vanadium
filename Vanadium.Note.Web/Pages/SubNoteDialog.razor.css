@@ -94,6 +94,43 @@
     cursor: pointer;
 }
 
+/* Task list */
+.dialog-tiptap ::deep ul[data-type="taskList"] {
+    list-style: none;
+    padding-left: 0.25em;
+}
+
+.dialog-tiptap ::deep ul[data-type="taskList"] li {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.5em;
+    margin-bottom: 0.15em;
+}
+
+.dialog-tiptap ::deep ul[data-type="taskList"] li > label {
+    flex: 0 0 auto;
+    margin-top: 0.3em;
+    user-select: none;
+    cursor: pointer;
+}
+
+.dialog-tiptap ::deep ul[data-type="taskList"] li > label > input[type="checkbox"] {
+    width: 0.9em;
+    height: 0.9em;
+    cursor: pointer;
+    accent-color: var(--mud-palette-primary, #7c4dff);
+}
+
+.dialog-tiptap ::deep ul[data-type="taskList"] li > div {
+    flex: 1;
+    min-width: 0;
+}
+
+.dialog-tiptap ::deep ul[data-type="taskList"] li[data-checked="true"] > div p {
+    text-decoration: line-through;
+    opacity: 0.5;
+}
+
 /* ── Label bar ──────────────────────────────────────────────────────────── */
 
 .dialog-label-bar {
