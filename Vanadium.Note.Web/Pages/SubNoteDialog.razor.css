@@ -131,6 +131,42 @@
     opacity: 0.5;
 }
 
+/* Table */
+.dialog-tiptap ::deep .tableWrapper {
+    overflow-x: auto;
+    margin-bottom: 0.75em;
+}
+
+.dialog-tiptap ::deep table {
+    border-collapse: collapse;
+    width: 100%;
+    table-layout: fixed;
+}
+
+.dialog-tiptap ::deep th,
+.dialog-tiptap ::deep td {
+    border: 1px solid var(--vn-editor-title-border);
+    padding: 0.4em 0.65em;
+    vertical-align: top;
+    position: relative;
+    min-width: 80px;
+}
+
+.dialog-tiptap ::deep th {
+    background: var(--vn-editor-pre-bg);
+    font-weight: 600;
+    text-align: left;
+}
+
+.dialog-tiptap ::deep .selectedCell::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: rgba(100, 100, 255, 0.12);
+    pointer-events: none;
+    z-index: 2;
+}
+
 /* ── Label bar ──────────────────────────────────────────────────────────── */
 
 .dialog-label-bar {

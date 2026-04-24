@@ -8,6 +8,10 @@ import Suggestion from 'https://esm.sh/@tiptap/suggestion@2'
 import { Markdown } from 'https://esm.sh/tiptap-markdown?deps=@tiptap/core@2'
 import TaskList from 'https://esm.sh/@tiptap/extension-task-list@2'
 import TaskItem from 'https://esm.sh/@tiptap/extension-task-item@2'
+import Table from 'https://esm.sh/@tiptap/extension-table@2'
+import TableRow from 'https://esm.sh/@tiptap/extension-table-row@2'
+import TableHeader from 'https://esm.sh/@tiptap/extension-table-header@2'
+import TableCell from 'https://esm.sh/@tiptap/extension-table-cell@2'
 
 const _editors = {};
 
@@ -20,6 +24,7 @@ const SLASH_COMMANDS = [
     { id: 'h3',       label: 'Heading 3',     desc: 'Small heading',        icon: 'H3', keywords: ['heading'] },
     { id: 'bullet',   label: 'Bullet List',   desc: 'Unordered list',       icon: '•',  keywords: ['list', 'ul'] },
     { id: 'numbered', label: 'Numbered List', desc: 'Ordered list',         icon: '1.', keywords: ['list', 'ol'] },
+    { id: 'table',    label: 'Table',         desc: 'Insert a table',       icon: '⊞',  keywords: ['table', 'grid'] },
     { id: 'quote',    label: 'Quote',         desc: 'Block quotation',      icon: '"',  keywords: ['blockquote'] },
     { id: 'todo',     label: 'Task List',     desc: 'Checkbox list',        icon: '☑',  keywords: ['todo', 'task', 'check', 'checkbox'] },
     { id: 'code',     label: 'Code Block',    desc: 'Monospace code block', icon: '</>', keywords: ['codeblock'] },
@@ -146,6 +151,7 @@ function createSlashCommandsExtension(dotnetRef) {
                             case 'h3':       editor.chain().focus().setHeading({ level: 3 }).run(); break;
                             case 'bullet':   editor.chain().focus().toggleBulletList().run(); break;
                             case 'numbered': editor.chain().focus().toggleOrderedList().run(); break;
+                            case 'table':    editor.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run(); break;
                             case 'quote':    editor.chain().focus().toggleBlockquote().run(); break;
                             case 'todo':     editor.chain().focus().toggleTaskList().run(); break;
                             case 'code':     editor.chain().focus().toggleCodeBlock().run(); break;
@@ -471,6 +477,10 @@ window.tiptapInterop = {
                 }),
                 TaskList,
                 TaskItem.configure({ nested: true }),
+                Table.configure({ resizable: false }),
+                TableRow,
+                TableHeader,
+                TableCell,
                 FileAttachment,
                 PageLink,
                 createSlashCommandsExtension(dotnetRef),
