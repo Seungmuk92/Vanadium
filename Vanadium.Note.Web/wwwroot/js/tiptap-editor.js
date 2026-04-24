@@ -1,11 +1,157 @@
-import { Editor, Node, mergeAttributes } from 'https://esm.sh/@tiptap/core@2'
+import { Editor, Node, Extension, mergeAttributes } from 'https://esm.sh/@tiptap/core@2'
 import StarterKit from 'https://esm.sh/@tiptap/starter-kit@2'
 import BubbleMenu from 'https://esm.sh/@tiptap/extension-bubble-menu@2'
 import Placeholder from 'https://esm.sh/@tiptap/extension-placeholder@2'
 import Link from 'https://esm.sh/@tiptap/extension-link@2'
 import Image from 'https://esm.sh/@tiptap/extension-image@2'
+import Suggestion from 'https://esm.sh/@tiptap/suggestion@2'
 
 const _editors = {};
+
+// ── Slash commands ───────────────────────────────────────────────────────────
+
+const SLASH_COMMANDS = [
+    { id: 'page',     label: 'New Page',      desc: 'Create a sub-note',    icon: '📄', keywords: ['page', 'subnote'] },
+    { id: 'h1',       label: 'Heading 1',     desc: 'Large heading',        icon: 'H1', keywords: ['heading'] },
+    { id: 'h2',       label: 'Heading 2',     desc: 'Medium heading',       icon: 'H2', keywords: ['heading'] },
+    { id: 'h3',       label: 'Heading 3',     desc: 'Small heading',        icon: 'H3', keywords: ['heading'] },
+    { id: 'bullet',   label: 'Bullet List',   desc: 'Unordered list',       icon: '•',  keywords: ['list', 'ul'] },
+    { id: 'numbered', label: 'Numbered List', desc: 'Ordered list',         icon: '1.', keywords: ['list', 'ol'] },
+    { id: 'quote',    label: 'Quote',         desc: 'Block quotation',      icon: '"',  keywords: ['blockquote'] },
+    { id: 'code',     label: 'Code Block',    desc: 'Monospace code block', icon: '</>', keywords: ['codeblock'] },
+    { id: 'divider',  label: 'Divider',       desc: 'Horizontal rule',      icon: '—',  keywords: ['hr', 'rule'] },
+];
+
+function createSlashCommandsExtension(dotnetRef) {
+    return Extension.create({
+        name: 'slashCommands',
+        addProseMirrorPlugins() {
+            return [
+                Suggestion({
+                    editor: this.editor,
+                    char: '/',
+                    allowSpaces: false,
+                    items({ query }) {
+                        const q = query.toLowerCase();
+                        return SLASH_COMMANDS.filter(cmd =>
+                            !q ||
+                            cmd.id.startsWith(q) ||
+                            cmd.label.toLowerCase().startsWith(q) ||
+                            cmd.keywords.some(k => k.startsWith(q))
+                        );
+                    },
+                    render() {
+                        let menu = null;
+                        let selectedIndex = 0;
+                        let currentItems = [];
+                        let currentCommand = null;
+
+                        const renderItems = () => {
+                            if (!menu) return;
+                            menu.innerHTML = '';
+                            currentItems.forEach((item, i) => {
+                                const row = document.createElement('div');
+                                row.className = 'slash-menu-item' + (i === selectedIndex ? ' slash-menu-item-active' : '');
+                                row.innerHTML = `<span class="slash-menu-icon">${item.icon}</span><div class="slash-menu-text"><span class="slash-menu-label">${item.label}</span><span class="slash-menu-desc">${item.desc}</span></div>`;
+                                row.addEventListener('mousedown', e => {
+                                    e.preventDefault();
+                                    currentCommand?.(item);
+                                });
+                                menu.appendChild(row);
+                            });
+                            menu.querySelector('.slash-menu-item-active')
+                                ?.scrollIntoView({ block: 'nearest' });
+                        };
+
+                        const reposition = clientRect => {
+                            if (!menu || !clientRect) return;
+                            const rect = clientRect();
+                            if (!rect) return;
+                            const menuWidth = 260;
+                            const spaceBelow = window.innerHeight - rect.bottom;
+                            const menuHeight = Math.min(currentItems.length * 44 + 8, 300);
+                            const top = spaceBelow < menuHeight && rect.top > menuHeight
+                                ? rect.top - menuHeight - 4
+                                : rect.bottom + 4;
+                            const left = Math.min(rect.left, window.innerWidth - menuWidth - 8);
+                            menu.style.top  = `${top}px`;
+                            menu.style.left = `${Math.max(8, left)}px`;
+                        };
+
+                        return {
+                            onStart(props) {
+                                selectedIndex = 0;
+                                currentItems = props.items;
+                                currentCommand = props.command;
+                                menu = document.createElement('div');
+                                menu.className = 'slash-menu';
+                                document.body.appendChild(menu);
+                                renderItems();
+                                reposition(props.clientRect);
+                            },
+                            onUpdate(props) {
+                                selectedIndex = 0;
+                                currentItems = props.items;
+                                currentCommand = props.command;
+                                menu.style.display = currentItems.length ? '' : 'none';
+                                renderItems();
+                                reposition(props.clientRect);
+                            },
+                            onKeyDown({ event }) {
+                                if (!currentItems.length) return false;
+                                if (event.key === 'ArrowUp') {
+                                    event.preventDefault();
+                                    selectedIndex = (selectedIndex - 1 + currentItems.length) % currentItems.length;
+                                    renderItems();
+                                    return true;
+                                }
+                                if (event.key === 'ArrowDown') {
+                                    event.preventDefault();
+                                    selectedIndex = (selectedIndex + 1) % currentItems.length;
+                                    renderItems();
+                                    return true;
+                                }
+                                if (event.key === 'Enter') {
+                                    currentCommand?.(currentItems[selectedIndex]);
+                                    return true;
+                                }
+                                return false;
+                            },
+                            onExit() {
+                                menu?.remove();
+                                menu = null;
+                            },
+                        };
+                    },
+                    command({ editor, range, props: item }) {
+                        editor.chain().focus().deleteRange(range).run();
+                        switch (item.id) {
+                            case 'page':
+                                dotnetRef.invokeMethodAsync('OnSlashCommandPage')
+                                    .then(result => {
+                                        if (!result) return;
+                                        editor.chain().focus().insertContent({
+                                            type: 'pageLink',
+                                            attrs: { noteId: result.id, title: result.title },
+                                        }).run();
+                                    })
+                                    .catch(err => console.error('[tiptap] OnSlashCommandPage failed', err));
+                                break;
+                            case 'h1':       editor.chain().focus().setHeading({ level: 1 }).run(); break;
+                            case 'h2':       editor.chain().focus().setHeading({ level: 2 }).run(); break;
+                            case 'h3':       editor.chain().focus().setHeading({ level: 3 }).run(); break;
+                            case 'bullet':   editor.chain().focus().toggleBulletList().run(); break;
+                            case 'numbered': editor.chain().focus().toggleOrderedList().run(); break;
+                            case 'quote':    editor.chain().focus().toggleBlockquote().run(); break;
+                            case 'code':     editor.chain().focus().toggleCodeBlock().run(); break;
+                            case 'divider':  editor.chain().focus().setHorizontalRule().run(); break;
+                        }
+                    },
+                }),
+            ];
+        },
+    });
+}
 
 // ── FileAttachment node ──────────────────────────────────────────────────────
 
@@ -38,6 +184,40 @@ const FileAttachment = Node.create({
             'data-filename': HTMLAttributes.filename,
             download: HTMLAttributes.filename,
         }, { href: HTMLAttributes.href }), `📎 ${HTMLAttributes.filename}`];
+    },
+});
+
+// ── PageLink node ────────────────────────────────────────────────────────────
+
+const PageLink = Node.create({
+    name: 'pageLink',
+    group: 'block',
+    atom: true,
+
+    addAttributes() {
+        return {
+            noteId: { default: null },
+            title:  { default: 'Untitled' },
+        };
+    },
+
+    parseHTML() {
+        return [{ tag: 'div[data-type="page-link"]', getAttrs: el => ({
+            noteId: el.getAttribute('data-note-id'),
+            title:  el.getAttribute('data-title') || 'Untitled',
+        }) }];
+    },
+
+    renderHTML({ HTMLAttributes }) {
+        return ['div', {
+            'data-type':    'page-link',
+            'data-note-id': HTMLAttributes.noteId,
+            'data-title':   HTMLAttributes.title,
+            class: 'page-link-block',
+        },
+            ['span', { class: 'page-link-icon' }, '📄'],
+            ['span', { class: 'page-link-title' }, HTMLAttributes.title],
+        ];
     },
 });
 
@@ -276,9 +456,11 @@ window.tiptapInterop = {
                     HTMLAttributes: { class: 'tiptap-image' },
                 }),
                 FileAttachment,
+                PageLink,
+                createSlashCommandsExtension(dotnetRef),
                 BubbleMenu.configure({
                     element: bubbleMenuEl,
-                    shouldShow: ({ from, to }) => from !== to,
+                    shouldShow: ({ editor, from, to }) => editor.isFocused && from !== to,
                 }),
             ],
             content: initialContent || '',
@@ -298,6 +480,7 @@ window.tiptapInterop = {
 
         const onCtrlS = (e) => {
             if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+                if (!editor.isFocused) return;
                 e.preventDefault();
                 dotnetRef.invokeMethodAsync('OnSaveShortcut')
                     .catch(err => console.error('[tiptap] OnSaveShortcut failed', err));
@@ -349,6 +532,21 @@ window.tiptapInterop = {
             document.body.appendChild(a);
             a.click();
             document.body.removeChild(a);
+        });
+
+        // Page link click — open sub-note in dialog via Blazor
+        editor.view.dom.addEventListener('click', (e) => {
+            const block = e.target.closest('.page-link-block');
+            if (!block) return;
+            e.preventDefault();
+            e.stopPropagation();
+            const noteId = block.getAttribute('data-note-id');
+            if (noteId) {
+                // Blur the editor before the async dialog opens so the bubble menu hides immediately
+                editor.commands.blur();
+                dotnetRef.invokeMethodAsync('OnPageLinkClick', noteId)
+                    .catch(err => console.error('[tiptap] OnPageLinkClick failed', err));
+            }
         });
 
         // File drag & drop
@@ -424,6 +622,25 @@ window.tiptapInterop = {
 
     setContent(elementId, content) {
         _editors[elementId]?.editor.commands.setContent(content, false);
+    },
+
+    updatePageLink(elementId, noteId, newTitle) {
+        const entry = _editors[elementId];
+        if (!entry) return null;
+        const { editor } = entry;
+        let found = false;
+        editor.state.doc.descendants((node, pos) => {
+            if (found) return false;
+            if (node.type.name === 'pageLink' && node.attrs.noteId === noteId) {
+                editor.view.dispatch(
+                    editor.state.tr.setNodeMarkup(pos, null, { ...node.attrs, title: newTitle })
+                );
+                found = true;
+                return false;
+            }
+        });
+        // Read HTML from the updated state
+        return found ? editor.getHTML() : null;
     },
 
     destroy(elementId) {

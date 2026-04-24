@@ -1,0 +1,241 @@
+.dialog-title-row {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    width: 100%;
+    min-width: 0;
+}
+
+.dialog-note-title {
+    flex: 1;
+    font-size: 1.1rem;
+    font-weight: 600;
+    border: none;
+    outline: none;
+    background: transparent;
+    color: inherit;
+    min-width: 0;
+}
+
+.dialog-tiptap {
+    min-height: 420px;
+    max-height: 58vh;
+    overflow-y: auto;
+    cursor: text;
+}
+
+.dialog-tiptap ::deep .ProseMirror {
+    outline: none;
+    min-height: 420px;
+    line-height: 1.7;
+    padding-bottom: 2rem;
+}
+
+.dialog-tiptap ::deep .ProseMirror p.is-editor-empty:first-child::before {
+    color: var(--vn-editor-blockquote-color);
+    content: attr(data-placeholder);
+    float: left;
+    height: 0;
+    pointer-events: none;
+}
+
+.dialog-tiptap ::deep h1 { font-size: 1.8rem; font-weight: 700; margin: 1.2em 0 0.3em; }
+.dialog-tiptap ::deep h2 { font-size: 1.4rem; font-weight: 700; margin: 1.1em 0 0.3em; }
+.dialog-tiptap ::deep h3 { font-size: 1.15rem; font-weight: 600; margin: 1em 0 0.3em; }
+
+.dialog-tiptap ::deep p { margin-bottom: 0.5em; }
+
+.dialog-tiptap ::deep ul,
+.dialog-tiptap ::deep ol {
+    padding-left: 1.5em;
+    margin-bottom: 0.5em;
+}
+
+.dialog-tiptap ::deep blockquote {
+    border-left: 3px solid var(--vn-editor-blockquote-border);
+    margin: 0.5em 0;
+    padding: 0.2em 1em;
+    color: var(--vn-editor-blockquote-color);
+}
+
+.dialog-tiptap ::deep code {
+    background: var(--vn-editor-code-bg);
+    border-radius: 3px;
+    padding: 0.1em 0.35em;
+    font-size: 0.88em;
+    color: var(--vn-editor-code-color);
+}
+
+.dialog-tiptap ::deep pre {
+    background: var(--vn-editor-pre-bg);
+    border-radius: 6px;
+    padding: 1em;
+    overflow-x: auto;
+    margin-bottom: 0.75em;
+    border: 1px solid var(--vn-editor-title-border);
+}
+
+.dialog-tiptap ::deep pre code {
+    background: none;
+    padding: 0;
+    color: inherit;
+    font-size: 0.9em;
+}
+
+.dialog-tiptap ::deep hr {
+    border: none;
+    border-top: 1px solid var(--vn-editor-hr-color);
+    margin: 1em 0;
+}
+
+.dialog-tiptap ::deep a {
+    color: #6ea8fe;
+    text-decoration: underline;
+    cursor: pointer;
+}
+
+/* ── Label bar ──────────────────────────────────────────────────────────── */
+
+.dialog-label-bar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.35rem;
+    padding: 0 0 0.5rem;
+    margin-bottom: 0.5rem;
+    border-bottom: 1px solid var(--mud-palette-divider);
+    min-height: 2rem;
+}
+
+.label-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.2rem;
+    padding: 0.15rem 0.45rem;
+    border-radius: 999px;
+    font-size: 0.78rem;
+    background-color: var(--mud-palette-action-default-hover);
+    border: 1px solid var(--mud-palette-divider);
+    color: inherit;
+    white-space: nowrap;
+}
+
+.label-chip-cat {
+    border-color: var(--mud-palette-primary);
+}
+
+.label-cat-prefix {
+    font-size: 0.7rem;
+    opacity: 0.65;
+    margin-right: 0.1rem;
+}
+
+.label-chip-remove {
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: 0 0 0 0.2rem;
+    font-size: 0.85rem;
+    line-height: 1;
+    color: inherit;
+    opacity: 0.55;
+}
+
+.label-chip-remove:hover {
+    opacity: 1;
+}
+
+.label-add-wrapper {
+    position: relative;
+}
+
+.label-add-btn {
+    background: none;
+    border: 1px dashed var(--mud-palette-divider);
+    border-radius: 999px;
+    padding: 0.15rem 0.55rem;
+    font-size: 0.78rem;
+    cursor: pointer;
+    color: inherit;
+    opacity: 0.7;
+    transition: opacity 0.15s;
+}
+
+.label-add-btn:hover {
+    opacity: 1;
+    border-color: var(--mud-palette-primary);
+}
+
+.label-add-btn-active {
+    opacity: 1;
+    border-color: var(--mud-palette-primary);
+    color: var(--mud-palette-primary);
+}
+
+/* Picker backdrop/dropdown — z-index above MudBlazor dialog (1300) */
+
+.label-picker-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 1400;
+}
+
+.label-picker {
+    position: absolute;
+    top: calc(100% + 0.25rem);
+    left: 0;
+    z-index: 1401;
+    min-width: 160px;
+    background-color: var(--mud-palette-surface);
+    border: 1px solid var(--mud-palette-divider);
+    border-radius: 6px;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.18);
+    padding: 0.3rem 0;
+}
+
+.label-picker-section {
+    padding: 0.25rem 0;
+}
+
+.label-picker-section + .label-picker-section {
+    border-top: 1px solid var(--mud-palette-divider);
+}
+
+.label-picker-section-title {
+    font-size: 0.7rem;
+    font-weight: 600;
+    opacity: 0.55;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    padding: 0.2rem 0.75rem 0.1rem;
+}
+
+.label-picker-item {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.3rem 0.75rem;
+    font-size: 0.85rem;
+    cursor: pointer;
+}
+
+.label-picker-item:hover {
+    background-color: var(--mud-palette-action-default-hover);
+}
+
+.label-picker-item.is-added {
+    font-weight: 600;
+}
+
+.label-picker-check {
+    width: 1rem;
+    text-align: center;
+    font-size: 0.75rem;
+    color: var(--mud-palette-primary);
+}
+
+.label-picker-empty {
+    padding: 0.5rem 0.75rem;
+    font-size: 0.82rem;
+    opacity: 0.5;
+}

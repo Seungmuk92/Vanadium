@@ -1,0 +1,280 @@
+@implements IDisposable
+@inject NoteService NoteService
+@inject LabelService LabelService
+@inject NavigationManager Nav
+@inject IJSRuntime JS
+@inject HttpClient Http
+@inject TokenStore TokenStore
+@inject ISnackbar Snackbar
+@inject ILogger<SubNoteDialog> Logger
+
+<MudDialog>
+    <TitleContent>
+        <div class="dialog-title-row">
+            <input class="dialog-note-title"
+                   value="@title"
+                   placeholder="Untitled"
+                   @oninput="OnTitleInput"
+                   @onkeydown="OnTitleKeyDown" />
+            <MudTooltip Text="Open in full page" Placement="Placement.Left">
+                <MudIconButton Icon="@Icons.Material.Outlined.OpenInFull"
+                               Size="Size.Small"
+                               OnClick="ExpandToFullPage" />
+            </MudTooltip>
+        </div>
+    </TitleContent>
+    <DialogContent>
+        <div class="dialog-label-bar">
+            @foreach (var label in noteLabels)
+            {
+                <span class="label-chip @(label.CategoryId.HasValue ? "label-chip-cat" : "")">
+                    @if (label.CategoryId.HasValue)
+                    {
+                        <span class="label-cat-prefix">@label.CategoryName:</span>
+                    }
+                    <span>@label.Name</span>
+                    <button class="label-chip-remove" @onclick="() => RemoveLabel(label.Id)">×</button>
+                </span>
+            }
+            <div class="label-add-wrapper">
+                <button class="label-add-btn @(showLabelPicker ? "label-add-btn-active" : "")" @onclick="ToggleLabelPicker">
+                    + Label
+                </button>
+                @if (showLabelPicker)
+                {
+                    <div class="label-picker-backdrop" @onclick="CloseLabelPicker"></div>
+                    <div class="label-picker">
+                        @{
+                            var generalLabels = availableLabels.Where(l => !l.CategoryId.HasValue).ToList();
+                        }
+                        @if (generalLabels.Any())
+                        {
+                            <div class="label-picker-section">
+                                <div class="label-picker-section-title">General</div>
+                                @foreach (var lbl in generalLabels)
+                                {
+                                    var isAdded = noteLabels.Any(nl => nl.Id == lbl.Id);
+                                    <div class="label-picker-item @(isAdded ? "is-added" : "")" @onclick="() => ToggleLabel(lbl)">
+                                        <span class="label-picker-check">@(isAdded ? "✓" : "")</span>
+                                        <span>@lbl.Name</span>
+                                    </div>
+                                }
+                            </div>
+                        }
+                        @foreach (var cat in labelCategories)
+                        {
+                            var catLabels = availableLabels.Where(l => l.CategoryId == cat.Id).ToList();
+                            if (!catLabels.Any()) continue;
+                            <div class="label-picker-section">
+                                <div class="label-picker-section-title">@cat.Name</div>
+                                @foreach (var lbl in catLabels)
+                                {
+                                    var isAdded = noteLabels.Any(nl => nl.Id == lbl.Id);
+                                    <div class="label-picker-item @(isAdded ? "is-added" : "")" @onclick="() => ToggleLabel(lbl)">
+                                        <span class="label-picker-check">@(isAdded ? "✓" : "")</span>
+                                        <span>@lbl.Name</span>
+                                    </div>
+                                }
+                            </div>
+                        }
+                        @if (!availableLabels.Any())
+                        {
+                            <div class="label-picker-empty">No labels</div>
+                        }
+                    </div>
+                }
+            </div>
+        </div>
+        <div id="@_editorId" class="tiptap-wrapper dialog-tiptap"></div>
+    </DialogContent>
+    <DialogActions>
+        <span class="save-status @saveStatusCss">@saveStatusText</span>
+        <MudSpacer />
+        <MudButton Variant="Variant.Text" OnClick="Close">Close</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] IMudDialogInstance MudDialog { get; set; } = null!;
+    [Parameter] public Guid NoteId { get; set; }
+
+    private string title = string.Empty;
+    private string content = string.Empty;
+    private Guid? _parentNoteId;
+    private string saveStatusText = string.Empty;
+    private string saveStatusCss = string.Empty;
+
+    private List<Label> noteLabels = [];
+    private List<Label> availableLabels = [];
+    private List<LabelCategory> labelCategories = [];
+    private bool showLabelPicker = false;
+
+    private readonly string _editorId = "tiptap-" + Guid.NewGuid().ToString("N")[..8];
+    private DotNetObjectReference<SubNoteDialog>? _objRef;
+    private CancellationTokenSource? _debounceCts;
+    private bool _editorMounted = false;
+    private bool _contentJustLoaded = false;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var result = await NoteService.GetAsync(NoteId);
+        if (result.IsSuccess)
+        {
+            title = result.Value!.Title;
+            content = result.Value!.Content;
+            _parentNoteId = result.Value!.ParentNoteId;
+            noteLabels = result.Value!.Labels ?? [];
+        }
+        else
+        {
+            Snackbar.Add("Failed to load note.", Severity.Error);
+            MudDialog.Close();
+            return;
+        }
+
+        var labelsResult = await LabelService.GetLabelsAsync();
+        if (labelsResult.IsSuccess) availableLabels = labelsResult.Value ?? [];
+
+        var catsResult = await LabelService.GetCategoriesAsync();
+        if (catsResult.IsSuccess) labelCategories = catsResult.Value ?? [];
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            _objRef = DotNetObjectReference.Create(this);
+            var apiBase = Http.BaseAddress?.ToString().TrimEnd('/') ?? string.Empty;
+            var token = await TokenStore.GetAsync() ?? string.Empty;
+            try
+            {
+                await JS.InvokeVoidAsync("tiptapInterop.init", _editorId, _objRef, content, apiBase, token);
+                _editorMounted = true;
+            }
+            catch (Exception ex)
+            {
+                Logger.LogError(ex, "Failed to initialize Tiptap editor for dialog '{EditorId}'.", _editorId);
+            }
+        }
+        else if (_contentJustLoaded && _editorMounted)
+        {
+            _contentJustLoaded = false;
+            await JS.InvokeVoidAsync("tiptapInterop.setContent", _editorId, content);
+        }
+    }
+
+    [JSInvokable]
+    public void OnEditorContentChanged(string html)
+    {
+        content = html;
+        ScheduleAutoSave();
+    }
+
+    [JSInvokable]
+    public async Task OnSaveShortcut() => await InvokeAsync(DoAutoSave);
+
+    private void OnTitleInput(ChangeEventArgs e)
+    {
+        title = e.Value?.ToString() ?? string.Empty;
+        ScheduleAutoSave();
+    }
+
+    private async Task OnTitleKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter")
+            await JS.InvokeVoidAsync("tiptapInterop.focus", _editorId);
+    }
+
+    private void ScheduleAutoSave()
+    {
+        _debounceCts?.Cancel();
+        _debounceCts = new CancellationTokenSource();
+        var token = _debounceCts.Token;
+        saveStatusText = "Unsaved changes";
+        saveStatusCss = "status-pending";
+        StateHasChanged();
+
+        _ = Task.Delay(1500, token).ContinueWith(async t =>
+        {
+            if (t.IsCanceled) return;
+            await InvokeAsync(DoAutoSave);
+        }, TaskScheduler.Default);
+    }
+
+    private async Task DoAutoSave()
+    {
+        saveStatusText = "Saving…";
+        saveStatusCss = "status-saving";
+        StateHasChanged();
+
+        var result = await NoteService.SaveAsync(new NoteItem { Id = NoteId, Title = title, Content = content, ParentNoteId = _parentNoteId });
+        saveStatusText = result.IsSuccess ? "Saved" : "Save failed";
+        saveStatusCss = result.IsSuccess ? "status-saved" : string.Empty;
+        StateHasChanged();
+    }
+
+    private async Task ExpandToFullPage()
+    {
+        _debounceCts?.Cancel();
+        await DoAutoSave();
+        MudDialog.Close(DialogResult.Ok(title));
+        Nav.NavigateTo($"/editor/{NoteId}");
+    }
+
+    private void Close()
+    {
+        _debounceCts?.Cancel();
+        MudDialog.Close(DialogResult.Ok(title));
+    }
+
+    // ── Label actions ────────────────────────────────────────────────────────
+
+    private void ToggleLabelPicker() => showLabelPicker = !showLabelPicker;
+
+    private void CloseLabelPicker() => showLabelPicker = false;
+
+    private async Task ToggleLabel(Label label)
+    {
+        if (noteLabels.Any(l => l.Id == label.Id))
+        {
+            var result = await LabelService.RemoveLabelFromNoteAsync(NoteId, label.Id);
+            if (!result.IsSuccess)
+            {
+                Snackbar.Add(result.Error ?? "Failed to remove label.", Severity.Warning);
+                return;
+            }
+            noteLabels.RemoveAll(l => l.Id == label.Id);
+        }
+        else
+        {
+            var result = await LabelService.AddLabelToNoteAsync(NoteId, label.Id);
+            if (!result.IsSuccess)
+            {
+                Snackbar.Add(result.Error ?? "Failed to add label.", Severity.Warning);
+                return;
+            }
+            if (label.CategoryId.HasValue)
+                noteLabels.RemoveAll(l => l.CategoryId == label.CategoryId);
+            noteLabels.Add(label);
+            noteLabels = [.. noteLabels.OrderBy(l => l.Name)];
+        }
+    }
+
+    private async Task RemoveLabel(Guid labelId)
+    {
+        var result = await LabelService.RemoveLabelFromNoteAsync(NoteId, labelId);
+        if (!result.IsSuccess)
+        {
+            Snackbar.Add(result.Error ?? "Failed to remove label.", Severity.Warning);
+            return;
+        }
+        noteLabels.RemoveAll(l => l.Id == labelId);
+    }
+
+    public void Dispose()
+    {
+        _debounceCts?.Cancel();
+        _objRef?.Dispose();
+        _ = JS.InvokeVoidAsync("tiptapInterop.destroy", _editorId);
+    }
+}

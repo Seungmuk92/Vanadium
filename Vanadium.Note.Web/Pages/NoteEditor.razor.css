@@ -1,8 +1,40 @@
 .editor-header {
     display: flex;
-    justify-content: space-between;
     align-items: center;
+    gap: 0.75rem;
     margin-bottom: 1rem;
+    flex-wrap: wrap;
+}
+
+.editor-breadcrumb {
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+    font-size: 0.82rem;
+    opacity: 0.65;
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    white-space: nowrap;
+}
+
+.editor-breadcrumb a {
+    color: inherit;
+    text-decoration: none;
+    opacity: 0.8;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 200px;
+}
+
+.editor-breadcrumb a:hover {
+    opacity: 1;
+    text-decoration: underline;
+}
+
+.breadcrumb-sep {
+    opacity: 0.4;
+    flex-shrink: 0;
 }
 
 .save-status {
@@ -24,6 +56,8 @@
 .editor-actions {
     display: flex;
     gap: 0.5rem;
+    margin-left: auto;
+    flex-shrink: 0;
 }
 
 .editor-body {

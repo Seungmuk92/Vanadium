@@ -39,7 +39,9 @@ builder.Services.AddCors(options =>
 
 builder.Services.AddDbContext<NoteDbContext>(options =>
 {
-    options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection"));
+    options.UseNpgsql(
+        builder.Configuration.GetConnectionString("DefaultConnection"),
+        o => o.EnableRetryOnFailure(maxRetryCount: 3, maxRetryDelay: TimeSpan.FromSeconds(5), errorCodesToAdd: null));
     if (builder.Environment.IsDevelopment())
     {
         options.EnableSensitiveDataLogging();
