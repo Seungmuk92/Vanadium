@@ -121,4 +121,20 @@ public class NoteService(HttpClient http, ILogger<NoteService> logger)
             return ServiceResult<bool>.Fail("Failed to delete note.");
         }
     }
+
+    public async Task<ServiceResult<List<NoteSummary>>> GetChildrenAsync(Guid parentId)
+    {
+        try
+        {
+            var result = await http.GetFromJsonAsync<List<NoteSummary>>($"api/notes/{parentId}/children");
+            return result is not null
+                ? ServiceResult<List<NoteSummary>>.Ok(result)
+                : ServiceResult<List<NoteSummary>>.Fail("Failed to load sub-notes.");
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Failed to load sub-notes for note {NoteId}.", parentId);
+            return ServiceResult<List<NoteSummary>>.Fail("Failed to load sub-notes.");
+        }
+    }
 }

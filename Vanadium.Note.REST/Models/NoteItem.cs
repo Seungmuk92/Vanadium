@@ -15,6 +15,20 @@ public class NoteItem
     public string ContentText { get; set; } = string.Empty;
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
 
+    public Guid? ParentNoteId { get; set; }
+
+    [JsonIgnore]
+    public NoteItem? ParentNote { get; set; }
+
+    [JsonIgnore]
+    public ICollection<NoteItem> ChildNotes { get; set; } = [];
+
+    [NotMapped]
+    public int ChildCount { get; set; }
+
+    [NotMapped]
+    public string? ParentTitle { get; set; }
+
     [NotMapped]
     public List<LabelSummary> Labels { get; set; } = [];
 
