@@ -5,6 +5,7 @@ import Placeholder from 'https://esm.sh/@tiptap/extension-placeholder@2'
 import Link from 'https://esm.sh/@tiptap/extension-link@2'
 import Image from 'https://esm.sh/@tiptap/extension-image@2'
 import Suggestion from 'https://esm.sh/@tiptap/suggestion@2'
+import { Markdown } from 'https://esm.sh/tiptap-markdown?deps=@tiptap/core@2'
 
 const _editors = {};
 
@@ -445,6 +446,15 @@ window.tiptapInterop = {
             element: el,
             extensions: [
                 StarterKit,
+                Markdown.configure({
+                    html: true,
+                    tightLists: true,
+                    bulletListMarker: '-',
+                    linkify: false,
+                    breaks: false,
+                    transformPastedText: true,
+                    transformCopiedText: false,
+                }),
                 Placeholder.configure({ placeholder: 'Write something...' }),
                 Link.configure({
                     autolink: true,
