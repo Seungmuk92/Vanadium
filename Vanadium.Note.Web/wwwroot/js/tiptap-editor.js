@@ -12,8 +12,70 @@ import Table from 'https://esm.sh/@tiptap/extension-table@2'
 import TableRow from 'https://esm.sh/@tiptap/extension-table-row@2'
 import TableHeader from 'https://esm.sh/@tiptap/extension-table-header@2'
 import TableCell from 'https://esm.sh/@tiptap/extension-table-cell@2'
+import { createLowlight, common } from 'https://esm.sh/lowlight'
+import CodeBlockLowlight from 'https://esm.sh/@tiptap/extension-code-block-lowlight@2'
 
 const _editors = {};
+
+// ── Code block with lowlight syntax highlighting ─────────────────────────────
+
+const lowlight = createLowlight(common)
+
+const CodeBlock = CodeBlockLowlight.extend({
+    renderHTML({ node, HTMLAttributes }) {
+        const lang = node.attrs.language;
+        return [
+            'pre',
+            mergeAttributes(this.options.HTMLAttributes, HTMLAttributes, {
+                'data-language': lang && lang !== 'plaintext' ? lang : null,
+            }),
+            ['code', { class: lang ? `language-${lang}` : null }, 0],
+        ];
+    },
+});
+
+// ── Tab / Shift-Tab handling ─────────────────────────────────────────────────
+
+const TabIndent = Extension.create({
+    name: 'tabIndent',
+    addKeyboardShortcuts() {
+        return {
+            Tab: ({ editor }) => {
+                // Let Table extension handle cell navigation
+                if (editor.isActive('tableCell') || editor.isActive('tableHeader')) {
+                    return false;
+                }
+                if (editor.isActive('listItem')) {
+                    return editor.chain().focus().sinkListItem('listItem').run();
+                }
+                if (editor.isActive('taskItem')) {
+                    return editor.chain().focus().sinkListItem('taskItem').run();
+                }
+                // Use tr.insertText to bypass Markdown parsing (works in code blocks too).
+                // Always return true to prevent the browser's default Tab (focus navigation).
+                editor.chain().command(({ tr, dispatch }) => {
+                    tr.insertText('    ');
+                    dispatch?.(tr);
+                    return true;
+                }).run();
+                return true;
+            },
+            'Shift-Tab': ({ editor }) => {
+                // Let Table extension handle cell navigation
+                if (editor.isActive('tableCell') || editor.isActive('tableHeader')) {
+                    return false;
+                }
+                if (editor.isActive('listItem')) {
+                    return editor.chain().focus().liftListItem('listItem').run();
+                }
+                if (editor.isActive('taskItem')) {
+                    return editor.chain().focus().liftListItem('taskItem').run();
+                }
+                return false;
+            },
+        };
+    },
+});
 
 // ── Slash commands ───────────────────────────────────────────────────────────
 
@@ -455,7 +517,8 @@ window.tiptapInterop = {
         const editor = new Editor({
             element: el,
             extensions: [
-                StarterKit,
+                StarterKit.configure({ codeBlock: false }),
+                CodeBlock.configure({ lowlight, defaultLanguage: 'plaintext' }),
                 Markdown.configure({
                     html: true,
                     tightLists: true,
@@ -481,6 +544,7 @@ window.tiptapInterop = {
                 TableRow,
                 TableHeader,
                 TableCell,
+                TabIndent,
                 FileAttachment,
                 PageLink,
                 createSlashCommandsExtension(dotnetRef),

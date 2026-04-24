@@ -154,9 +154,24 @@
     background: var(--vn-editor-pre-bg);
     border-radius: 6px;
     padding: 1em;
+    padding-top: 2em;
     overflow-x: auto;
     margin-bottom: 0.75em;
     border: 1px solid var(--vn-editor-title-border);
+    position: relative;
+}
+
+.tiptap-wrapper ::deep pre[data-language]::before {
+    content: attr(data-language);
+    position: absolute;
+    top: 0.5em;
+    right: 0.75em;
+    font-size: 0.72em;
+    font-family: monospace;
+    letter-spacing: 0.04em;
+    color: var(--vn-editor-blockquote-color);
+    opacity: 0.75;
+    user-select: none;
 }
 
 .tiptap-wrapper ::deep pre code {

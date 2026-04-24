@@ -192,6 +192,66 @@ code {
     color: #c02d76;
 }
 
+/* ── Syntax highlighting — GitHub light theme ────────────────────────────── */
+.hljs-comment,
+.hljs-quote                          { color: #6a737d; font-style: italic; }
+.hljs-keyword,
+.hljs-selector-tag,
+.hljs-literal,
+.hljs-section,
+.hljs-link                           { color: #d73a49; }
+.hljs-string,
+.hljs-regexp,
+.hljs-addition                       { color: #032f62; }
+.hljs-number,
+.hljs-meta,
+.hljs-template-variable,
+.hljs-attribute                      { color: #005cc5; }
+.hljs-title,
+.hljs-selector-id                    { color: #6f42c1; }
+.hljs-type,
+.hljs-selector-class,
+.hljs-built_in,
+.hljs-bullet,
+.hljs-code                           { color: #e36209; }
+.hljs-variable,
+.hljs-name,
+.hljs-selector-attr,
+.hljs-selector-pseudo,
+.hljs-symbol                         { color: #22863a; }
+.hljs-deletion                       { color: #b31d28; }
+.hljs-emphasis                       { font-style: italic; }
+.hljs-strong                         { font-weight: bold; }
+
+/* ── Syntax highlighting — dark mode override ────────────────────────────── */
+body.dark-mode .hljs-comment,
+body.dark-mode .hljs-quote                          { color: #8b949e; }
+body.dark-mode .hljs-keyword,
+body.dark-mode .hljs-selector-tag,
+body.dark-mode .hljs-literal,
+body.dark-mode .hljs-section,
+body.dark-mode .hljs-link                           { color: #ff7b72; }
+body.dark-mode .hljs-string,
+body.dark-mode .hljs-regexp,
+body.dark-mode .hljs-addition                       { color: #a5d6ff; }
+body.dark-mode .hljs-number,
+body.dark-mode .hljs-meta,
+body.dark-mode .hljs-template-variable,
+body.dark-mode .hljs-attribute                      { color: #79c0ff; }
+body.dark-mode .hljs-title,
+body.dark-mode .hljs-selector-id                    { color: #d2a8ff; }
+body.dark-mode .hljs-type,
+body.dark-mode .hljs-selector-class,
+body.dark-mode .hljs-built_in,
+body.dark-mode .hljs-bullet,
+body.dark-mode .hljs-code                           { color: #ffa657; }
+body.dark-mode .hljs-variable,
+body.dark-mode .hljs-name,
+body.dark-mode .hljs-selector-attr,
+body.dark-mode .hljs-selector-pseudo,
+body.dark-mode .hljs-symbol                         { color: #7ee787; }
+body.dark-mode .hljs-deletion                       { color: #ffa198; }
+
 /* TipTap bubble menu — appended to body, must be global */
 .tiptap-bubble-menu {
     display: flex;
