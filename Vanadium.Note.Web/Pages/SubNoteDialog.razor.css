@@ -51,6 +51,11 @@
     margin-bottom: 0.5em;
 }
 
+.dialog-tiptap ::deep ul.tight li,
+.dialog-tiptap ::deep ol.tight li {
+    margin-bottom: 0;
+}
+
 .dialog-tiptap ::deep blockquote {
     border-left: 3px solid var(--vn-editor-blockquote-border);
     margin: 0.5em 0;

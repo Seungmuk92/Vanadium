@@ -127,6 +127,11 @@
     margin-bottom: 0.5em;
 }
 
+.tiptap-wrapper ::deep ul.tight li,
+.tiptap-wrapper ::deep ol.tight li {
+    margin-bottom: 0;
+}
+
 /* Blockquote */
 .tiptap-wrapper ::deep blockquote {
     border-left: 3px solid var(--vn-editor-blockquote-border);
