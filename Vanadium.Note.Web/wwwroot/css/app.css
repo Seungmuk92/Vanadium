@@ -20,6 +20,7 @@
     --vn-link-popover-bg: #ffffff;
     --vn-link-popover-border: #dee2e6;
     --vn-link-popover-color: #333;
+    --vn-slash-menu-active-bg: #ede9ff;
 }
 
 body.dark-mode {
@@ -44,6 +45,7 @@ body.dark-mode {
     --vn-link-popover-bg: #2a2a3e;
     --vn-link-popover-border: #4a4a5e;
     --vn-link-popover-color: #e0e0e0;
+    --vn-slash-menu-active-bg: #38385e;
     background-color: #121212;
     color: #e0e0e0;
 }
@@ -375,4 +377,95 @@ a.file-attachment:hover {
 
 .form-floating > .form-control-plaintext:focus::placeholder, .form-floating > .form-control:focus::placeholder {
     text-align: start;
+}
+
+/* Slash command menu — appended to body, must be global */
+.slash-menu {
+    position: fixed;
+    z-index: 9999;
+    background: var(--vn-link-popover-bg);
+    border: 1px solid var(--vn-link-popover-border);
+    border-radius: 8px;
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.15);
+    padding: 4px;
+    min-width: 260px;
+    max-height: 320px;
+    overflow-y: auto;
+}
+
+.slash-menu-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 6px 10px;
+    border-radius: 6px;
+    cursor: pointer;
+    user-select: none;
+}
+
+.slash-menu-item:hover,
+.slash-menu-item-active {
+    background: var(--vn-slash-menu-active-bg);
+}
+
+.slash-menu-icon {
+    font-size: 0.85rem;
+    font-weight: 700;
+    color: var(--vn-link-popover-color);
+    width: 28px;
+    text-align: center;
+    flex-shrink: 0;
+    font-family: monospace;
+}
+
+.slash-menu-text {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+}
+
+.slash-menu-label {
+    font-size: 0.85rem;
+    font-weight: 500;
+    color: var(--vn-link-popover-color);
+    line-height: 1.3;
+}
+
+.slash-menu-desc {
+    font-size: 0.75rem;
+    color: var(--vn-link-popover-color);
+    opacity: 0.6;
+    line-height: 1.3;
+}
+
+/* Page link block — inserted by /page slash command */
+.page-link-block {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 14px;
+    margin: 4px 0;
+    border-radius: 6px;
+    background: var(--vn-editor-code-bg);
+    border: 1px solid var(--vn-editor-title-border);
+    cursor: pointer;
+    user-select: none;
+    color: var(--vn-link-popover-color);
+    transition: background 0.15s;
+}
+
+.page-link-block:hover {
+    background: var(--vn-slash-menu-active-bg);
+}
+
+.page-link-icon {
+    font-size: 1rem;
+    flex-shrink: 0;
+    line-height: 1;
+}
+
+.page-link-title {
+    font-size: 0.9rem;
+    font-weight: 500;
+    line-height: 1.4;
 }

@@ -36,6 +36,13 @@ public class NoteDbContext(DbContextOptions<NoteDbContext> options) : DbContext(
             .OnDelete(DeleteBehavior.Cascade);
 
         modelBuilder.Entity<NoteItem>()
+            .HasOne(n => n.ParentNote)
+            .WithMany(n => n.ChildNotes)
+            .HasForeignKey(n => n.ParentNoteId)
+            .IsRequired(false)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        modelBuilder.Entity<NoteItem>()
             .HasIndex(n => new { n.Title, n.ContentText })
             .HasMethod("GIN")
             .IsTsVectorExpressionIndex("simple");

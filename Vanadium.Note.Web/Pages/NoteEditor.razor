@@ -1,6 +1,7 @@
 @page "/editor"
 @page "/editor/{Id:guid}"
 @attribute [Authorize]
+@using System.Text.Json.Serialization
 @inject NoteService NoteService
 @inject LabelService LabelService
 @inject NavigationManager Nav
@@ -9,16 +10,26 @@
 @inject TokenStore TokenStore
 @inject ILogger<NoteEditor> Logger
 @inject ISnackbar Snackbar
+@inject IDialogService DialogService
 @implements IDisposable
 
 <PageTitle>@(isNew ? "New Note" : "Edit Note")</PageTitle>
 
 <div class="editor-header">
     <button class="btn btn-outline-secondary" @onclick="GoBack">← Back</button>
+    @if (parentNoteId.HasValue || parentTitle is not null)
+    {
+        <div class="editor-breadcrumb">
+            <a href="/">Notes</a>
+            <span class="breadcrumb-sep">/</span>
+            <a href="/editor/@parentNoteId">@(string.IsNullOrWhiteSpace(parentTitle) ? "(Untitled)" : parentTitle)</a>
+        </div>
+    }
     <span class="save-status @saveStatusCss">@saveStatusText</span>
     <div class="editor-actions">
         @if (!isNew)
         {
+            <button class="btn btn-outline-secondary" @onclick="CreateSubNote">+ Sub-note</button>
             <button class="btn btn-outline-danger" @onclick="DeleteNote">Delete</button>
         }
         <button class="btn btn-primary" @onclick="SaveNote">Save</button>
@@ -177,14 +188,26 @@
 @code {
     [Parameter] public Guid? Id { get; set; }
     [SupplyParameterFromQuery(Name = "returnUrl")] public string? ReturnUrl { get; set; }
+    [SupplyParameterFromQuery(Name = "parentId")] public Guid? ParentId { get; set; }
 
-    private string BackUrl => string.IsNullOrWhiteSpace(ReturnUrl) ? "/" : ReturnUrl;
+    private string BackUrl
+    {
+        get
+        {
+            if (!string.IsNullOrWhiteSpace(ReturnUrl)) return ReturnUrl;
+            return "/";
+        }
+    }
 
     private string title = string.Empty;
     private string content = string.Empty;
     private bool isNew => Id is null;
+    private Guid? parentNoteId;
+    private string? parentTitle;
+    private int childCount;
 
-    private bool _initialized = false;
+    private Guid? _currentId;
+    private Guid? _currentParentId;
     private bool _editorMounted = false;
     private bool _contentJustLoaded = false;
     private readonly string _editorId = "tiptap-" + Guid.NewGuid().ToString("N")[..8];
@@ -210,8 +233,17 @@
 
     protected override async Task OnParametersSetAsync()
     {
-        if (_initialized) return;
-        _initialized = true;
+        if (_currentId == Id && _currentParentId == ParentId) return;
+        _currentId = Id;
+        _currentParentId = ParentId;
+
+        title = string.Empty;
+        content = string.Empty;
+        parentNoteId = null;
+        parentTitle = null;
+        childCount = 0;
+        noteLabels = [];
+        _contentJustLoaded = true;
 
         if (Id is not null)
         {
@@ -221,7 +253,9 @@
                 title = result.Value!.Title;
                 content = result.Value!.Content;
                 noteLabels = result.Value!.Labels ?? [];
-                _contentJustLoaded = true;
+                parentNoteId = result.Value!.ParentNoteId;
+                parentTitle = result.Value!.ParentTitle;
+                childCount = result.Value!.ChildCount;
             }
             else
             {
@@ -229,6 +263,13 @@
                 Nav.NavigateTo("/");
                 return;
             }
+        }
+        else if (ParentId.HasValue)
+        {
+            parentNoteId = ParentId;
+            var parentResult = await NoteService.GetAsync(ParentId.Value);
+            if (parentResult.IsSuccess)
+                parentTitle = parentResult.Value!.Title;
         }
 
         await LoadLabelsAsync();
@@ -324,7 +365,8 @@
         {
             Id = Id ?? Guid.Empty,
             Title = title,
-            Content = content
+            Content = content,
+            ParentNoteId = parentNoteId
         };
 
         var saveResult = await NoteService.SaveAsync(note);
@@ -365,7 +407,8 @@
         {
             Id = Id ?? Guid.Empty,
             Title = title,
-            Content = content
+            Content = content,
+            ParentNoteId = parentNoteId
         };
         var saveResult = await NoteService.SaveAsync(note);
         if (!saveResult.IsSuccess)
@@ -386,6 +429,19 @@
         _debounceCts?.Cancel();
         if (Id is not null)
         {
+            var parts = new List<string>();
+            if (childCount > 0)
+                parts.Add($"This note has {childCount} sub-note(s) that will also be permanently deleted.");
+            if (parentNoteId.HasValue)
+                parts.Add("Any page link to this note in the parent note will also be removed.");
+
+            if (parts.Count > 0)
+            {
+                parts.Add("Delete this note?");
+                var confirmed = await JS.InvokeAsync<bool>("confirm", string.Join("\n\n", parts));
+                if (!confirmed) return;
+            }
+
             var result = await NoteService.DeleteAsync(Id.Value);
             if (!result.IsSuccess)
             {
@@ -395,6 +451,47 @@
         }
         Nav.NavigateTo("/");
     }
+
+    private void CreateSubNote() => Nav.NavigateTo($"/editor?parentId={Id}");
+
+    [JSInvokable]
+    public async Task<PageLinkDto?> OnSlashCommandPage()
+    {
+        if (!Id.HasValue) return null;
+        var result = await NoteService.SaveAsync(new NoteItem
+        {
+            Id = Guid.Empty,
+            Title = "Untitled",
+            ParentNoteId = Id,
+        });
+        if (!result.IsSuccess) return null;
+        return new PageLinkDto(result.Value!.Id, result.Value!.Title);
+    }
+
+    [JSInvokable]
+    public async Task OnPageLinkClick(string noteId)
+    {
+        if (!Guid.TryParse(noteId, out var id)) return;
+        var parameters = new DialogParameters<SubNoteDialog> { { x => x.NoteId, id } };
+        var options = new DialogOptions { MaxWidth = MaxWidth.Large, FullWidth = true, CloseOnEscapeKey = true };
+        var dialog = await DialogService.ShowAsync<SubNoteDialog>(string.Empty, parameters, options);
+        var result = await dialog.Result;
+        if (result is { Canceled: false, Data: string newTitle })
+        {
+            var newContent = await JS.InvokeAsync<string>("tiptapInterop.updatePageLink", _editorId, noteId, newTitle);
+            if (!string.IsNullOrEmpty(newContent))
+            {
+                content = newContent;
+                _debounceCts?.Cancel();
+                await DoAutoSave();
+            }
+        }
+    }
+
+    public record PageLinkDto(
+        [property: JsonPropertyName("id")] Guid Id,
+        [property: JsonPropertyName("title")] string Title
+    );
 
     private void GoBack()
     {
