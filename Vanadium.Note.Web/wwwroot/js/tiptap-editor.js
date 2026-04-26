@@ -5,8 +5,77 @@ import Placeholder from 'https://esm.sh/@tiptap/extension-placeholder@2'
 import Link from 'https://esm.sh/@tiptap/extension-link@2'
 import Image from 'https://esm.sh/@tiptap/extension-image@2'
 import Suggestion from 'https://esm.sh/@tiptap/suggestion@2'
+import { Markdown } from 'https://esm.sh/tiptap-markdown?deps=@tiptap/core@2'
+import TaskList from 'https://esm.sh/@tiptap/extension-task-list@2'
+import TaskItem from 'https://esm.sh/@tiptap/extension-task-item@2'
+import Table from 'https://esm.sh/@tiptap/extension-table@2'
+import TableRow from 'https://esm.sh/@tiptap/extension-table-row@2'
+import TableHeader from 'https://esm.sh/@tiptap/extension-table-header@2'
+import TableCell from 'https://esm.sh/@tiptap/extension-table-cell@2'
+import { createLowlight, common } from 'https://esm.sh/lowlight'
+import CodeBlockLowlight from 'https://esm.sh/@tiptap/extension-code-block-lowlight@2'
 
 const _editors = {};
+
+// ── Code block with lowlight syntax highlighting ─────────────────────────────
+
+const lowlight = createLowlight(common)
+
+const CodeBlock = CodeBlockLowlight.extend({
+    renderHTML({ node, HTMLAttributes }) {
+        const lang = node.attrs.language;
+        return [
+            'pre',
+            mergeAttributes(this.options.HTMLAttributes, HTMLAttributes, {
+                'data-language': lang && lang !== 'plaintext' ? lang : null,
+            }),
+            ['code', { class: lang ? `language-${lang}` : null }, 0],
+        ];
+    },
+});
+
+// ── Tab / Shift-Tab handling ─────────────────────────────────────────────────
+
+const TabIndent = Extension.create({
+    name: 'tabIndent',
+    addKeyboardShortcuts() {
+        return {
+            Tab: ({ editor }) => {
+                // Let Table extension handle cell navigation
+                if (editor.isActive('tableCell') || editor.isActive('tableHeader')) {
+                    return false;
+                }
+                if (editor.isActive('listItem')) {
+                    return editor.chain().focus().sinkListItem('listItem').run();
+                }
+                if (editor.isActive('taskItem')) {
+                    return editor.chain().focus().sinkListItem('taskItem').run();
+                }
+                // Use tr.insertText to bypass Markdown parsing (works in code blocks too).
+                // Always return true to prevent the browser's default Tab (focus navigation).
+                editor.chain().command(({ tr, dispatch }) => {
+                    tr.insertText('    ');
+                    dispatch?.(tr);
+                    return true;
+                }).run();
+                return true;
+            },
+            'Shift-Tab': ({ editor }) => {
+                // Let Table extension handle cell navigation
+                if (editor.isActive('tableCell') || editor.isActive('tableHeader')) {
+                    return false;
+                }
+                if (editor.isActive('listItem')) {
+                    return editor.chain().focus().liftListItem('listItem').run();
+                }
+                if (editor.isActive('taskItem')) {
+                    return editor.chain().focus().liftListItem('taskItem').run();
+                }
+                return false;
+            },
+        };
+    },
+});
 
 // ── Slash commands ───────────────────────────────────────────────────────────
 
@@ -17,7 +86,9 @@ const SLASH_COMMANDS = [
     { id: 'h3',       label: 'Heading 3',     desc: 'Small heading',        icon: 'H3', keywords: ['heading'] },
     { id: 'bullet',   label: 'Bullet List',   desc: 'Unordered list',       icon: '•',  keywords: ['list', 'ul'] },
     { id: 'numbered', label: 'Numbered List', desc: 'Ordered list',         icon: '1.', keywords: ['list', 'ol'] },
+    { id: 'table',    label: 'Table',         desc: 'Insert a table',       icon: '⊞',  keywords: ['table', 'grid'] },
     { id: 'quote',    label: 'Quote',         desc: 'Block quotation',      icon: '"',  keywords: ['blockquote'] },
+    { id: 'todo',     label: 'Task List',     desc: 'Checkbox list',        icon: '☑',  keywords: ['todo', 'task', 'check', 'checkbox'] },
     { id: 'code',     label: 'Code Block',    desc: 'Monospace code block', icon: '</>', keywords: ['codeblock'] },
     { id: 'divider',  label: 'Divider',       desc: 'Horizontal rule',      icon: '—',  keywords: ['hr', 'rule'] },
 ];
@@ -142,7 +213,9 @@ function createSlashCommandsExtension(dotnetRef) {
                             case 'h3':       editor.chain().focus().setHeading({ level: 3 }).run(); break;
                             case 'bullet':   editor.chain().focus().toggleBulletList().run(); break;
                             case 'numbered': editor.chain().focus().toggleOrderedList().run(); break;
+                            case 'table':    editor.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run(); break;
                             case 'quote':    editor.chain().focus().toggleBlockquote().run(); break;
+                            case 'todo':     editor.chain().focus().toggleTaskList().run(); break;
                             case 'code':     editor.chain().focus().toggleCodeBlock().run(); break;
                             case 'divider':  editor.chain().focus().setHorizontalRule().run(); break;
                         }
@@ -444,7 +517,17 @@ window.tiptapInterop = {
         const editor = new Editor({
             element: el,
             extensions: [
-                StarterKit,
+                StarterKit.configure({ codeBlock: false }),
+                CodeBlock.configure({ lowlight, defaultLanguage: 'plaintext' }),
+                Markdown.configure({
+                    html: true,
+                    tightLists: true,
+                    bulletListMarker: '-',
+                    linkify: false,
+                    breaks: false,
+                    transformPastedText: true,
+                    transformCopiedText: false,
+                }),
                 Placeholder.configure({ placeholder: 'Write something...' }),
                 Link.configure({
                     autolink: true,
@@ -455,6 +538,13 @@ window.tiptapInterop = {
                     inline: false,
                     HTMLAttributes: { class: 'tiptap-image' },
                 }),
+                TaskList,
+                TaskItem.configure({ nested: true }),
+                Table.configure({ resizable: false }),
+                TableRow,
+                TableHeader,
+                TableCell,
+                TabIndent,
                 FileAttachment,
                 PageLink,
                 createSlashCommandsExtension(dotnetRef),
@@ -641,6 +731,23 @@ window.tiptapInterop = {
         });
         // Read HTML from the updated state
         return found ? editor.getHTML() : null;
+    },
+
+    getMarkdown(elementId) {
+        return _editors[elementId]?.editor.storage.markdown.getMarkdown() ?? '';
+    },
+
+    downloadMarkdown(elementId, filename) {
+        const md = _editors[elementId]?.editor.storage.markdown.getMarkdown() ?? '';
+        const blob = new Blob([md], { type: 'text/markdown;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
     },
 
     destroy(elementId) {
