@@ -12,7 +12,8 @@
 @inject ILogger<NoteEditor> Logger
 @inject ISnackbar Snackbar
 @inject IDialogService DialogService
-@implements IDisposable
+@inject KeyboardShortcutService ShortcutService
+@implements IAsyncDisposable
 
 <PageTitle>@(isNew ? "New Note" : "Edit Note")</PageTitle>
 
@@ -301,6 +302,7 @@
             {
                 await JS.InvokeVoidAsync("tiptapInterop.init", _editorId, _objRef, content, apiBase, token);
                 _editorMounted = true;
+                await ShortcutService.RegisterAsync("ctrl+s", "Save note", () => InvokeAsync(SaveNote));
             }
             catch (Exception ex)
             {
@@ -319,12 +321,6 @@
     {
         content = html;
         ScheduleAutoSave();
-    }
-
-    [JSInvokable]
-    public async Task OnSaveShortcut()
-    {
-        await InvokeAsync(SaveNote);
     }
 
     private void OnTitleInput(ChangeEventArgs e)
@@ -637,12 +633,13 @@
         labelCategories.RemoveAll(c => c.Id == categoryId);
     }
 
-    public void Dispose()
+    public async ValueTask DisposeAsync()
     {
         _debounceCts?.Cancel();
         _debounceCts?.Dispose();
         _objRef?.Dispose();
+        await ShortcutService.UnregisterAsync("ctrl+s");
         if (_editorMounted)
-            JS.InvokeVoidAsync("tiptapInterop.destroy", _editorId);
+            await JS.InvokeVoidAsync("tiptapInterop.destroy", _editorId);
     }
 }
