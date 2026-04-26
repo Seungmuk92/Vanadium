@@ -216,6 +216,8 @@
     private readonly string _editorId = "tiptap-" + Guid.NewGuid().ToString("N")[..8];
     private DotNetObjectReference<NoteEditor>? _objRef;
     private CancellationTokenSource? _debounceCts;
+    private bool _hasPendingChanges = false;
+    private bool _isDisposing = false;
     private string saveStatusText = string.Empty;
     private string saveStatusCss = string.Empty;
 
@@ -337,6 +339,7 @@
 
     private void ScheduleAutoSave()
     {
+        _hasPendingChanges = true;
         SetStatus("Writing...", "status-pending");
         _debounceCts?.Cancel();
         _debounceCts?.Dispose();
@@ -354,11 +357,8 @@
         catch (TaskCanceledException) { }
     }
 
-    private async Task DoAutoSave()
+    private async Task<NoteItem?> SaveCoreAsync()
     {
-        SetStatus("Saving...", "status-saving");
-        StateHasChanged();
-
         var note = new NoteItem
         {
             Id = Id ?? Guid.Empty,
@@ -366,22 +366,39 @@
             Content = content,
             ParentNoteId = parentNoteId
         };
-
-        var saveResult = await NoteService.SaveAsync(note);
-
-        if (!saveResult.IsSuccess)
+        var result = await NoteService.SaveAsync(note);
+        if (!result.IsSuccess)
         {
-            Logger.LogError("Auto-save failed for note {NoteId}.", note.Id);
+            Logger.LogError("Save failed for note {NoteId}.", note.Id);
+            return null;
+        }
+        _hasPendingChanges = false;
+        return result.Value;
+    }
+
+    private async Task DoAutoSave()
+    {
+        SetStatus("Saving...", "status-saving");
+        StateHasChanged();
+
+        var saved = await SaveCoreAsync();
+        if (saved is null)
+        {
             SetStatus("Save failed", "status-error");
             StateHasChanged();
             return;
         }
 
-        if (isNew)
+        if (isNew && !_isDisposing)
         {
             foreach (var label in noteLabels.ToList())
-                await LabelService.AddLabelToNoteAsync(saveResult.Value!.Id, label.Id);
-            Nav.NavigateTo($"/editor/{saveResult.Value!.Id}", replace: true);
+                await LabelService.AddLabelToNoteAsync(saved.Id, label.Id);
+            // Set _currentId/_currentParentId before navigating so OnParametersSetAsync
+            // treats this as a same-note transition and skips the full state reset,
+            // preserving any content the user typed during the network round-trip.
+            _currentId = saved.Id;
+            _currentParentId = null;
+            Nav.NavigateTo($"/editor/{saved.Id}", replace: true);
         }
 
         SetStatus("Saved", "status-saved");
@@ -401,23 +418,19 @@
     private async Task SaveNote()
     {
         _debounceCts?.Cancel();
-        var note = new NoteItem
+        _debounceCts?.Dispose();
+        _debounceCts = null;
+
+        var saved = await SaveCoreAsync();
+        if (saved is null)
         {
-            Id = Id ?? Guid.Empty,
-            Title = title,
-            Content = content,
-            ParentNoteId = parentNoteId
-        };
-        var saveResult = await NoteService.SaveAsync(note);
-        if (!saveResult.IsSuccess)
-        {
-            Snackbar.Add(saveResult.Error ?? "Failed to save note.", Severity.Error);
+            Snackbar.Add("Failed to save note.", Severity.Error);
             return;
         }
         if (isNew)
         {
             foreach (var label in noteLabels.ToList())
-                await LabelService.AddLabelToNoteAsync(saveResult.Value!.Id, label.Id);
+                await LabelService.AddLabelToNoteAsync(saved.Id, label.Id);
         }
         Nav.NavigateTo(BackUrl);
     }
@@ -635,8 +648,13 @@
 
     public async ValueTask DisposeAsync()
     {
+        _isDisposing = true;
         _debounceCts?.Cancel();
         _debounceCts?.Dispose();
+
+        if (_hasPendingChanges)
+            await SaveCoreAsync();
+
         _objRef?.Dispose();
         await ShortcutService.UnregisterAsync("ctrl+s");
         if (_editorMounted)
