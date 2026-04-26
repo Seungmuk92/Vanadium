@@ -208,10 +208,20 @@ public class NoteService(NoteDbContext db, FileCleanupService fileCleanup, ILogg
         return note;
     }
 
-    public async Task<NoteItem?> Update(Guid id, NoteItem note)
+    public async Task<(NoteItem? Note, bool Conflict)> Update(Guid id, NoteItem note)
     {
         var existing = await db.Notes.FindAsync(id);
-        if (existing is null) return null;
+        if (existing is null) return (null, false);
+
+        // Optimistic concurrency: reject if the client's known version differs from DB,
+        // unless UpdatedAt is default (force-save bypass).
+        if (note.UpdatedAt != default && existing.UpdatedAt != note.UpdatedAt)
+        {
+            logger.LogWarning(
+                "Conflict on note {NoteId}: client has {ClientVersion}, server has {ServerVersion}.",
+                id, note.UpdatedAt, existing.UpdatedAt);
+            return (null, true);
+        }
 
         var titleChanged = existing.Title != note.Title;
 
@@ -225,7 +235,7 @@ public class NoteService(NoteDbContext db, FileCleanupService fileCleanup, ILogg
         if (titleChanged)
             await UpdatePageLinkReferences(id, note.Title);
 
-        return existing;
+        return (existing, false);
     }
 
     private async Task UpdatePageLinkReferences(Guid noteId, string newTitle)
