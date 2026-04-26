@@ -1,3 +1,4 @@
+using System.Net;
 using System.Text.RegularExpressions;
 using Microsoft.EntityFrameworkCore;
 using Vanadium.Note.REST.Data;
@@ -212,13 +213,61 @@ public class NoteService(NoteDbContext db, FileCleanupService fileCleanup, ILogg
         var existing = await db.Notes.FindAsync(id);
         if (existing is null) return null;
 
+        var titleChanged = existing.Title != note.Title;
+
         existing.Title = note.Title;
         existing.Content = note.Content;
         existing.ContentText = StripHtml(note.Content);
         existing.ParentNoteId = note.ParentNoteId;
         existing.UpdatedAt = DateTime.UtcNow;
         await db.SaveChangesAsync();
+
+        if (titleChanged)
+            await UpdatePageLinkReferences(id, note.Title);
+
         return existing;
+    }
+
+    private async Task UpdatePageLinkReferences(Guid noteId, string newTitle)
+    {
+        var idStr = noteId.ToString();
+        var referencingNotes = await db.Notes
+            .Where(n => n.Content.Contains($"data-note-id=\"{idStr}\""))
+            .ToListAsync();
+
+        if (referencingNotes.Count == 0) return;
+
+        foreach (var n in referencingNotes)
+        {
+            var updated = UpdatePageLinkTitleInContent(n.Content, noteId, newTitle);
+            if (updated == n.Content) continue;
+            n.Content = updated;
+            n.ContentText = StripHtml(updated);
+        }
+
+        await db.SaveChangesAsync();
+        logger.LogInformation(
+            "Propagated title change to '{NewTitle}' across {Count} note(s) referencing {NoteId}.",
+            newTitle, referencingNotes.Count, noteId);
+    }
+
+    private static string UpdatePageLinkTitleInContent(string content, Guid noteId, string newTitle)
+    {
+        if (string.IsNullOrEmpty(content)) return content;
+        var idStr = noteId.ToString();
+        var encodedTitle = WebUtility.HtmlEncode(newTitle);
+
+        return Regex.Replace(
+            content,
+            $@"<div\s[^>]*data-note-id=""{Regex.Escape(idStr)}""[^>]*>.*?</div>",
+            m =>
+            {
+                var tag = m.Value;
+                tag = Regex.Replace(tag, @"data-title=""[^""]*""", $@"data-title=""{encodedTitle}""");
+                tag = Regex.Replace(tag, @">.*?</div>$", $">📄 {encodedTitle}</div>", RegexOptions.Singleline);
+                return tag;
+            },
+            RegexOptions.Singleline | RegexOptions.IgnoreCase);
     }
 
     /// <summary>
