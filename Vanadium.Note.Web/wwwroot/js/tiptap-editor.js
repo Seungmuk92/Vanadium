@@ -560,23 +560,13 @@ window.tiptapInterop = {
             },
         });
 
-        // Ctrl+K / Ctrl+S shortcuts
+        // Ctrl+K shortcut
         editor.view.dom.addEventListener('keydown', (e) => {
             if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
                 e.preventDefault();
                 showLinkPopover(elementId);
             }
         });
-
-        const onCtrlS = (e) => {
-            if ((e.ctrlKey || e.metaKey) && e.key === 's') {
-                if (!editor.isFocused) return;
-                e.preventDefault();
-                dotnetRef.invokeMethodAsync('OnSaveShortcut')
-                    .catch(err => console.error('[tiptap] OnSaveShortcut failed', err));
-            }
-        };
-        document.addEventListener('keydown', onCtrlS);
 
         // Clipboard image paste — upload to server, insert URL
         editor.view.dom.addEventListener('paste', async (e) => {
@@ -702,7 +692,7 @@ window.tiptapInterop = {
             }
         });
 
-        _editors[elementId] = { editor, bubbleMenuEl, linkPopover, onCtrlS };
+        _editors[elementId] = { editor, bubbleMenuEl, linkPopover };
         console.log(`[tiptap] Editor initialized: ${elementId}`);
     },
 
@@ -753,7 +743,6 @@ window.tiptapInterop = {
     destroy(elementId) {
         const entry = _editors[elementId];
         if (entry) {
-            document.removeEventListener('keydown', entry.onCtrlS);
             entry.editor.destroy();
             entry.bubbleMenuEl.remove();
             entry.linkPopover.popover.remove();

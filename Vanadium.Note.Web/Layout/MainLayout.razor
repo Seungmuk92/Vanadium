@@ -3,7 +3,9 @@
 @inject SettingsService SettingsService
 @inject ThemeService ThemeService
 @inject AuthenticationStateProvider AuthStateProvider
-@implements IDisposable
+@inject KeyboardShortcutService ShortcutService
+@inject NavigationManager Nav
+@implements IAsyncDisposable
 
 <MudThemeProvider IsDarkMode="_isDarkMode" />
 <MudPopoverProvider />
@@ -29,8 +31,32 @@
     </CascadingValue>
 </CascadingValue>
 
+@if (_showShortcutsHelp)
+{
+    <div class="shortcuts-overlay" @onclick="CloseShortcutsHelp">
+        <div class="shortcuts-dialog" @onclick:stopPropagation="true">
+            <div class="shortcuts-dialog-header">
+                <span>Keyboard Shortcuts</span>
+                <button class="shortcuts-close" @onclick="CloseShortcutsHelp">×</button>
+            </div>
+            <table class="shortcuts-table">
+                <tbody>
+                    @foreach (var entry in ShortcutService.RegisteredShortcuts)
+                    {
+                        <tr>
+                            <td><kbd>@FormatKey(entry.Key)</kbd></td>
+                            <td>@entry.Description</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+}
+
 @code {
     private bool _isDarkMode = false;
+    private bool _showShortcutsHelp = false;
 
     protected override void OnInitialized()
     {
@@ -41,7 +67,35 @@
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         if (firstRender)
+        {
             await LoadThemeAsync();
+            await ShortcutService.InitAsync();
+            await ShortcutService.RegisterAsync("ctrl+n", "New note", () => InvokeAsync(() =>
+            {
+                Nav.NavigateTo("/editor");
+                return Task.CompletedTask;
+            }));
+            await ShortcutService.RegisterAsync("ctrl+/", "Show keyboard shortcuts", () => InvokeAsync(() =>
+            {
+                _showShortcutsHelp = !_showShortcutsHelp;
+                StateHasChanged();
+                return Task.CompletedTask;
+            }));
+        }
+    }
+
+    private void CloseShortcutsHelp() => _showShortcutsHelp = false;
+
+    private static string FormatKey(string key)
+    {
+        return string.Join("+", key.Split('+').Select(part => part switch
+        {
+            "ctrl"  => "Ctrl",
+            "alt"   => "Alt",
+            "shift" => "Shift",
+            "meta"  => "Meta",
+            var k   => char.ToUpperInvariant(k[0]) + k[1..],
+        }));
     }
 
     private void OnThemeServiceChanged()
@@ -88,9 +142,10 @@
         ThemeService.SetDarkMode(isDark);
     }
 
-    public void Dispose()
+    public async ValueTask DisposeAsync()
     {
         ThemeService.OnChanged -= OnThemeServiceChanged;
         AuthStateProvider.AuthenticationStateChanged -= OnAuthStateChanged;
+        await ShortcutService.UnregisterManyAsync("ctrl+n", "ctrl+/");
     }
 }

@@ -52,6 +52,86 @@ main {
     }
 }
 
+/* ── Keyboard shortcuts help dialog ──────────────────────────────────────── */
+
+.shortcuts-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.45);
+    z-index: 9000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.shortcuts-dialog {
+    background: var(--mud-palette-surface);
+    border: 1px solid var(--mud-palette-divider);
+    border-radius: 8px;
+    padding: 1.25rem 1.5rem 1.5rem;
+    min-width: 320px;
+    max-width: 480px;
+    width: 90%;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.25);
+}
+
+.shortcuts-dialog-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-weight: 600;
+    font-size: 1rem;
+    margin-bottom: 1rem;
+    color: var(--mud-palette-text-primary);
+}
+
+.shortcuts-close {
+    background: none;
+    border: none;
+    font-size: 1.25rem;
+    line-height: 1;
+    cursor: pointer;
+    color: var(--mud-palette-text-secondary);
+    padding: 0 0.25rem;
+}
+
+    .shortcuts-close:hover {
+        color: var(--mud-palette-text-primary);
+    }
+
+.shortcuts-table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+    .shortcuts-table td {
+        padding: 0.35rem 0.5rem;
+        font-size: 0.875rem;
+        color: var(--mud-palette-text-primary);
+    }
+
+    .shortcuts-table td:first-child {
+        width: 1%;
+        white-space: nowrap;
+        padding-right: 1.25rem;
+    }
+
+    .shortcuts-table tr + tr td {
+        border-top: 1px solid var(--mud-palette-divider);
+    }
+
+kbd {
+    display: inline-block;
+    padding: 0.15rem 0.45rem;
+    font-size: 0.8rem;
+    font-family: monospace;
+    background: var(--mud-palette-background);
+    border: 1px solid var(--mud-palette-divider);
+    border-radius: 4px;
+    box-shadow: 0 1px 0 var(--mud-palette-divider);
+    color: var(--mud-palette-text-primary);
+}
+
 @media (min-width: 641px) {
     .page {
         flex-direction: row;
