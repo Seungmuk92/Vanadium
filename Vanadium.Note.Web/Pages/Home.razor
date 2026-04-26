@@ -5,6 +5,7 @@
 @inject IJSRuntime JS
 @inject ILogger<Home> Logger
 @inject ISnackbar Snackbar
+@inject KeyboardShortcutService ShortcutService
 @implements IAsyncDisposable
 
 <PageTitle>Notes</PageTitle>
@@ -223,7 +224,6 @@
     private string _searchText = string.Empty;
     private CancellationTokenSource? _searchCts;
     private CancellationTokenSource? _loadCts;
-    private DotNetObjectReference<Home>? dotNetRef;
 
     private int currentPage = 1;
     private int totalCount = 0;
@@ -276,10 +276,7 @@
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         if (firstRender)
-        {
-            dotNetRef = DotNetObjectReference.Create(this);
-            await JS.InvokeVoidAsync("registerDeleteKey", dotNetRef);
-        }
+            await ShortcutService.RegisterAsync("delete", "Delete selected notes", () => InvokeAsync(OnDeleteKeyPressed));
     }
 
     private async Task LoadNotes()
@@ -429,8 +426,7 @@
         await LoadNotes();
     }
 
-    [JSInvokable]
-    public async Task OnDeleteKeyPressed()
+    private async Task OnDeleteKeyPressed()
     {
         if (selectedIds.Count == 0) return;
 
@@ -485,7 +481,6 @@
         _searchCts?.Dispose();
         _loadCts?.Cancel();
         _loadCts?.Dispose();
-        await JS.InvokeVoidAsync("unregisterDeleteKey");
-        dotNetRef?.Dispose();
+        await ShortcutService.UnregisterAsync("delete");
     }
 }
