@@ -1,3 +1,4 @@
+using System.Net;
 using System.Net.Http.Json;
 using System.Text;
 using Vanadium.Note.Web.Models;
@@ -91,6 +92,8 @@ public class NoteService(HttpClient http, ILogger<NoteService> logger)
                 ? await http.PostAsJsonAsync("api/notes", note)
                 : await http.PutAsJsonAsync($"api/notes/{note.Id}", note);
 
+            if (response.StatusCode == HttpStatusCode.Conflict)
+                return ServiceResult<NoteItem>.Conflict();
             if (!response.IsSuccessStatusCode)
                 return ServiceResult<NoteItem>.Fail("Failed to save note.");
 
