@@ -1,9 +1,14 @@
+using System.Net;
 using System.Net.Http.Headers;
+using Microsoft.AspNetCore.Components;
 using Vanadium.Note.Web.Auth;
 
 namespace Vanadium.Note.Web.Services;
 
-public class AuthTokenHandler(TokenStore tokenStore) : DelegatingHandler
+public class AuthTokenHandler(
+    TokenStore tokenStore,
+    JwtAuthenticationStateProvider authProvider,
+    NavigationManager navigation) : DelegatingHandler
 {
     protected override async Task<HttpResponseMessage> SendAsync(
         HttpRequestMessage request, CancellationToken cancellationToken)
@@ -12,6 +17,15 @@ public class AuthTokenHandler(TokenStore tokenStore) : DelegatingHandler
         if (!string.IsNullOrEmpty(token))
             request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
 
-        return await base.SendAsync(request, cancellationToken);
+        var response = await base.SendAsync(request, cancellationToken);
+
+        if (response.StatusCode == HttpStatusCode.Unauthorized && !string.IsNullOrEmpty(token))
+        {
+            await tokenStore.ClearAsync();
+            authProvider.NotifyAuthStateChanged();
+            navigation.NavigateTo("/login");
+        }
+
+        return response;
     }
 }
