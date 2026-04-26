@@ -41,8 +41,19 @@
         function getSystemDarkMode() {
             return window.matchMedia('(prefers-color-scheme: dark)').matches;
         }
+        function applyTheme(theme) {
+            if (theme === 'dark') setDarkMode(true);
+            else if (theme === 'light') setDarkMode(false);
+            else setDarkMode(getSystemDarkMode());
+        }
+        function getStoredTheme() {
+            return localStorage.getItem('vn-theme') || 'system';
+        }
+        function storeTheme(theme) {
+            localStorage.setItem('vn-theme', theme);
+        }
         // Apply immediately to prevent flash before Blazor loads
-        setDarkMode(getSystemDarkMode());
+        applyTheme(getStoredTheme());
         let _deleteHandler = null;
         function registerDeleteKey(dotNetRef) {
             _deleteHandler = (e) => {

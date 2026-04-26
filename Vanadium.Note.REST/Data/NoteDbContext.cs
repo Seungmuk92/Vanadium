@@ -11,6 +11,7 @@ public class NoteDbContext(DbContextOptions<NoteDbContext> options) : DbContext(
     public DbSet<LabelCategory> LabelCategories => Set<LabelCategory>();
     public DbSet<Label> Labels => Set<Label>();
     public DbSet<NoteLabel> NoteLabels => Set<NoteLabel>();
+    public DbSet<UserSettings> UserSettings => Set<UserSettings>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -46,5 +47,9 @@ public class NoteDbContext(DbContextOptions<NoteDbContext> options) : DbContext(
             .HasIndex(n => new { n.Title, n.ContentText })
             .HasMethod("GIN")
             .IsTsVectorExpressionIndex("simple");
+
+        modelBuilder.Entity<UserSettings>()
+            .HasIndex(s => s.Username)
+            .IsUnique();
     }
 }
