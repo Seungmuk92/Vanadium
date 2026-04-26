@@ -1,0 +1,129 @@
+@page "/settings"
+@attribute [Authorize]
+@inject SettingsService SettingsService
+@inject ThemeService ThemeService
+@inject ISnackbar Snackbar
+@inject IJSRuntime JS
+
+<PageTitle>Settings</PageTitle>
+
+<div class="settings-page">
+    <h1>Settings</h1>
+
+    @if (_isLoading)
+    {
+        <p class="empty-message">Loading...</p>
+    }
+    else
+    {
+        <div class="settings-section">
+            <h2 class="settings-section-title">Appearance</h2>
+
+            <div class="settings-row">
+                <label class="settings-label">Theme</label>
+                <MudSelect T="string"
+                           Value="_settings.Theme"
+                           ValueChanged="v => _settings.Theme = v"
+                           Dense="true"
+                           Variant="Variant.Outlined"
+                           Class="settings-select">
+                    <MudSelectItem Value="@("system")">System default</MudSelectItem>
+                    <MudSelectItem Value="@("light")">Light</MudSelectItem>
+                    <MudSelectItem Value="@("dark")">Dark</MudSelectItem>
+                </MudSelect>
+            </div>
+        </div>
+
+        <div class="settings-section">
+            <h2 class="settings-section-title">Notes List</h2>
+
+            <div class="settings-row">
+                <label class="settings-label">Default sort by</label>
+                <MudSelect T="string"
+                           Value="_settings.DefaultSortBy"
+                           ValueChanged="v => _settings.DefaultSortBy = v"
+                           Dense="true"
+                           Variant="Variant.Outlined"
+                           Class="settings-select">
+                    <MudSelectItem Value="@("date")">Modified date</MudSelectItem>
+                    <MudSelectItem Value="@("title")">Title</MudSelectItem>
+                </MudSelect>
+            </div>
+
+            <div class="settings-row">
+                <label class="settings-label">Default sort direction</label>
+                <MudSelect T="string"
+                           Value="_settings.DefaultSortDir"
+                           ValueChanged="v => _settings.DefaultSortDir = v"
+                           Dense="true"
+                           Variant="Variant.Outlined"
+                           Class="settings-select">
+                    <MudSelectItem Value="@("desc")">Descending</MudSelectItem>
+                    <MudSelectItem Value="@("asc")">Ascending</MudSelectItem>
+                </MudSelect>
+            </div>
+
+            <div class="settings-row">
+                <label class="settings-label">Notes per page</label>
+                <MudSelect T="int"
+                           Value="_settings.DefaultPageSize"
+                           ValueChanged="v => _settings.DefaultPageSize = v"
+                           Dense="true"
+                           Variant="Variant.Outlined"
+                           Class="settings-select">
+                    <MudSelectItem Value="10">10</MudSelectItem>
+                    <MudSelectItem Value="20">20</MudSelectItem>
+                    <MudSelectItem Value="30">30</MudSelectItem>
+                    <MudSelectItem Value="50">50</MudSelectItem>
+                </MudSelect>
+            </div>
+        </div>
+
+        <div class="settings-actions">
+            <MudButton Variant="Variant.Filled"
+                       Color="Color.Primary"
+                       OnClick="SaveAsync"
+                       Disabled="_isSaving">
+                @(_isSaving ? "Saving..." : "Save")
+            </MudButton>
+        </div>
+    }
+</div>
+
+@code {
+    private UserSettings _settings = new();
+    private bool _isLoading = true;
+    private bool _isSaving = false;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var result = await SettingsService.GetAsync();
+        if (result.IsSuccess)
+            _settings = result.Value!;
+        else
+            Snackbar.Add(result.Error ?? "Failed to load settings.", Severity.Error);
+
+        _isLoading = false;
+    }
+
+    private async Task SaveAsync()
+    {
+        _isSaving = true;
+        var result = await SettingsService.SaveAsync(_settings);
+        if (result.IsSuccess)
+        {
+            _settings = result.Value!;
+            await JS.InvokeVoidAsync("storeTheme", _settings.Theme);
+            await JS.InvokeVoidAsync("applyTheme", _settings.Theme);
+            var isDark = _settings.Theme == "dark" ||
+                         (_settings.Theme == "system" && await JS.InvokeAsync<bool>("getSystemDarkMode"));
+            ThemeService.SetDarkMode(isDark);
+            Snackbar.Add("Settings saved.", Severity.Success);
+        }
+        else
+        {
+            Snackbar.Add(result.Error ?? "Failed to save settings.", Severity.Error);
+        }
+        _isSaving = false;
+    }
+}

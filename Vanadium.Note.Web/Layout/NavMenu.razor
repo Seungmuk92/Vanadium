@@ -40,6 +40,12 @@
                 @char.ToUpper(_username[0]).ToString()
             </MudAvatar>
             <span class="user-name">@_username</span>
+            <MudTooltip Text="Settings" Placement="Placement.Right">
+                <MudIconButton Icon="@Icons.Material.Filled.Settings"
+                               Color="Color.Inherit"
+                               Size="Size.Small"
+                               OnClick="@(() => Navigation.NavigateTo("/settings"))" />
+            </MudTooltip>
             <MudTooltip Text="Logout" Placement="Placement.Right">
                 <MudIconButton Icon="@Icons.Material.Filled.Logout"
                                Color="Color.Inherit"

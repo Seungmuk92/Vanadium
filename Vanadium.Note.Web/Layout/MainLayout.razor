@@ -1,5 +1,9 @@
 @inherits LayoutComponentBase
 @inject IJSRuntime JS
+@inject SettingsService SettingsService
+@inject ThemeService ThemeService
+@inject AuthenticationStateProvider AuthStateProvider
+@implements IDisposable
 
 <MudThemeProvider IsDarkMode="_isDarkMode" />
 <MudPopoverProvider />
@@ -28,18 +32,65 @@
 @code {
     private bool _isDarkMode = false;
 
+    protected override void OnInitialized()
+    {
+        ThemeService.OnChanged += OnThemeServiceChanged;
+        AuthStateProvider.AuthenticationStateChanged += OnAuthStateChanged;
+    }
+
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         if (firstRender)
+            await LoadThemeAsync();
+    }
+
+    private void OnThemeServiceChanged()
+    {
+        _isDarkMode = ThemeService.IsDarkMode;
+        InvokeAsync(StateHasChanged);
+    }
+
+    private async void OnAuthStateChanged(Task<AuthenticationState> task)
+    {
+        var state = await task;
+        if (state.User.Identity?.IsAuthenticated == true)
+            await LoadThemeAsync();
+        else
+            await ApplyThemeAsync("system");
+    }
+
+    private async Task LoadThemeAsync()
+    {
+        var state = await AuthStateProvider.GetAuthenticationStateAsync();
+        if (state.User.Identity?.IsAuthenticated != true)
         {
-            _isDarkMode = await JS.InvokeAsync<bool>("getSystemDarkMode");
-            StateHasChanged();
+            await ApplyThemeAsync("system");
+            return;
         }
+
+        var result = await SettingsService.GetAsync();
+        if (result.IsSuccess)
+            await ApplyThemeAsync(result.Value!.Theme);
+    }
+
+    private async Task ApplyThemeAsync(string theme)
+    {
+        await JS.InvokeVoidAsync("storeTheme", theme);
+        await JS.InvokeVoidAsync("applyTheme", theme);
+        var isDark = theme == "dark" || (theme == "system" && await JS.InvokeAsync<bool>("getSystemDarkMode"));
+        ThemeService.SetDarkMode(isDark);
     }
 
     private async Task ToggleDarkMode()
     {
-        _isDarkMode = !_isDarkMode;
-        await JS.InvokeVoidAsync("setDarkMode", _isDarkMode);
+        var isDark = !_isDarkMode;
+        await JS.InvokeVoidAsync("setDarkMode", isDark);
+        ThemeService.SetDarkMode(isDark);
+    }
+
+    public void Dispose()
+    {
+        ThemeService.OnChanged -= OnThemeServiceChanged;
+        AuthStateProvider.AuthenticationStateChanged -= OnAuthStateChanged;
     }
 }
