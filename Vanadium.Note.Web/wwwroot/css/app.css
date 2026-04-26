@@ -21,6 +21,9 @@
     --vn-link-popover-border: #dee2e6;
     --vn-link-popover-color: #333;
     --vn-slash-menu-active-bg: #ede9ff;
+    --vn-conflict-bg: #fff3cd;
+    --vn-conflict-border: #e6a817;
+    --vn-conflict-color: #5c4000;
 }
 
 body.dark-mode {
@@ -46,6 +49,9 @@ body.dark-mode {
     --vn-link-popover-border: #4a4a5e;
     --vn-link-popover-color: #e0e0e0;
     --vn-slash-menu-active-bg: #38385e;
+    --vn-conflict-bg: #2a1f00;
+    --vn-conflict-border: #c68a00;
+    --vn-conflict-color: #ffd166;
     background-color: #121212;
     color: #e0e0e0;
 }
