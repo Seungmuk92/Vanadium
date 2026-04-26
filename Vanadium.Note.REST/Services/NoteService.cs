@@ -32,9 +32,7 @@ public class NoteService(NoteDbContext db, FileCleanupService fileCleanup, ILogg
             labelIds);
 
         var orderedQuery = !string.IsNullOrWhiteSpace(search)
-            ? baseDataQuery.OrderByDescending(n =>
-                EF.Functions.ToTsVector("simple", n.Title + " " + n.ContentText)
-                    .Rank(EF.Functions.WebSearchToTsQuery("simple", search)))
+            ? baseDataQuery.OrderByDescending(n => n.UpdatedAt)
             : (sortBy.ToLowerInvariant(), sortDir.ToLowerInvariant()) switch
             {
                 ("title", "asc")  => baseDataQuery.OrderBy(n => n.Title),
@@ -341,9 +339,17 @@ public class NoteService(NoteDbContext db, FileCleanupService fileCleanup, ILogg
         IQueryable<NoteItem> query, string? search, Guid[]? labelIds)
     {
         if (!string.IsNullOrWhiteSpace(search))
-            query = query.Where(n =>
-                EF.Functions.ToTsVector("simple", n.Title + " " + n.ContentText)
-                    .Matches(EF.Functions.WebSearchToTsQuery("simple", search)));
+        {
+            var terms = search.Trim()
+                .Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            foreach (var term in terms)
+            {
+                var pattern = $"%{EscapeLikePattern(term)}%";
+                query = query.Where(n =>
+                    EF.Functions.ILike(n.Title, pattern) ||
+                    EF.Functions.ILike(n.ContentText, pattern));
+            }
+        }
 
         if (labelIds is { Length: > 0 })
             foreach (var id in labelIds)
@@ -351,6 +357,9 @@ public class NoteService(NoteDbContext db, FileCleanupService fileCleanup, ILogg
 
         return query;
     }
+
+    private static string EscapeLikePattern(string term) =>
+        term.Replace("\\", "\\\\").Replace("%", "\\%").Replace("_", "\\_");
 
     private static readonly Regex HtmlTagRegex = new("<[^>]*>", RegexOptions.Compiled);
     private static readonly Regex HtmlEntityRegex = new("&[a-zA-Z]+;|&#[0-9]+;", RegexOptions.Compiled);
