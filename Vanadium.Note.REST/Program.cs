@@ -93,6 +93,7 @@ builder.Services.AddRateLimiter(options =>
 builder.Services.AddControllers();
 builder.Services.AddScoped<NoteService>();
 builder.Services.AddScoped<LabelService>();
+builder.Services.AddScoped<SettingsService>();
 builder.Services.AddScoped<FileCleanupService>();
 builder.Services.AddHostedService<OrphanFileCleanupJob>();
 builder.Services.AddEndpointsApiExplorer();

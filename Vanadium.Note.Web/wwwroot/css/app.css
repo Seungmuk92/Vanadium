@@ -529,3 +529,55 @@ a.file-attachment:hover {
     font-weight: 500;
     line-height: 1.4;
 }
+
+/* Settings page */
+.settings-page {
+    max-width: 560px;
+    padding: 1.5rem 0;
+}
+
+.settings-page h1 {
+    font-size: 1.5rem;
+    font-weight: 600;
+    margin-bottom: 1.75rem;
+}
+
+.settings-section {
+    margin-bottom: 2rem;
+}
+
+.settings-section-title {
+    font-size: 0.8rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    opacity: 0.55;
+    margin-bottom: 0.75rem;
+    padding-bottom: 0.4rem;
+    border-bottom: 1px solid rgba(0,0,0,0.1);
+}
+
+body.dark-mode .settings-section-title {
+    border-bottom-color: rgba(255,255,255,0.1);
+}
+
+.settings-row {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    padding: 0.5rem 0;
+}
+
+.settings-label {
+    flex: 1;
+    font-size: 0.925rem;
+}
+
+.settings-select {
+    width: 180px;
+    flex-shrink: 0;
+}
+
+.settings-actions {
+    margin-top: 0.5rem;
+}
