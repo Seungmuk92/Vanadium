@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.Components.Authorization;
 using Microsoft.AspNetCore.Components.Web;
 using Microsoft.AspNetCore.Components.WebAssembly.Hosting;
@@ -28,7 +29,9 @@ namespace Vanadium.Note.Web
             builder.Services.AddScoped(sp =>
             {
                 var tokenStore = sp.GetRequiredService<TokenStore>();
-                var handler = new AuthTokenHandler(tokenStore)
+                var authProvider = sp.GetRequiredService<JwtAuthenticationStateProvider>();
+                var navigation = sp.GetRequiredService<NavigationManager>();
+                var handler = new AuthTokenHandler(tokenStore, authProvider, navigation)
                 {
                     InnerHandler = new HttpClientHandler()
                 };
