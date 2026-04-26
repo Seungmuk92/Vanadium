@@ -46,7 +46,7 @@ public class NoteDbContext(DbContextOptions<NoteDbContext> options) : DbContext(
         modelBuilder.Entity<NoteItem>()
             .HasIndex(n => new { n.Title, n.ContentText })
             .HasMethod("GIN")
-            .IsTsVectorExpressionIndex("simple");
+            .HasOperators("gin_trgm_ops", "gin_trgm_ops");
 
         modelBuilder.Entity<UserSettings>()
             .HasIndex(s => s.Username)
