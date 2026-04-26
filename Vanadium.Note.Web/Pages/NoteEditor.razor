@@ -39,6 +39,17 @@
     </div>
 </div>
 
+@if (_hasConflict)
+{
+    <div class="conflict-banner">
+        <span>⚠ This note was modified in another tab. Your changes were not saved.</span>
+        <div class="conflict-banner-actions">
+            <button class="btn btn-sm btn-danger" @onclick="ForceSave">Force Save</button>
+            <button class="btn btn-sm btn-outline-secondary" @onclick="ReloadNote">Reload Latest</button>
+        </div>
+    </div>
+}
+
 <div class="editor-body">
     <input class="editor-title"
            type="text"
@@ -218,6 +229,8 @@
     private CancellationTokenSource? _debounceCts;
     private bool _hasPendingChanges = false;
     private bool _isDisposing = false;
+    private bool _hasConflict = false;
+    private DateTime _serverUpdatedAt;
     private string saveStatusText = string.Empty;
     private string saveStatusCss = string.Empty;
 
@@ -249,6 +262,8 @@
         childCount = 0;
         noteLabels = [];
         _contentJustLoaded = true;
+        _hasConflict = false;
+        _serverUpdatedAt = default;
 
         if (Id is not null)
         {
@@ -261,6 +276,7 @@
                 parentNoteId = result.Value!.ParentNoteId;
                 parentTitle = result.Value!.ParentTitle;
                 childCount = result.Value!.ChildCount;
+                _serverUpdatedAt = result.Value!.UpdatedAt;
             }
             else
             {
@@ -339,6 +355,7 @@
 
     private void ScheduleAutoSave()
     {
+        if (_hasConflict) return;
         _hasPendingChanges = true;
         SetStatus("Writing...", "status-pending");
         _debounceCts?.Cancel();
@@ -364,14 +381,21 @@
             Id = Id ?? Guid.Empty,
             Title = title,
             Content = content,
-            ParentNoteId = parentNoteId
+            ParentNoteId = parentNoteId,
+            UpdatedAt = _serverUpdatedAt
         };
         var result = await NoteService.SaveAsync(note);
+        if (result.IsConflict)
+        {
+            _hasConflict = true;
+            return null;
+        }
         if (!result.IsSuccess)
         {
             Logger.LogError("Save failed for note {NoteId}.", note.Id);
             return null;
         }
+        _serverUpdatedAt = result.Value!.UpdatedAt;
         _hasPendingChanges = false;
         return result.Value;
     }
@@ -384,7 +408,7 @@
         var saved = await SaveCoreAsync();
         if (saved is null)
         {
-            SetStatus("Save failed", "status-error");
+            SetStatus(_hasConflict ? "Conflict" : "Save failed", "status-error");
             StateHasChanged();
             return;
         }
@@ -424,7 +448,10 @@
         var saved = await SaveCoreAsync();
         if (saved is null)
         {
-            Snackbar.Add("Failed to save note.", Severity.Error);
+            if (!_hasConflict)
+                Snackbar.Add("Failed to save note.", Severity.Error);
+            else
+                StateHasChanged();
             return;
         }
         if (isNew)
@@ -433,6 +460,30 @@
                 await LabelService.AddLabelToNoteAsync(saved.Id, label.Id);
         }
         Nav.NavigateTo(BackUrl);
+    }
+
+    private async Task ForceSave()
+    {
+        _serverUpdatedAt = default;
+        _hasConflict = false;
+        _hasPendingChanges = true;
+        await DoAutoSave();
+    }
+
+    private async Task ReloadNote()
+    {
+        if (Id is null) { Nav.NavigateTo("/"); return; }
+        var result = await NoteService.GetAsync(Id.Value);
+        if (!result.IsSuccess) { Nav.NavigateTo("/"); return; }
+        title = result.Value!.Title;
+        content = result.Value!.Content;
+        noteLabels = result.Value!.Labels ?? [];
+        _serverUpdatedAt = result.Value!.UpdatedAt;
+        _hasConflict = false;
+        _hasPendingChanges = false;
+        SetStatus(string.Empty, string.Empty);
+        await JS.InvokeVoidAsync("tiptapInterop.setContent", _editorId, content);
+        StateHasChanged();
     }
 
     private async Task DeleteNote()
@@ -652,7 +703,7 @@
         _debounceCts?.Cancel();
         _debounceCts?.Dispose();
 
-        if (_hasPendingChanges)
+        if (_hasPendingChanges && !_hasConflict)
             await SaveCoreAsync();
 
         _objRef?.Dispose();

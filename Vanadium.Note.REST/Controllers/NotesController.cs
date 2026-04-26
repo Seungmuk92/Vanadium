@@ -83,7 +83,9 @@ public class NotesController(NoteService noteService, LabelService labelService,
             }
         }
 
-        var updated = await noteService.Update(id, note);
+        var (updated, conflict) = await noteService.Update(id, note);
+        if (conflict)
+            return Conflict(new { message = "The note was modified by another session. Reload to get the latest version." });
         if (updated is null)
         {
             logger.LogWarning("Update failed — note {NoteId} not found", id);
