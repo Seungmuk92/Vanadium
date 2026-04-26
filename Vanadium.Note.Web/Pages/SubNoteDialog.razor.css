@@ -51,6 +51,11 @@
     margin-bottom: 0.5em;
 }
 
+.dialog-tiptap ::deep ul.tight li,
+.dialog-tiptap ::deep ol.tight li {
+    margin-bottom: 0;
+}
+
 .dialog-tiptap ::deep blockquote {
     border-left: 3px solid var(--vn-editor-blockquote-border);
     margin: 0.5em 0;
@@ -70,9 +75,24 @@
     background: var(--vn-editor-pre-bg);
     border-radius: 6px;
     padding: 1em;
+    padding-top: 2em;
     overflow-x: auto;
     margin-bottom: 0.75em;
     border: 1px solid var(--vn-editor-title-border);
+    position: relative;
+}
+
+.dialog-tiptap ::deep pre[data-language]::before {
+    content: attr(data-language);
+    position: absolute;
+    top: 0.5em;
+    right: 0.75em;
+    font-size: 0.72em;
+    font-family: monospace;
+    letter-spacing: 0.04em;
+    color: var(--vn-editor-blockquote-color);
+    opacity: 0.75;
+    user-select: none;
 }
 
 .dialog-tiptap ::deep pre code {
@@ -92,6 +112,79 @@
     color: #6ea8fe;
     text-decoration: underline;
     cursor: pointer;
+}
+
+/* Task list */
+.dialog-tiptap ::deep ul[data-type="taskList"] {
+    list-style: none;
+    padding-left: 0.25em;
+}
+
+.dialog-tiptap ::deep ul[data-type="taskList"] li {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.5em;
+    margin-bottom: 0.15em;
+}
+
+.dialog-tiptap ::deep ul[data-type="taskList"] li > label {
+    flex: 0 0 auto;
+    margin-top: 0.3em;
+    user-select: none;
+    cursor: pointer;
+}
+
+.dialog-tiptap ::deep ul[data-type="taskList"] li > label > input[type="checkbox"] {
+    width: 0.9em;
+    height: 0.9em;
+    cursor: pointer;
+    accent-color: var(--mud-palette-primary, #7c4dff);
+}
+
+.dialog-tiptap ::deep ul[data-type="taskList"] li > div {
+    flex: 1;
+    min-width: 0;
+}
+
+.dialog-tiptap ::deep ul[data-type="taskList"] li[data-checked="true"] > div p {
+    text-decoration: line-through;
+    opacity: 0.5;
+}
+
+/* Table */
+.dialog-tiptap ::deep .tableWrapper {
+    overflow-x: auto;
+    margin-bottom: 0.75em;
+}
+
+.dialog-tiptap ::deep table {
+    border-collapse: collapse;
+    width: 100%;
+    table-layout: fixed;
+}
+
+.dialog-tiptap ::deep th,
+.dialog-tiptap ::deep td {
+    border: 1px solid var(--vn-editor-title-border);
+    padding: 0.4em 0.65em;
+    vertical-align: top;
+    position: relative;
+    min-width: 80px;
+}
+
+.dialog-tiptap ::deep th {
+    background: var(--vn-editor-pre-bg);
+    font-weight: 600;
+    text-align: left;
+}
+
+.dialog-tiptap ::deep .selectedCell::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: rgba(100, 100, 255, 0.12);
+    pointer-events: none;
+    z-index: 2;
 }
 
 /* ── Label bar ──────────────────────────────────────────────────────────── */

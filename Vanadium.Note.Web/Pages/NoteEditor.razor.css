@@ -127,6 +127,11 @@
     margin-bottom: 0.5em;
 }
 
+.tiptap-wrapper ::deep ul.tight li,
+.tiptap-wrapper ::deep ol.tight li {
+    margin-bottom: 0;
+}
+
 /* Blockquote */
 .tiptap-wrapper ::deep blockquote {
     border-left: 3px solid var(--vn-editor-blockquote-border);
@@ -149,9 +154,24 @@
     background: var(--vn-editor-pre-bg);
     border-radius: 6px;
     padding: 1em;
+    padding-top: 2em;
     overflow-x: auto;
     margin-bottom: 0.75em;
     border: 1px solid var(--vn-editor-title-border);
+    position: relative;
+}
+
+.tiptap-wrapper ::deep pre[data-language]::before {
+    content: attr(data-language);
+    position: absolute;
+    top: 0.5em;
+    right: 0.75em;
+    font-size: 0.72em;
+    font-family: monospace;
+    letter-spacing: 0.04em;
+    color: var(--vn-editor-blockquote-color);
+    opacity: 0.75;
+    user-select: none;
 }
 
 .tiptap-wrapper ::deep pre code {
@@ -173,6 +193,79 @@
     color: #6ea8fe;
     text-decoration: underline;
     cursor: pointer;
+}
+
+/* Task list */
+.tiptap-wrapper ::deep ul[data-type="taskList"] {
+    list-style: none;
+    padding-left: 0.25em;
+}
+
+.tiptap-wrapper ::deep ul[data-type="taskList"] li {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.5em;
+    margin-bottom: 0.15em;
+}
+
+.tiptap-wrapper ::deep ul[data-type="taskList"] li > label {
+    flex: 0 0 auto;
+    margin-top: 0.3em;
+    user-select: none;
+    cursor: pointer;
+}
+
+.tiptap-wrapper ::deep ul[data-type="taskList"] li > label > input[type="checkbox"] {
+    width: 0.9em;
+    height: 0.9em;
+    cursor: pointer;
+    accent-color: var(--mud-palette-primary, #7c4dff);
+}
+
+.tiptap-wrapper ::deep ul[data-type="taskList"] li > div {
+    flex: 1;
+    min-width: 0;
+}
+
+.tiptap-wrapper ::deep ul[data-type="taskList"] li[data-checked="true"] > div p {
+    text-decoration: line-through;
+    opacity: 0.5;
+}
+
+/* Table */
+.tiptap-wrapper ::deep .tableWrapper {
+    overflow-x: auto;
+    margin-bottom: 0.75em;
+}
+
+.tiptap-wrapper ::deep table {
+    border-collapse: collapse;
+    width: 100%;
+    table-layout: fixed;
+}
+
+.tiptap-wrapper ::deep th,
+.tiptap-wrapper ::deep td {
+    border: 1px solid var(--vn-editor-title-border);
+    padding: 0.4em 0.65em;
+    vertical-align: top;
+    position: relative;
+    min-width: 80px;
+}
+
+.tiptap-wrapper ::deep th {
+    background: var(--vn-editor-pre-bg);
+    font-weight: 600;
+    text-align: left;
+}
+
+.tiptap-wrapper ::deep .selectedCell::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: rgba(100, 100, 255, 0.12);
+    pointer-events: none;
+    z-index: 2;
 }
 
 /* ── Label bar ──────────────────────────────────────────────────────────── */

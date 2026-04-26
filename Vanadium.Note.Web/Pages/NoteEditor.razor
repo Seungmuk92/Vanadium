@@ -1,6 +1,7 @@
 @page "/editor"
 @page "/editor/{Id:guid}"
 @attribute [Authorize]
+@using System.IO
 @using System.Text.Json.Serialization
 @inject NoteService NoteService
 @inject LabelService LabelService
@@ -30,6 +31,7 @@
         @if (!isNew)
         {
             <button class="btn btn-outline-secondary" @onclick="CreateSubNote">+ Sub-note</button>
+            <button class="btn btn-outline-secondary" @onclick="ExportMarkdown">Export MD</button>
             <button class="btn btn-outline-danger" @onclick="DeleteNote">Delete</button>
         }
         <button class="btn btn-primary" @onclick="SaveNote">Save</button>
@@ -492,6 +494,14 @@
         [property: JsonPropertyName("id")] Guid Id,
         [property: JsonPropertyName("title")] string Title
     );
+
+    private async Task ExportMarkdown()
+    {
+        var safeName = string.IsNullOrWhiteSpace(title) ? "note" : title.Trim();
+        foreach (var c in Path.GetInvalidFileNameChars())
+            safeName = safeName.Replace(c, '_');
+        await JS.InvokeVoidAsync("tiptapInterop.downloadMarkdown", _editorId, $"{safeName}.md");
+    }
 
     private void GoBack()
     {
