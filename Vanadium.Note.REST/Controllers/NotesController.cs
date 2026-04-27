@@ -49,6 +49,13 @@ public class NotesController(NoteService noteService, LabelService labelService,
         return Ok(result);
     }
 
+    [HttpGet("mention-search")]
+    public async Task<ActionResult<List<MentionSuggestionDto>>> MentionSearch(
+        [FromQuery][MaxLength(100)] string q = "")
+    {
+        return Ok(await noteService.SearchForMention(await GetUserId(), q));
+    }
+
     [HttpGet("summaries")]
     public async Task<ActionResult<List<NoteSummary>>> GetSummaries(
         [FromQuery] Guid[]? labelIds = null)

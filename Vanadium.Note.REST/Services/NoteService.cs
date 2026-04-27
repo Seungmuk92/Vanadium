@@ -252,6 +252,7 @@ public class NoteService(NoteDbContext db, FileCleanupService fileCleanup, ILogg
         foreach (var n in referencingNotes)
         {
             var updated = UpdatePageLinkTitleInContent(n.Content, noteId, newTitle);
+            updated = UpdateMentionTitleInContent(updated, noteId, newTitle);
             if (updated == n.Content) continue;
             n.Content = updated;
             n.ContentText = StripHtml(updated);
@@ -261,6 +262,34 @@ public class NoteService(NoteDbContext db, FileCleanupService fileCleanup, ILogg
         logger.LogInformation(
             "Propagated title change to '{NewTitle}' across {Count} note(s) referencing {NoteId}.",
             newTitle, referencingNotes.Count, noteId);
+    }
+
+    private static string UpdateMentionTitleInContent(string content, Guid noteId, string newTitle)
+    {
+        if (string.IsNullOrEmpty(content)) return content;
+        var idStr = noteId.ToString();
+        var encodedTitle = WebUtility.HtmlEncode(newTitle);
+
+        return Regex.Replace(
+            content,
+            $@"(<a\s[^>]*data-note-id=""{Regex.Escape(idStr)}""[^>]*>)@[^<]*(</a>)",
+            m =>
+            {
+                var openTag = Regex.Replace(m.Groups[1].Value, @"data-title=""[^""]*""", $@"data-title=""{encodedTitle}""");
+                return $"{openTag}@{encodedTitle}{m.Groups[2].Value}";
+            },
+            RegexOptions.Singleline | RegexOptions.IgnoreCase);
+    }
+
+    private static string StripMentionLinksFromContent(string content, Guid noteId)
+    {
+        if (string.IsNullOrEmpty(content)) return content;
+        var idStr = noteId.ToString();
+        return Regex.Replace(
+            content,
+            $@"<a\s[^>]*data-note-id=""{Regex.Escape(idStr)}""[^>]*>(@[^<]*)</a>",
+            "$1",
+            RegexOptions.Singleline | RegexOptions.IgnoreCase);
     }
 
     private static string UpdatePageLinkTitleInContent(string content, Guid noteId, string newTitle)
@@ -301,6 +330,21 @@ public class NoteService(NoteDbContext db, FileCleanupService fileCleanup, ILogg
         return false;
     }
 
+    public async Task<List<MentionSuggestionDto>> SearchForMention(Guid userId, string query, int limit = 10)
+    {
+        var q = db.Notes.Where(n => n.UserId == userId);
+        if (!string.IsNullOrWhiteSpace(query))
+        {
+            var pattern = $"%{EscapeLikePattern(query.Trim())}%";
+            q = q.Where(n => EF.Functions.ILike(n.Title, pattern));
+        }
+        return await q
+            .OrderByDescending(n => n.UpdatedAt)
+            .Take(limit)
+            .Select(n => new MentionSuggestionDto { Id = n.Id, Title = n.Title })
+            .ToListAsync();
+    }
+
     public async Task<bool> Delete(Guid userId, Guid id)
     {
         var note = await db.Notes.FirstOrDefaultAsync(n => n.Id == id && n.UserId == userId);
@@ -321,11 +365,33 @@ public class NoteService(NoteDbContext db, FileCleanupService fileCleanup, ILogg
             }
         }
 
+        // Strip mention links referencing this note from all other notes
+        await StripMentionReferencesAsync(id);
+
         var content = note.Content;
         db.Notes.Remove(note);
         await db.SaveChangesAsync();
         await fileCleanup.DeleteOrphanedFromContentAsync(content);
         return true;
+    }
+
+    private async Task StripMentionReferencesAsync(Guid noteId)
+    {
+        var idStr = noteId.ToString();
+        var referencingNotes = await db.Notes
+            .Where(n => n.Content.Contains($"data-note-id=\"{idStr}\""))
+            .ToListAsync();
+
+        foreach (var n in referencingNotes)
+        {
+            var updated = StripMentionLinksFromContent(n.Content, noteId);
+            if (updated == n.Content) continue;
+            n.Content = updated;
+            n.ContentText = StripHtml(updated);
+        }
+
+        if (referencingNotes.Count > 0)
+            await db.SaveChangesAsync();
     }
 
     private static string RemovePageLinkFromContent(string content, Guid noteId)

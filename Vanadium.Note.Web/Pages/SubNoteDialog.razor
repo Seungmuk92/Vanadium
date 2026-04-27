@@ -1,4 +1,5 @@
 @implements IDisposable
+@using System.Text.Json.Serialization
 @inject NoteService NoteService
 @inject LabelService LabelService
 @inject NavigationManager Nav
@@ -11,7 +12,8 @@
 <MudDialog>
     <TitleContent>
         <div class="dialog-title-row">
-            <input class="dialog-note-title"
+            <input id="@(_editorId + "-title")"
+                   class="dialog-note-title"
                    value="@title"
                    placeholder="Untitled"
                    @oninput="OnTitleInput"
@@ -122,6 +124,7 @@
         {
             title = result.Value!.Title;
             content = result.Value!.Content;
+            _contentJustLoaded = true;
             _parentNoteId = result.Value!.ParentNoteId;
             noteLabels = result.Value!.Labels ?? [];
         }
@@ -160,6 +163,7 @@
         {
             _contentJustLoaded = false;
             await JS.InvokeVoidAsync("tiptapInterop.setContent", _editorId, content);
+            await JS.InvokeVoidAsync("tiptapInterop.setInputValue", _editorId + "-title", title);
         }
     }
 
@@ -172,6 +176,28 @@
 
     [JSInvokable]
     public async Task OnSaveShortcut() => await InvokeAsync(DoAutoSave);
+
+    [JSInvokable]
+    public async Task<List<JsMentionItem>> SearchNotes(string query)
+    {
+        var result = await NoteService.SearchForMentionAsync(query);
+        if (!result.IsSuccess) return [];
+        return result.Value!
+            .Select(n => new JsMentionItem(
+                n.Id.ToString(),
+                string.IsNullOrWhiteSpace(n.Title) ? "(Untitled)" : n.Title))
+            .ToList();
+    }
+
+    [JSInvokable]
+    public async Task OnMentionClick(string noteId)
+    {
+        if (!Guid.TryParse(noteId, out _)) return;
+        _debounceCts?.Cancel();
+        await DoAutoSave();
+        MudDialog.Close(DialogResult.Ok(title));
+        Nav.NavigateTo($"/editor/{noteId}");
+    }
 
     private void OnTitleInput(ChangeEventArgs e)
     {
@@ -277,4 +303,9 @@
         _objRef?.Dispose();
         _ = JS.InvokeVoidAsync("tiptapInterop.destroy", _editorId);
     }
+
+    public record JsMentionItem(
+        [property: JsonPropertyName("id")] string Id,
+        [property: JsonPropertyName("title")] string Title
+    );
 }
