@@ -30,7 +30,7 @@ public class AuthController(IConfiguration config, IWebHostEnvironment env, Note
             return Unauthorized(new { message = "Invalid username or password." });
         }
 
-        var token = GenerateJwtToken(user.Username);
+        var token = GenerateJwtToken(user);
         logger.LogInformation("User '{Username}' authenticated successfully", user.Username);
         return Ok(new { token });
     }
@@ -65,7 +65,7 @@ public class AuthController(IConfiguration config, IWebHostEnvironment env, Note
         return Ok(new { message = $"User '{request.Username}' has been set up successfully." });
     }
 
-    private string GenerateJwtToken(string username)
+    private string GenerateJwtToken(User user)
     {
         var secret = config["Auth:JwtSecret"]
             ?? throw new InvalidOperationException("Auth:JwtSecret is not configured.");
@@ -75,7 +75,11 @@ public class AuthController(IConfiguration config, IWebHostEnvironment env, Note
         var credentials = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
 
         var token = new JwtSecurityToken(
-            claims: [new Claim(ClaimTypes.Name, username)],
+            claims:
+            [
+                new Claim(ClaimTypes.Name, user.Username),
+                new Claim(ClaimTypes.NameIdentifier, user.Id.ToString())
+            ],
             expires: DateTime.UtcNow.AddMinutes(expirationMinutes),
             signingCredentials: credentials
         );

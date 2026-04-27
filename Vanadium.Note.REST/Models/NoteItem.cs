@@ -15,6 +15,11 @@ public class NoteItem
     public string ContentText { get; set; } = string.Empty;
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
 
+    public Guid UserId { get; set; }
+
+    [JsonIgnore]
+    public User? User { get; set; }
+
     public Guid? ParentNoteId { get; set; }
 
     [JsonIgnore]
