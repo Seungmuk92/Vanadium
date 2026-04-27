@@ -228,6 +228,7 @@
     private DotNetObjectReference<NoteEditor>? _objRef;
     private CancellationTokenSource? _debounceCts;
     private bool _hasPendingChanges = false;
+    private bool _isSaving = false;
     private bool _isDisposing = false;
     private bool _hasConflict = false;
     private DateTime _serverUpdatedAt;
@@ -263,6 +264,7 @@
         noteLabels = [];
         _contentJustLoaded = true;
         _hasConflict = false;
+        _isSaving = false;
         _serverUpdatedAt = default;
 
         if (Id is not null)
@@ -402,35 +404,49 @@
 
     private async Task DoAutoSave()
     {
-        SetStatus("Saving...", "status-saving");
-        StateHasChanged();
+        if (_isSaving) return;
+        _isSaving = true;
 
-        var saved = await SaveCoreAsync();
-        if (saved is null)
+        try
         {
-            SetStatus(_hasConflict ? "Conflict" : "Save failed", "status-error");
+            SetStatus("Saving...", "status-saving");
             StateHasChanged();
-            return;
-        }
 
-        if (isNew && !_isDisposing)
+            var saved = await SaveCoreAsync();
+            if (saved is null)
+            {
+                SetStatus(_hasConflict ? "Conflict" : "Save failed", "status-error");
+                StateHasChanged();
+                return;
+            }
+
+            if (isNew && !_isDisposing)
+            {
+                foreach (var label in noteLabels.ToList())
+                    await LabelService.AddLabelToNoteAsync(saved.Id, label.Id);
+                // Set _currentId/_currentParentId before navigating so OnParametersSetAsync
+                // treats this as a same-note transition and skips the full state reset,
+                // preserving any content the user typed during the network round-trip.
+                _currentId = saved.Id;
+                _currentParentId = null;
+                Nav.NavigateTo($"/editor/{saved.Id}", replace: true);
+            }
+
+            SetStatus("Saved", "status-saved");
+            StateHasChanged();
+
+            await Task.Delay(2000);
+            SetStatus(string.Empty, string.Empty);
+            StateHasChanged();
+        }
+        finally
         {
-            foreach (var label in noteLabels.ToList())
-                await LabelService.AddLabelToNoteAsync(saved.Id, label.Id);
-            // Set _currentId/_currentParentId before navigating so OnParametersSetAsync
-            // treats this as a same-note transition and skips the full state reset,
-            // preserving any content the user typed during the network round-trip.
-            _currentId = saved.Id;
-            _currentParentId = null;
-            Nav.NavigateTo($"/editor/{saved.Id}", replace: true);
+            _isSaving = false;
         }
 
-        SetStatus("Saved", "status-saved");
-        StateHasChanged();
-
-        await Task.Delay(2000);
-        SetStatus(string.Empty, string.Empty);
-        StateHasChanged();
+        // Save any changes that arrived while this save was in flight
+        if (_hasPendingChanges && !_hasConflict && !_isDisposing)
+            ScheduleAutoSave();
     }
 
     private void SetStatus(string text, string css)
