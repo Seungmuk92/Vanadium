@@ -1,6 +1,9 @@
 using System.ComponentModel.DataAnnotations;
+using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
+using Vanadium.Note.REST.Data;
 using Vanadium.Note.REST.Models;
 using Vanadium.Note.REST.Services;
 
@@ -8,20 +11,33 @@ namespace Vanadium.Note.REST.Controllers;
 
 [Authorize]
 [ApiController]
-public class LabelsController(LabelService labelService, ILogger<LabelsController> logger) : ControllerBase
+public class LabelsController(LabelService labelService, NoteDbContext db, ILogger<LabelsController> logger) : ControllerBase
 {
+    private async Task<Guid> GetUserId()
+    {
+        var idClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        if (idClaim is not null && Guid.TryParse(idClaim, out var userId))
+            return userId;
+
+        var username = User.FindFirst(ClaimTypes.Name)?.Value
+            ?? throw new InvalidOperationException("No identity claims in token.");
+        var user = await db.Users.FirstOrDefaultAsync(u => u.Username == username)
+            ?? throw new InvalidOperationException($"User '{username}' not found.");
+        return user.Id;
+    }
+
     // ── Categories ────────────────────────────────────────────────────────────
 
     [HttpGet("api/label-categories")]
     public async Task<ActionResult<IEnumerable<LabelCategoryDto>>> GetCategories() =>
-        Ok(await labelService.GetAllCategoriesAsync());
+        Ok(await labelService.GetAllCategoriesAsync(await GetUserId()));
 
     [HttpPost("api/label-categories")]
     public async Task<ActionResult<LabelCategoryDto>> CreateCategory([FromBody] NameRequest req)
     {
         try
         {
-            var result = await labelService.CreateCategoryAsync(req.Name);
+            var result = await labelService.CreateCategoryAsync(await GetUserId(), req.Name);
             logger.LogInformation("Label category created: '{Name}' ({Id})", result.Name, result.Id);
             return Created($"api/label-categories/{result.Id}", result);
         }
@@ -35,7 +51,7 @@ public class LabelsController(LabelService labelService, ILogger<LabelsControlle
     [HttpDelete("api/label-categories/{id:guid}")]
     public async Task<IActionResult> DeleteCategory(Guid id)
     {
-        if (!await labelService.DeleteCategoryAsync(id))
+        if (!await labelService.DeleteCategoryAsync(await GetUserId(), id))
         {
             logger.LogWarning("Delete failed — label category {CategoryId} not found", id);
             return NotFound();
@@ -48,14 +64,14 @@ public class LabelsController(LabelService labelService, ILogger<LabelsControlle
 
     [HttpGet("api/labels")]
     public async Task<ActionResult<IEnumerable<LabelSummary>>> GetLabels() =>
-        Ok(await labelService.GetAllLabelsAsync());
+        Ok(await labelService.GetAllLabelsAsync(await GetUserId()));
 
     [HttpPost("api/labels")]
     public async Task<ActionResult<LabelSummary>> CreateLabel([FromBody] CreateLabelRequest req)
     {
         try
         {
-            var result = await labelService.CreateLabelAsync(req.Name, req.CategoryId);
+            var result = await labelService.CreateLabelAsync(await GetUserId(), req.Name, req.CategoryId);
             logger.LogInformation("Label created: '{Name}' ({Id})", result.Name, result.Id);
             return Created($"api/labels/{result.Id}", result);
         }
@@ -69,7 +85,7 @@ public class LabelsController(LabelService labelService, ILogger<LabelsControlle
     [HttpDelete("api/labels/{id:guid}")]
     public async Task<IActionResult> DeleteLabel(Guid id)
     {
-        if (!await labelService.DeleteLabelAsync(id))
+        if (!await labelService.DeleteLabelAsync(await GetUserId(), id))
         {
             logger.LogWarning("Delete failed — label {LabelId} not found", id);
             return NotFound();
