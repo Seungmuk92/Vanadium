@@ -9,6 +9,7 @@ namespace Vanadium.Note.REST.Services;
 public class NoteService(NoteDbContext db, FileCleanupService fileCleanup, ILogger<NoteService> logger)
 {
     public async Task<PagedResult<NoteSummary>> GetPaged(
+        Guid userId,
         int page,
         int pageSize,
         string? search,
@@ -19,15 +20,17 @@ public class NoteService(NoteDbContext db, FileCleanupService fileCleanup, ILogg
         // When not searching, show root notes only
         bool rootOnly = string.IsNullOrWhiteSpace(search);
 
+        var userNotes = db.Notes.Where(n => n.UserId == userId);
+
         // Lean query for COUNT — no joins to label/category tables
         var countQuery = ApplyFilters(
-            rootOnly ? db.Notes.Where(n => n.ParentNoteId == null) : db.Notes.AsQueryable(),
+            rootOnly ? userNotes.Where(n => n.ParentNoteId == null) : userNotes,
             search, labelIds);
         var totalCount = await countQuery.CountAsync();
 
         // Full query for data — projects to NoteSummary to avoid fetching large Content column
         var baseDataQuery = ApplyFilters(
-            rootOnly ? db.Notes.Where(n => n.ParentNoteId == null) : db.Notes.AsQueryable(),
+            rootOnly ? userNotes.Where(n => n.ParentNoteId == null) : userNotes,
             search,
             labelIds);
 
@@ -97,9 +100,9 @@ public class NoteService(NoteDbContext db, FileCleanupService fileCleanup, ILogg
         };
     }
 
-    public async Task<List<NoteSummary>> GetAllSummaries(Guid[]? labelIds = null)
+    public async Task<List<NoteSummary>> GetAllSummaries(Guid userId, Guid[]? labelIds = null)
     {
-        var query = db.Notes.AsQueryable();
+        var query = db.Notes.Where(n => n.UserId == userId);
 
         // OR logic: notes that have ANY of the specified labels
         if (labelIds is { Length: > 0 })
@@ -137,10 +140,10 @@ public class NoteService(NoteDbContext db, FileCleanupService fileCleanup, ILogg
         }).ToList();
     }
 
-    public async Task<List<NoteSummary>> GetChildren(Guid parentId)
+    public async Task<List<NoteSummary>> GetChildren(Guid userId, Guid parentId)
     {
         var summaries = await db.Notes
-            .Where(n => n.ParentNoteId == parentId)
+            .Where(n => n.UserId == userId && n.ParentNoteId == parentId)
             .OrderByDescending(n => n.UpdatedAt)
             .Select(n => new
             {
@@ -172,13 +175,13 @@ public class NoteService(NoteDbContext db, FileCleanupService fileCleanup, ILogg
         }).ToList();
     }
 
-    public async Task<NoteItem?> Get(Guid id)
+    public async Task<NoteItem?> Get(Guid userId, Guid id)
     {
         var note = await db.Notes
             .Include(n => n.NoteLabels)
             .ThenInclude(nl => nl.Label)
             .ThenInclude(l => l.Category)
-            .FirstOrDefaultAsync(n => n.Id == id);
+            .FirstOrDefaultAsync(n => n.Id == id && n.UserId == userId);
 
         if (note is null) return null;
 
@@ -196,9 +199,10 @@ public class NoteService(NoteDbContext db, FileCleanupService fileCleanup, ILogg
         return note;
     }
 
-    public async Task<NoteItem> Create(NoteItem note)
+    public async Task<NoteItem> Create(Guid userId, NoteItem note)
     {
         note.Id = Guid.NewGuid();
+        note.UserId = userId;
         note.UpdatedAt = DateTime.UtcNow;
         note.ContentText = StripHtml(note.Content);
         db.Notes.Add(note);
@@ -206,9 +210,9 @@ public class NoteService(NoteDbContext db, FileCleanupService fileCleanup, ILogg
         return note;
     }
 
-    public async Task<(NoteItem? Note, bool Conflict)> Update(Guid id, NoteItem note)
+    public async Task<(NoteItem? Note, bool Conflict)> Update(Guid userId, Guid id, NoteItem note)
     {
-        var existing = await db.Notes.FindAsync(id);
+        var existing = await db.Notes.FirstOrDefaultAsync(n => n.Id == id && n.UserId == userId);
         if (existing is null) return (null, false);
 
         // Optimistic concurrency: reject if the client's known version differs from DB,
@@ -297,9 +301,9 @@ public class NoteService(NoteDbContext db, FileCleanupService fileCleanup, ILogg
         return false;
     }
 
-    public async Task<bool> Delete(Guid id)
+    public async Task<bool> Delete(Guid userId, Guid id)
     {
-        var note = await db.Notes.FindAsync(id);
+        var note = await db.Notes.FirstOrDefaultAsync(n => n.Id == id && n.UserId == userId);
         if (note is null) return false;
 
         // Remove any page-link blocks referencing this note from the parent's content

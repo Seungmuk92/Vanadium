@@ -30,11 +30,29 @@ public class NoteDbContext(DbContextOptions<NoteDbContext> options) : DbContext(
             .HasForeignKey(nl => nl.LabelId)
             .OnDelete(DeleteBehavior.Cascade);
 
+        modelBuilder.Entity<LabelCategory>()
+            .HasOne(c => c.User)
+            .WithMany()
+            .HasForeignKey(c => c.UserId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        modelBuilder.Entity<Label>()
+            .HasOne(l => l.User)
+            .WithMany()
+            .HasForeignKey(l => l.UserId)
+            .OnDelete(DeleteBehavior.Restrict);
+
         modelBuilder.Entity<Label>()
             .HasOne(l => l.Category)
             .WithMany(c => c.Labels)
             .HasForeignKey(l => l.CategoryId)
             .OnDelete(DeleteBehavior.Cascade);
+
+        modelBuilder.Entity<NoteItem>()
+            .HasOne(n => n.User)
+            .WithMany()
+            .HasForeignKey(n => n.UserId)
+            .OnDelete(DeleteBehavior.Restrict);
 
         modelBuilder.Entity<NoteItem>()
             .HasOne(n => n.ParentNote)
