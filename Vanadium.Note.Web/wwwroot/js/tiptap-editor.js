@@ -89,6 +89,7 @@ const SLASH_COMMANDS = [
     { id: 'table',    label: 'Table',         desc: 'Insert a table',       icon: '⊞',  keywords: ['table', 'grid'] },
     { id: 'quote',    label: 'Quote',         desc: 'Block quotation',      icon: '"',  keywords: ['blockquote'] },
     { id: 'todo',     label: 'Task List',     desc: 'Checkbox list',        icon: '☑',  keywords: ['todo', 'task', 'check', 'checkbox'] },
+    { id: 'callout',  label: 'Callout',       desc: 'Highlighted callout',  icon: '💡', keywords: ['callout', 'note', 'tip', 'info', 'highlight'] },
     { id: 'code',     label: 'Code Block',    desc: 'Monospace code block', icon: '</>', keywords: ['codeblock'] },
     { id: 'divider',  label: 'Divider',       desc: 'Horizontal rule',      icon: '—',  keywords: ['hr', 'rule'] },
 ];
@@ -216,6 +217,7 @@ function createSlashCommandsExtension(dotnetRef) {
                             case 'table':    editor.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run(); break;
                             case 'quote':    editor.chain().focus().toggleBlockquote().run(); break;
                             case 'todo':     editor.chain().focus().toggleTaskList().run(); break;
+                            case 'callout':  editor.chain().focus().insertContent({ type: 'callout', attrs: { emoji: '💡' }, content: [{ type: 'paragraph' }] }).run(); break;
                             case 'code':     editor.chain().focus().toggleCodeBlock().run(); break;
                             case 'divider':  editor.chain().focus().setHorizontalRule().run(); break;
                         }
@@ -292,6 +294,97 @@ const PageLink = Node.create({
             ['span', { class: 'page-link-title' }, HTMLAttributes.title],
         ];
     },
+});
+
+// ── Callout node ────────────────────────────────────────────────────────────
+
+const Callout = Node.create({
+    name: 'callout',
+    group: 'block',
+    content: 'block+',
+    defining: true,
+
+    addAttributes() {
+        return {
+            emoji: { default: '💡' },
+        };
+    },
+
+    parseHTML() {
+        return [{
+            tag: 'div[data-type="callout"]',
+            getAttrs: el => ({ emoji: el.getAttribute('data-emoji') || '💡' }),
+        }];
+    },
+
+    renderHTML({ HTMLAttributes }) {
+        return [
+            'div',
+            { 'data-type': 'callout', 'data-emoji': HTMLAttributes.emoji, class: 'callout-block' },
+            ['span', { class: 'callout-emoji', contenteditable: 'false' }, HTMLAttributes.emoji],
+            ['div', { class: 'callout-content' }, 0],
+        ];
+    },
+});
+
+// ── Callout emoji picker ─────────────────────────────────────────────────────
+
+const CALLOUT_EMOJIS = ['💡', 'ℹ️', '⚠️', '🚨', '✅', '📝', '💬', '🔥', '📌', '🎯'];
+
+let _calloutPicker = null;
+
+function hideCalloutPicker() {
+    _calloutPicker?.remove();
+    _calloutPicker = null;
+}
+
+function showCalloutEmojiPicker(emojiEl, editor) {
+    hideCalloutPicker();
+
+    _calloutPicker = document.createElement('div');
+    _calloutPicker.className = 'callout-emoji-picker';
+
+    for (const emoji of CALLOUT_EMOJIS) {
+        const btn = document.createElement('button');
+        btn.textContent = emoji;
+        btn.className = 'callout-emoji-btn';
+        btn.addEventListener('mousedown', (e) => {
+            e.preventDefault();
+            const calloutEl = emojiEl.closest('[data-type="callout"]');
+            if (calloutEl) {
+                let found = null;
+                editor.state.doc.descendants((node, pos) => {
+                    if (found !== null) return false;
+                    if (node.type.name === 'callout' && editor.view.nodeDOM(pos) === calloutEl) {
+                        found = pos;
+                        return false;
+                    }
+                });
+                if (found !== null) {
+                    editor.view.dispatch(
+                        editor.state.tr.setNodeMarkup(found, null, {
+                            ...editor.state.doc.nodeAt(found).attrs,
+                            emoji,
+                        })
+                    );
+                }
+            }
+            hideCalloutPicker();
+        });
+        _calloutPicker.appendChild(btn);
+    }
+
+    document.body.appendChild(_calloutPicker);
+
+    const rect = emojiEl.getBoundingClientRect();
+    _calloutPicker.style.top  = `${rect.bottom + 4}px`;
+    _calloutPicker.style.left = `${Math.max(8, rect.left)}px`;
+}
+
+document.addEventListener('mousedown', (e) => {
+    if (_calloutPicker && !_calloutPicker.contains(e.target) && !e.target.classList.contains('callout-emoji')) {
+        hideCalloutPicker();
+    }
 });
 
 // ── Upload helpers ───────────────────────────────────────────────────────────
@@ -547,6 +640,7 @@ window.tiptapInterop = {
                 TabIndent,
                 FileAttachment,
                 PageLink,
+                Callout,
                 createSlashCommandsExtension(dotnetRef),
                 BubbleMenu.configure({
                     element: bubbleMenuEl,
@@ -612,6 +706,17 @@ window.tiptapInterop = {
             document.body.appendChild(a);
             a.click();
             document.body.removeChild(a);
+        });
+
+        // Callout emoji click — prevent cursor move, open emoji picker
+        editor.view.dom.addEventListener('mousedown', (e) => {
+            if (e.target.classList.contains('callout-emoji')) e.preventDefault();
+        });
+
+        editor.view.dom.addEventListener('click', (e) => {
+            const emojiEl = e.target.closest('.callout-emoji');
+            if (!emojiEl) return;
+            showCalloutEmojiPicker(emojiEl, editor);
         });
 
         // Page link click — open sub-note in dialog via Blazor
@@ -743,6 +848,7 @@ window.tiptapInterop = {
     destroy(elementId) {
         const entry = _editors[elementId];
         if (entry) {
+            hideCalloutPicker();
             entry.editor.destroy();
             entry.bubbleMenuEl.remove();
             entry.linkPopover.popover.remove();
