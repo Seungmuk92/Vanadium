@@ -24,6 +24,10 @@
     --vn-conflict-bg: #fff3cd;
     --vn-conflict-border: #e6a817;
     --vn-conflict-color: #5c4000;
+    /* Callout */
+    --vn-callout-bg: #f0f4ff;
+    --vn-callout-border: #7c9fd4;
+    --vn-callout-color: inherit;
 }
 
 body.dark-mode {
@@ -52,6 +56,10 @@ body.dark-mode {
     --vn-conflict-bg: #2a1f00;
     --vn-conflict-border: #c68a00;
     --vn-conflict-color: #ffd166;
+    /* Callout */
+    --vn-callout-bg: #1a2035;
+    --vn-callout-border: #5a7fc4;
+    --vn-callout-color: #c8d8f0;
     background-color: #121212;
     color: #e0e0e0;
 }
@@ -534,6 +542,75 @@ a.file-attachment:hover {
     font-size: 0.9rem;
     font-weight: 500;
     line-height: 1.4;
+}
+
+/* Callout block */
+.callout-block {
+    display: flex;
+    gap: 10px;
+    padding: 12px 16px;
+    margin: 6px 0;
+    border-radius: 6px;
+    background: var(--vn-callout-bg);
+    border: 1px solid var(--vn-callout-border);
+    color: var(--vn-callout-color);
+}
+
+.callout-emoji {
+    font-size: 1.1rem;
+    flex-shrink: 0;
+    line-height: 1.7;
+    cursor: pointer;
+    user-select: none;
+    border-radius: 4px;
+    padding: 0 3px;
+    transition: background 0.12s;
+}
+
+.callout-emoji:hover {
+    background: rgba(0, 0, 0, 0.08);
+}
+
+body.dark-mode .callout-emoji:hover {
+    background: rgba(255, 255, 255, 0.1);
+}
+
+.callout-content {
+    flex: 1;
+    min-width: 0;
+}
+
+.callout-content > p:first-child { margin-top: 0; }
+.callout-content > p:last-child  { margin-bottom: 0; }
+
+/* Callout emoji picker */
+.callout-emoji-picker {
+    position: fixed;
+    z-index: 9999;
+    background: var(--vn-link-popover-bg);
+    border: 1px solid var(--vn-link-popover-border);
+    border-radius: 8px;
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.15);
+    padding: 6px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 2px;
+    max-width: 220px;
+}
+
+.callout-emoji-btn {
+    background: none;
+    border: none;
+    font-size: 1.2rem;
+    padding: 4px 6px;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: background 0.1s;
+    line-height: 1.4;
+}
+
+.callout-emoji-btn:hover {
+    background: var(--vn-slash-menu-active-bg);
 }
 
 /* Settings page */
