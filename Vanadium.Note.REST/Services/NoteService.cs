@@ -203,7 +203,7 @@ public class NoteService(NoteDbContext db, FileCleanupService fileCleanup, ILogg
     {
         note.Id = Guid.NewGuid();
         note.UserId = userId;
-        note.UpdatedAt = DateTime.UtcNow;
+        note.UpdatedAt = UtcNowMicroseconds();
         note.ContentText = StripHtml(note.Content);
         db.Notes.Add(note);
         await db.SaveChangesAsync();
@@ -231,7 +231,7 @@ public class NoteService(NoteDbContext db, FileCleanupService fileCleanup, ILogg
         existing.Content = note.Content;
         existing.ContentText = StripHtml(note.Content);
         existing.ParentNoteId = note.ParentNoteId;
-        existing.UpdatedAt = DateTime.UtcNow;
+        existing.UpdatedAt = UtcNowMicroseconds();
         await db.SaveChangesAsync();
 
         if (titleChanged)
@@ -368,6 +368,15 @@ public class NoteService(NoteDbContext db, FileCleanupService fileCleanup, ILogg
     private static readonly Regex HtmlTagRegex = new("<[^>]*>", RegexOptions.Compiled);
     private static readonly Regex HtmlEntityRegex = new("&[a-zA-Z]+;|&#[0-9]+;", RegexOptions.Compiled);
     private static readonly Regex WhitespaceRegex = new(@"\s+", RegexOptions.Compiled);
+
+    // PostgreSQL timestamps are stored at microsecond precision (6 digits), while .NET DateTime
+    // has 100-nanosecond precision (7 digits). Truncating before save ensures the value returned
+    // from the server matches what the DB stores, preventing false optimistic-concurrency conflicts.
+    private static DateTime UtcNowMicroseconds()
+    {
+        var now = DateTime.UtcNow;
+        return new DateTime(now.Ticks / 10 * 10, DateTimeKind.Utc);
+    }
 
     private static string StripHtml(string html)
     {
