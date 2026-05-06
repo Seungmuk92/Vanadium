@@ -28,6 +28,11 @@
     --vn-callout-bg: #f0f4ff;
     --vn-callout-border: #7c9fd4;
     --vn-callout-color: inherit;
+    /* Mention */
+    --vn-mention-bg: #ede9ff;
+    --vn-mention-border: #c4b5fd;
+    --vn-mention-color: #5b21b6;
+    --vn-mention-hover-bg: #ddd6fe;
 }
 
 body.dark-mode {
@@ -60,6 +65,11 @@ body.dark-mode {
     --vn-callout-bg: #1a2035;
     --vn-callout-border: #5a7fc4;
     --vn-callout-color: #c8d8f0;
+    /* Mention */
+    --vn-mention-bg: #2d2350;
+    --vn-mention-border: #6d28d9;
+    --vn-mention-color: #c4b5fd;
+    --vn-mention-hover-bg: #3d3060;
     background-color: #121212;
     color: #e0e0e0;
 }
@@ -611,6 +621,79 @@ body.dark-mode .callout-emoji:hover {
 
 .callout-emoji-btn:hover {
     background: var(--vn-slash-menu-active-bg);
+}
+
+/* Note mention inline chip — rendered inside ProseMirror, must be global */
+a.note-mention {
+    display: inline;
+    background-color: var(--vn-mention-bg);
+    color: var(--vn-mention-color);
+    border: 1px solid var(--vn-mention-border);
+    border-radius: 4px;
+    padding: 0.05em 0.35em;
+    font-size: 0.88em;
+    text-decoration: none;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background-color 0.12s;
+}
+
+a.note-mention:hover {
+    background-color: var(--vn-mention-hover-bg);
+    text-decoration: none;
+    color: var(--vn-mention-color);
+}
+
+/* Note mention search menu — appended to body, must be global */
+.mention-menu {
+    position: fixed;
+    z-index: 9999;
+    background: var(--vn-link-popover-bg);
+    border: 1px solid var(--vn-link-popover-border);
+    border-radius: 8px;
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.15);
+    padding: 4px;
+    min-width: 240px;
+    max-height: 280px;
+    overflow-y: auto;
+}
+
+.mention-menu-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 10px;
+    border-radius: 6px;
+    cursor: pointer;
+    user-select: none;
+}
+
+.mention-menu-item:hover,
+.mention-menu-item-active {
+    background: var(--vn-slash-menu-active-bg);
+}
+
+.mention-menu-icon {
+    font-size: 0.85rem;
+    flex-shrink: 0;
+    width: 20px;
+    text-align: center;
+}
+
+.mention-menu-title {
+    font-size: 0.85rem;
+    font-weight: 500;
+    color: var(--vn-link-popover-color);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.mention-menu-empty {
+    padding: 8px 12px;
+    font-size: 0.82rem;
+    color: var(--vn-link-popover-color);
+    opacity: 0.55;
 }
 
 /* Settings page */
