@@ -566,8 +566,46 @@
         }
     }
 
+    [JSInvokable]
+    public async Task<List<JsMentionItem>> SearchNotes(string query)
+    {
+        var result = await NoteService.SearchForMentionAsync(query);
+        if (!result.IsSuccess) return [];
+        return result.Value!
+            .Where(n => n.Id != Id.GetValueOrDefault())
+            .Select(n => new JsMentionItem(
+                n.Id.ToString(),
+                string.IsNullOrWhiteSpace(n.Title) ? "(Untitled)" : n.Title))
+            .ToList();
+    }
+
+    [JSInvokable]
+    public async Task OnMentionClick(string noteId)
+    {
+        if (!Guid.TryParse(noteId, out var id)) return;
+        var parameters = new DialogParameters<SubNoteDialog> { { x => x.NoteId, id } };
+        var options = new DialogOptions { MaxWidth = MaxWidth.Large, FullWidth = true, CloseOnEscapeKey = true };
+        var dialog = await DialogService.ShowAsync<SubNoteDialog>(string.Empty, parameters, options);
+        var result = await dialog.Result;
+        if (result is { Canceled: false, Data: string newTitle })
+        {
+            var newContent = await JS.InvokeAsync<string?>("tiptapInterop.updateMentionTitle", _editorId, noteId, newTitle);
+            if (!string.IsNullOrEmpty(newContent))
+            {
+                content = newContent;
+                _debounceCts?.Cancel();
+                await DoAutoSave();
+            }
+        }
+    }
+
     public record PageLinkDto(
         [property: JsonPropertyName("id")] Guid Id,
+        [property: JsonPropertyName("title")] string Title
+    );
+
+    public record JsMentionItem(
+        [property: JsonPropertyName("id")] string Id,
         [property: JsonPropertyName("title")] string Title
     );
 
