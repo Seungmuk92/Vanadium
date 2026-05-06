@@ -125,6 +125,23 @@ public class NoteService(HttpClient http, ILogger<NoteService> logger)
         }
     }
 
+    public async Task<ServiceResult<List<MentionSuggestion>>> SearchForMentionAsync(string query)
+    {
+        try
+        {
+            var url = $"api/notes/mention-search?q={Uri.EscapeDataString(query)}";
+            var result = await http.GetFromJsonAsync<List<MentionSuggestion>>(url);
+            return result is not null
+                ? ServiceResult<List<MentionSuggestion>>.Ok(result)
+                : ServiceResult<List<MentionSuggestion>>.Fail("No results.");
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Failed to search notes for mention.");
+            return ServiceResult<List<MentionSuggestion>>.Fail("Failed to search.");
+        }
+    }
+
     public async Task<ServiceResult<List<NoteSummary>>> GetChildrenAsync(Guid parentId)
     {
         try
