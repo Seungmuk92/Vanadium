@@ -33,6 +33,21 @@
     --vn-mention-border: #c4b5fd;
     --vn-mention-color: #5b21b6;
     --vn-mention-hover-bg: #ddd6fe;
+    /* Mermaid */
+    --vn-mermaid-bg: #f8f9fa;
+    --vn-mermaid-border: #dee2e6;
+    --vn-mermaid-preview-bg: #ffffff;
+    --vn-mermaid-edit-bg: #f1f3f5;
+    --vn-mermaid-textarea-bg: #ffffff;
+    --vn-mermaid-textarea-border: #ced4da;
+    --vn-mermaid-textarea-color: #212529;
+    --vn-mermaid-placeholder-color: #868e96;
+    --vn-mermaid-error-bg: #fff5f5;
+    --vn-mermaid-error-border: #f03e3e;
+    --vn-mermaid-error-color: #c92a2a;
+    --vn-mermaid-apply-bg: #7950f2;
+    --vn-mermaid-apply-hover-bg: #6741d9;
+    --vn-mermaid-apply-color: #ffffff;
 }
 
 body.dark-mode {
@@ -70,6 +85,21 @@ body.dark-mode {
     --vn-mention-border: #6d28d9;
     --vn-mention-color: #c4b5fd;
     --vn-mention-hover-bg: #3d3060;
+    /* Mermaid */
+    --vn-mermaid-bg: #1e1e2e;
+    --vn-mermaid-border: #3a3a4e;
+    --vn-mermaid-preview-bg: #1c1c2a;
+    --vn-mermaid-edit-bg: #22222e;
+    --vn-mermaid-textarea-bg: #1a1a28;
+    --vn-mermaid-textarea-border: #4a4a5e;
+    --vn-mermaid-textarea-color: #e0e0f0;
+    --vn-mermaid-placeholder-color: #6a6a8a;
+    --vn-mermaid-error-bg: #2a1010;
+    --vn-mermaid-error-border: #c92a2a;
+    --vn-mermaid-error-color: #ff8080;
+    --vn-mermaid-apply-bg: #7950f2;
+    --vn-mermaid-apply-hover-bg: #6741d9;
+    --vn-mermaid-apply-color: #ffffff;
     background-color: #121212;
     color: #e0e0e0;
 }
@@ -746,4 +776,126 @@ body.dark-mode .settings-section-title {
 
 .settings-actions {
     margin-top: 0.5rem;
+}
+/* ── Mermaid diagram block ──────────────────────────────────────────────────── */
+
+.mermaid-block {
+    border: 1px solid var(--vn-mermaid-border);
+    border-radius: 8px;
+    overflow: hidden;
+    margin: 0.75rem 0;
+    background: var(--vn-mermaid-bg);
+}
+
+.mermaid-preview {
+    min-height: 48px;
+    padding: 1rem;
+    background: var(--vn-mermaid-preview-bg);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.15s;
+}
+
+.mermaid-preview:hover {
+    background: var(--vn-mermaid-edit-bg);
+}
+
+.mermaid-preview svg {
+    max-width: 100%;
+    height: auto;
+    display: block;
+}
+
+.mermaid-placeholder {
+    color: var(--vn-mermaid-placeholder-color);
+    font-size: 0.875rem;
+    user-select: none;
+}
+
+.mermaid-loading {
+    font-style: italic;
+}
+
+.mermaid-error {
+    background: var(--vn-mermaid-error-bg);
+    border: 1px solid var(--vn-mermaid-error-border);
+    color: var(--vn-mermaid-error-color);
+    border-radius: 4px;
+    padding: 0.5rem 0.75rem;
+    font-size: 0.825rem;
+    font-family: monospace;
+    white-space: pre-wrap;
+    word-break: break-word;
+    width: 100%;
+}
+
+.mermaid-edit {
+    border-top: 1px solid var(--vn-mermaid-border);
+    background: var(--vn-mermaid-edit-bg);
+    padding: 0.75rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.mermaid-textarea {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 0.5rem 0.75rem;
+    font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+    font-size: 0.825rem;
+    line-height: 1.55;
+    border: 1px solid var(--vn-mermaid-textarea-border);
+    border-radius: 4px;
+    background: var(--vn-mermaid-textarea-bg);
+    color: var(--vn-mermaid-textarea-color);
+    resize: vertical;
+    outline: none;
+    tab-size: 4;
+}
+
+.mermaid-textarea:focus {
+    border-color: var(--vn-mermaid-apply-bg);
+    box-shadow: 0 0 0 2px rgba(121, 80, 242, 0.2);
+}
+
+.mermaid-edit-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+}
+
+.mermaid-apply-btn {
+    padding: 0.3rem 0.9rem;
+    font-size: 0.825rem;
+    font-weight: 600;
+    border: none;
+    border-radius: 4px;
+    background: var(--vn-mermaid-apply-bg);
+    color: var(--vn-mermaid-apply-color);
+    cursor: pointer;
+    transition: background 0.15s;
+}
+
+.mermaid-apply-btn:hover {
+    background: var(--vn-mermaid-apply-hover-bg);
+}
+
+.mermaid-hint {
+    font-size: 0.75rem;
+    color: var(--vn-mermaid-placeholder-color);
+}
+
+/* Read-only rendered container */
+.mermaid-rendered {
+    margin: 0.75rem 0;
+    display: flex;
+    justify-content: center;
+}
+
+.mermaid-rendered svg {
+    max-width: 100%;
+    height: auto;
 }
