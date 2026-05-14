@@ -18,6 +18,38 @@ import CodeBlockLowlight from 'https://esm.sh/@tiptap/extension-code-block-lowli
 
 const _editors = {};
 
+// ── Mermaid lazy-loader ──────────────────────────────────────────────────────
+
+let _mermaidPromise = null;
+
+async function getMermaid() {
+    if (!_mermaidPromise) {
+        _mermaidPromise = import('https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs')
+            .then(m => m.default)
+            .catch(err => {
+                _mermaidPromise = null;
+                throw err;
+            });
+    }
+    return _mermaidPromise;
+}
+
+// Render a mermaid diagram to SVG, applying the correct theme for the
+// current light/dark mode.  Always re-initializes before rendering so
+// that a mode switch mid-session is reflected without a page reload.
+async function renderMermaidSvg(code) {
+    const mermaid = await getMermaid();
+    const isDark = document.body.classList.contains('dark-mode');
+    mermaid.initialize({
+        startOnLoad: false,
+        securityLevel: 'strict',
+        theme: isDark ? 'dark' : 'default',
+    });
+    const id = `mermaid-${++_mermaidIdCounter}`;
+    const { svg } = await mermaid.render(id, code);
+    return svg;
+}
+
 // ── Code block with lowlight syntax highlighting ─────────────────────────────
 
 const lowlight = createLowlight(common)
@@ -92,6 +124,7 @@ const SLASH_COMMANDS = [
     { id: 'todo',     label: 'Task List',     desc: 'Checkbox list',        icon: '☑',  keywords: ['todo', 'task', 'check', 'checkbox'] },
     { id: 'callout',  label: 'Callout',       desc: 'Highlighted callout',  icon: '💡', keywords: ['callout', 'note', 'tip', 'info', 'highlight'] },
     { id: 'code',     label: 'Code Block',    desc: 'Monospace code block', icon: '</>', keywords: ['codeblock'] },
+    { id: 'mermaid',  label: 'Diagram',       desc: 'Mermaid diagram',      icon: '◈',  keywords: ['mermaid', 'diagram', 'flowchart', 'chart', 'graph'] },
     { id: 'divider',  label: 'Divider',       desc: 'Horizontal rule',      icon: '—',  keywords: ['hr', 'rule'] },
 ];
 
@@ -221,6 +254,7 @@ function createSlashCommandsExtension(dotnetRef) {
                             case 'todo':     editor.chain().focus().toggleTaskList().run(); break;
                             case 'callout':  editor.chain().focus().insertContent({ type: 'callout', attrs: { emoji: '💡' }, content: [{ type: 'paragraph' }] }).run(); break;
                             case 'code':     editor.chain().focus().toggleCodeBlock().run(); break;
+                            case 'mermaid':  editor.chain().focus().insertContent({ type: 'mermaid', attrs: { code: '' } }).run(); break;
                             case 'divider':  editor.chain().focus().setHorizontalRule().run(); break;
                         }
                     },
@@ -506,6 +540,188 @@ const Callout = Node.create({
             ['span', { class: 'callout-emoji', contenteditable: 'false' }, HTMLAttributes.emoji],
             ['div', { class: 'callout-content' }, 0],
         ];
+    },
+});
+
+// ── Mermaid node ─────────────────────────────────────────────────────────────
+
+let _mermaidIdCounter = 0;
+
+const MermaidNode = Node.create({
+    name: 'mermaid',
+    group: 'block',
+    atom: true,
+
+    addAttributes() {
+        return {
+            code: { default: '' },
+        };
+    },
+
+    parseHTML() {
+        return [{
+            tag: 'pre[data-type="mermaid"]',
+            getAttrs: (el) => ({
+                code: el.querySelector('code')?.textContent ?? '',
+            }),
+        }];
+    },
+
+    renderHTML({ node }) {
+        return [
+            'pre',
+            { 'data-type': 'mermaid' },
+            ['code', {}, node.attrs.code],
+        ];
+    },
+
+    addNodeView() {
+        return ({ node, editor, getPos }) => {
+            // ── DOM skeleton ──────────────────────────────────────────────
+            const wrapper = document.createElement('div');
+            wrapper.className = 'mermaid-block';
+
+            const preview = document.createElement('div');
+            preview.className = 'mermaid-preview';
+
+            const editArea = document.createElement('div');
+            editArea.className = 'mermaid-edit';
+            editArea.style.display = 'none';
+
+            const textarea = document.createElement('textarea');
+            textarea.className = 'mermaid-textarea';
+            textarea.placeholder = 'Enter Mermaid diagram code…\n\nExample:\ngraph TD\n  A-->B';
+            textarea.spellcheck = false;
+
+            const editActions = document.createElement('div');
+            editActions.className = 'mermaid-edit-actions';
+
+            const applyBtn = document.createElement('button');
+            applyBtn.textContent = 'Apply';
+            applyBtn.className = 'mermaid-apply-btn';
+
+            const hint = document.createElement('span');
+            hint.className = 'mermaid-hint';
+            hint.textContent = 'Esc to cancel · Tab inserts spaces';
+
+            editActions.appendChild(applyBtn);
+            editActions.appendChild(hint);
+            editArea.appendChild(textarea);
+            editArea.appendChild(editActions);
+
+            wrapper.appendChild(preview);
+            wrapper.appendChild(editArea);
+
+            let currentCode = node.attrs.code;
+            let isEditing = false;
+
+            // ── Render preview ────────────────────────────────────────────
+            async function renderPreview(code) {
+                if (!code.trim()) {
+                    preview.innerHTML = '<span class="mermaid-placeholder">▦ Mermaid diagram · click to edit</span>';
+                    return;
+                }
+                preview.innerHTML = '<span class="mermaid-placeholder mermaid-loading">Rendering…</span>';
+                try {
+                    preview.innerHTML = await renderMermaidSvg(code);
+                } catch (err) {
+                    preview.innerHTML = `<div class="mermaid-error">⚠ ${err.message || 'Syntax error'}</div>`;
+                }
+            }
+
+            // ── Edit / preview toggle ─────────────────────────────────────
+            function enterEdit() {
+                if (isEditing) return;
+                isEditing = true;
+                textarea.value = currentCode;
+                preview.style.display = 'none';
+                editArea.style.display = '';
+                // Rows auto-grow: at least 6, at most 24 lines
+                textarea.rows = Math.min(24, Math.max(6, (currentCode.match(/\n/g) || []).length + 3));
+                setTimeout(() => { textarea.focus(); textarea.setSelectionRange(textarea.value.length, textarea.value.length); }, 0);
+            }
+
+            function commitEdit() {
+                if (!isEditing) return;
+                isEditing = false;
+                const newCode = textarea.value;
+                preview.style.display = '';
+                editArea.style.display = 'none';
+                if (newCode !== currentCode) {
+                    currentCode = newCode;
+                    const pos = typeof getPos === 'function' ? getPos() : null;
+                    if (pos !== null) {
+                        editor.view.dispatch(
+                            editor.state.tr.setNodeMarkup(pos, null, { ...node.attrs, code: newCode })
+                        );
+                    }
+                }
+                renderPreview(currentCode);
+            }
+
+            function cancelEdit() {
+                if (!isEditing) return;
+                isEditing = false;
+                preview.style.display = '';
+                editArea.style.display = 'none';
+                textarea.value = currentCode;
+            }
+
+            // ── Event wiring ──────────────────────────────────────────────
+            applyBtn.addEventListener('mousedown', (e) => {
+                e.preventDefault();
+                commitEdit();
+            });
+
+            textarea.addEventListener('keydown', (e) => {
+                if (e.key === 'Escape') { e.preventDefault(); cancelEdit(); return; }
+                if (e.key === 'Tab') {
+                    e.preventDefault();
+                    const s = textarea.selectionStart;
+                    const end = textarea.selectionEnd;
+                    textarea.value = textarea.value.substring(0, s) + '    ' + textarea.value.substring(end);
+                    textarea.selectionStart = textarea.selectionEnd = s + 4;
+                }
+            });
+
+            // Auto-grow textarea rows on input
+            textarea.addEventListener('input', () => {
+                textarea.rows = Math.min(24, Math.max(6, (textarea.value.match(/\n/g) || []).length + 3));
+            });
+
+            preview.addEventListener('click', () => {
+                if (editor.isEditable) enterEdit();
+            });
+
+            // Initial render; auto-enter edit mode if empty
+            renderPreview(currentCode);
+            if (!currentCode.trim()) {
+                setTimeout(() => enterEdit(), 80);
+            }
+
+            return {
+                dom: wrapper,
+
+                update(updatedNode) {
+                    if (updatedNode.type.name !== 'mermaid') return false;
+                    if (updatedNode.attrs.code !== currentCode && !isEditing) {
+                        currentCode = updatedNode.attrs.code;
+                        renderPreview(currentCode);
+                    }
+                    return true;
+                },
+
+                // Swallow all events inside the edit area so ProseMirror doesn't steal them
+                stopEvent(event) {
+                    return editArea.contains(event.target);
+                },
+
+                // Prevent ProseMirror from reacting to DOM mutations inside this view
+                ignoreMutation() { return true; },
+
+                destroy() { /* nothing to clean up */ },
+            };
+        };
     },
 });
 
@@ -824,6 +1040,7 @@ window.tiptapInterop = {
                 PageLink,
                 NoteMention,
                 Callout,
+                MermaidNode,
                 createSlashCommandsExtension(dotnetRef),
                 createMentionExtension(dotnetRef),
                 BubbleMenu.configure({
@@ -1050,6 +1267,35 @@ window.tiptapInterop = {
         a.click();
         document.body.removeChild(a);
         setTimeout(() => URL.revokeObjectURL(url), 1000);
+    },
+
+    // Render all mermaid blocks found inside a DOM element (for read-only views).
+    // Pass a CSS selector string or a DOM element reference.
+    async renderMermaidIn(root) {
+        const el = typeof root === 'string' ? document.querySelector(root) : root;
+        if (!el) return;
+        const blocks = el.querySelectorAll('pre[data-type="mermaid"]');
+        if (!blocks.length) return;
+        // Eagerly load mermaid so any module-load error surfaces early
+        try { await getMermaid(); } catch (err) {
+            console.error('[tiptap] Failed to load Mermaid for read-only render', err);
+            return;
+        }
+        for (const block of blocks) {
+            const code = block.querySelector('code')?.textContent?.trim();
+            if (!code) continue;
+            try {
+                const container = document.createElement('div');
+                container.className = 'mermaid-rendered';
+                container.innerHTML = await renderMermaidSvg(code);
+                block.replaceWith(container);
+            } catch (err) {
+                const errDiv = document.createElement('div');
+                errDiv.className = 'mermaid-error';
+                errDiv.textContent = `⚠ ${err.message || 'Diagram error'}`;
+                block.replaceWith(errDiv);
+            }
+        }
     },
 
     destroy(elementId) {
