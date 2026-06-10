@@ -7,16 +7,23 @@ namespace Vanadium.Note.REST.Services;
 /// Account-level destructive operations. Currently exposes a single
 /// "purge everything" routine used by the Settings page "Dangerous" section.
 /// </summary>
-public class AccountService(NoteDbContext db, FileCleanupService fileCleanup, ILogger<AccountService> logger)
+public class AccountService(NoteDbContext db, ILogger<AccountService> logger)
 {
     /// <summary>
     /// Permanently removes all content created by the given user: every note
     /// (including child notes and their label associations), labels, label
     /// categories, API tokens, and personal settings. The user account row
     /// itself is intentionally kept so the user can still log in.
-    /// Uploaded files/images that the deleted notes referenced and that are no
-    /// longer referenced by any surviving note are removed from disk afterwards.
     /// </summary>
+    /// <remarks>
+    /// This method only deletes database rows. Uploaded files and images on disk
+    /// are <b>not</b> touched here — once the notes that referenced them are gone,
+    /// their FileAttachment records (for attachments) and on-disk image files
+    /// become orphaned, and the periodic
+    /// <see cref="OrphanFileCleanupJob"/> reclaims both on its next run. Keeping
+    /// disk work out of the request path avoids loading every note's HTML into
+    /// memory, which does not scale for large accounts.
+    /// </remarks>
     /// <returns><c>false</c> if no matching user exists; otherwise <c>true</c>.</returns>
     public async Task<bool> PurgeAllDataAsync(string username, CancellationToken ct = default)
     {
@@ -28,23 +35,15 @@ public class AccountService(NoteDbContext db, FileCleanupService fileCleanup, IL
         }
 
         var userId = user.Id;
-        var deletedContent = string.Empty;
 
         // The DB is configured with a retrying execution strategy
         // (EnableRetryOnFailure), which forbids user-initiated transactions
         // unless the whole unit runs through the strategy so it can be retried
-        // atomically. Capturing the content and running every delete inside this
-        // delegate keeps a retry correct.
+        // atomically. Running every delete inside this delegate keeps a retry
+        // correct.
         var strategy = db.Database.CreateExecutionStrategy();
         await strategy.ExecuteAsync(async () =>
         {
-            // Capture all of the user's note content up front so we can clean up
-            // the files it referenced after the rows are gone.
-            deletedContent = string.Join(' ',
-                await db.Notes.Where(n => n.UserId == userId)
-                              .Select(n => n.Content)
-                              .ToListAsync(ct));
-
             await using var tx = await db.Database.BeginTransactionAsync(ct);
 
             // Notes first — the DB cascades NoteLabels (via NoteId) and any child
@@ -66,14 +65,10 @@ public class AccountService(NoteDbContext db, FileCleanupService fileCleanup, IL
 
             logger.LogInformation(
                 "Purged all data for user {UserId}: {Notes} note(s), {Labels} label(s), " +
-                "{Categories} category(ies), {Tokens} token(s), {Settings} settings row(s).",
+                "{Categories} category(ies), {Tokens} token(s), {Settings} settings row(s). " +
+                "Orphaned files/images will be reclaimed by the periodic cleanup job.",
                 userId, notesRemoved, labelsRemoved, categoriesRemoved, tokensRemoved, settingsRemoved);
         });
-
-        // Disk cleanup runs after the DB rows are committed so the orphan check
-        // sees the post-deletion state. Physical file removal is not part of the
-        // transaction (it cannot be rolled back), which is why it goes last.
-        await fileCleanup.DeleteOrphanedFromContentAsync(deletedContent, ct);
 
         return true;
     }
