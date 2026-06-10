@@ -48,6 +48,7 @@ public class ImagesController(IWebHostEnvironment env, ILogger<ImagesController>
         return Ok(new { url = $"/api/images/{id}" });
     }
 
+    [Authorize]
     [HttpGet("{id:guid}")]
     [ResponseCache(Duration = 31536000, Location = ResponseCacheLocation.Any)]
     public IActionResult Get(Guid id)
