@@ -778,6 +778,30 @@ body.dark-mode .settings-section-title {
     margin-top: 0.5rem;
 }
 
+.settings-danger {
+    margin-top: 2.5rem;
+    padding: 1.25rem 1.25rem 1.5rem;
+    border: 1px solid rgba(211, 47, 47, 0.4);
+    border-radius: 8px;
+    background: rgba(211, 47, 47, 0.04);
+}
+
+.settings-danger-title {
+    color: #d32f2f;
+    opacity: 1;
+    border-bottom-color: rgba(211, 47, 47, 0.25);
+}
+
+body.dark-mode .settings-danger {
+    border-color: rgba(244, 67, 54, 0.45);
+    background: rgba(244, 67, 54, 0.07);
+}
+
+body.dark-mode .settings-danger-title {
+    color: #ff6b6b;
+    border-bottom-color: rgba(244, 67, 54, 0.3);
+}
+
 .settings-hint {
     font-size: 0.85rem;
     opacity: 0.7;
