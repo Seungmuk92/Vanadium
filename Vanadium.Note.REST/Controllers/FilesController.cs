@@ -120,6 +120,7 @@ public class FilesController(IWebHostEnvironment env, NoteDbContext db, ILogger<
         };
     }
 
+    [Authorize]
     [HttpGet("{id:guid}")]
     public async Task<IActionResult> Get(Guid id)
     {

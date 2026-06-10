@@ -1,0 +1,54 @@
+@using Vanadium.Note.Web.Models
+
+<MudDialog>
+    <DialogContent>
+        <MudTextField @bind-Value="_name"
+                      Label="Token name"
+                      Placeholder="e.g. CI deploy"
+                      Variant="Variant.Outlined"
+                      Margin="Margin.Dense"
+                      MaxLength="100"
+                      Immediate="true"
+                      Class="mb-4" />
+
+        <MudSelect T="int"
+                   @bind-Value="_expiresOption"
+                   Label="Expiration"
+                   Variant="Variant.Outlined"
+                   Margin="Margin.Dense">
+            <MudSelectItem Value="7">7 days</MudSelectItem>
+            <MudSelectItem Value="30">30 days</MudSelectItem>
+            <MudSelectItem Value="90">90 days</MudSelectItem>
+            <MudSelectItem Value="0">Never</MudSelectItem>
+        </MudSelect>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="Cancel">Cancel</MudButton>
+        <MudButton Variant="Variant.Filled"
+                   Color="Color.Primary"
+                   OnClick="Submit"
+                   Disabled="string.IsNullOrWhiteSpace(_name)">
+            Create
+        </MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter]
+    private IMudDialogInstance MudDialog { get; set; } = default!;
+
+    private string _name = string.Empty;
+    private int _expiresOption = 30;
+
+    private void Submit()
+    {
+        var request = new CreateApiTokenRequest
+        {
+            Name = _name.Trim(),
+            ExpiresInDays = _expiresOption == 0 ? null : _expiresOption
+        };
+        MudDialog.Close(DialogResult.Ok(request));
+    }
+
+    private void Cancel() => MudDialog.Cancel();
+}
