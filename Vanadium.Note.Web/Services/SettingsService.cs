@@ -39,4 +39,20 @@ public class SettingsService(HttpClient http, ILogger<SettingsService> logger)
             return ServiceResult<UserSettings>.Fail("Failed to save settings.");
         }
     }
+
+    public async Task<ServiceResult<bool>> DeleteAllDataAsync()
+    {
+        try
+        {
+            var response = await http.DeleteAsync("api/settings/all-data");
+            return response.IsSuccessStatusCode
+                ? ServiceResult<bool>.Ok(true)
+                : ServiceResult<bool>.Fail("Failed to delete data.");
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Failed to delete all data.");
+            return ServiceResult<bool>.Fail("Failed to delete data.");
+        }
+    }
 }

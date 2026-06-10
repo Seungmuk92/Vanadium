@@ -1,0 +1,58 @@
+@using Microsoft.AspNetCore.Components
+
+<MudDialog>
+    <DialogContent>
+        <MudAlert Severity="Severity.Error" NoIcon="false" Class="mb-4">
+            This will permanently delete <strong>all of your data</strong>: every note
+            (including sub-notes), all labels and label categories, every API token,
+            and your personal settings. Uploaded files that are no longer referenced
+            will also be removed.
+        </MudAlert>
+
+        <MudText Class="mb-2">
+            This action <strong>cannot be undone</strong>. Your account itself is kept,
+            so you can still log in afterwards — but the data above is gone for good.
+        </MudText>
+
+        <MudText Class="mb-2">
+            To confirm, type <strong>@ConfirmWord</strong> below.
+        </MudText>
+
+        <MudTextField @bind-Value="_typed"
+                      Immediate="true"
+                      Variant="Variant.Outlined"
+                      Margin="Margin.Dense"
+                      Placeholder="@ConfirmWord"
+                      Adornment="Adornment.None"
+                      AutoFocus="true" />
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="Cancel">Cancel</MudButton>
+        <MudButton Variant="Variant.Filled"
+                   Color="Color.Error"
+                   StartIcon="@Icons.Material.Filled.DeleteForever"
+                   Disabled="!CanConfirm"
+                   OnClick="Confirm">
+            Delete everything
+        </MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    private const string ConfirmWord = "DELETE";
+
+    [CascadingParameter]
+    private IMudDialogInstance MudDialog { get; set; } = default!;
+
+    private string _typed = string.Empty;
+
+    private bool CanConfirm => string.Equals(_typed.Trim(), ConfirmWord, StringComparison.Ordinal);
+
+    private void Confirm()
+    {
+        if (CanConfirm)
+            MudDialog.Close(DialogResult.Ok(true));
+    }
+
+    private void Cancel() => MudDialog.Cancel();
+}

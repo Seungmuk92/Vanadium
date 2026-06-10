@@ -6,6 +6,7 @@
 @inject ISnackbar Snackbar
 @inject IJSRuntime JS
 @inject IDialogService DialogService
+@inject NavigationManager Navigation
 
 <PageTitle>Settings</PageTitle>
 
@@ -167,6 +168,26 @@
                 </MudTable>
             }
         </div>
+
+        <div class="settings-section settings-danger">
+            <h2 class="settings-section-title settings-danger-title">Dangerous</h2>
+            <p class="settings-hint">
+                Permanently delete <strong>all</strong> of your data — every note and
+                sub-note, all labels and label categories, every API token, and your
+                personal settings. Your account is kept so you can still log in, but the
+                data is gone for good. This action cannot be undone.
+            </p>
+
+            <div class="settings-actions" style="justify-content: flex-start;">
+                <MudButton Variant="Variant.Filled"
+                           Color="Color.Error"
+                           StartIcon="@Icons.Material.Filled.DeleteForever"
+                           OnClick="DeleteAllDataAsync"
+                           Disabled="_isPurging">
+                    @(_isPurging ? "Deleting..." : "Remove all data")
+                </MudButton>
+            </div>
+        </div>
     }
 </div>
 
@@ -178,6 +199,7 @@
     private List<ApiTokenSummary> _tokens = new();
     private bool _isLoadingTokens = true;
     private CreateApiTokenResponse? _newToken;
+    private bool _isPurging = false;
 
     protected override async Task OnInitializedAsync()
     {
@@ -254,6 +276,30 @@
     {
         await JS.InvokeVoidAsync("navigator.clipboard.writeText", token);
         Snackbar.Add("Token copied to clipboard.", Severity.Info);
+    }
+
+    private async Task DeleteAllDataAsync()
+    {
+        var dialog = await DialogService.ShowAsync<DeleteAllDataDialog>("Remove all data");
+        var dialogResult = await dialog.Result;
+        if (dialogResult is null || dialogResult.Canceled)
+            return;
+
+        _isPurging = true;
+        var result = await SettingsService.DeleteAllDataAsync();
+        if (result.IsSuccess)
+        {
+            Snackbar.Add("All data deleted.", Severity.Success);
+            // Settings were wiped too — fall back to defaults and reload the app
+            // so every cached page reflects the now-empty account.
+            await JS.InvokeVoidAsync("storeTheme", "system");
+            Navigation.NavigateTo("/", forceLoad: true);
+        }
+        else
+        {
+            Snackbar.Add(result.Error ?? "Failed to delete data.", Severity.Error);
+            _isPurging = false;
+        }
     }
 
     private async Task SaveAsync()
