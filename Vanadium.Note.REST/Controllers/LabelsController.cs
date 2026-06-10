@@ -101,13 +101,13 @@ public class LabelsController(LabelService labelService, NoteDbContext db, ILogg
     {
         try
         {
-            await labelService.AddLabelToNoteAsync(noteId, req.LabelId);
+            await labelService.AddLabelToNoteAsync(await GetUserId(), noteId, req.LabelId);
             logger.LogInformation("Label {LabelId} added to note {NoteId}", req.LabelId, noteId);
             return Ok();
         }
         catch (KeyNotFoundException)
         {
-            logger.LogWarning("AddLabel failed — label {LabelId} not found", req.LabelId);
+            logger.LogWarning("AddLabel failed — note {NoteId} or label {LabelId} not found", noteId, req.LabelId);
             return NotFound();
         }
     }
@@ -115,9 +115,9 @@ public class LabelsController(LabelService labelService, NoteDbContext db, ILogg
     [HttpDelete("api/notes/{noteId:guid}/labels/{labelId:guid}")]
     public async Task<IActionResult> RemoveLabel(Guid noteId, Guid labelId)
     {
-        if (!await labelService.RemoveLabelFromNoteAsync(noteId, labelId))
+        if (!await labelService.RemoveLabelFromNoteAsync(await GetUserId(), noteId, labelId))
         {
-            logger.LogWarning("RemoveLabel failed — assignment not found (note {NoteId}, label {LabelId})", noteId, labelId);
+            logger.LogWarning("RemoveLabel failed — note {NoteId} not owned or label {LabelId} not assigned", noteId, labelId);
             return NotFound();
         }
         logger.LogInformation("Label {LabelId} removed from note {NoteId}", labelId, noteId);
