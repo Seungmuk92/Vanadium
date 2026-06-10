@@ -12,6 +12,7 @@ public class NoteDbContext(DbContextOptions<NoteDbContext> options) : DbContext(
     public DbSet<Label> Labels => Set<Label>();
     public DbSet<NoteLabel> NoteLabels => Set<NoteLabel>();
     public DbSet<UserSettings> UserSettings => Set<UserSettings>();
+    public DbSet<ApiToken> ApiTokens => Set<ApiToken>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -68,6 +69,16 @@ public class NoteDbContext(DbContextOptions<NoteDbContext> options) : DbContext(
 
         modelBuilder.Entity<UserSettings>()
             .HasIndex(s => s.Username)
+            .IsUnique();
+
+        modelBuilder.Entity<ApiToken>()
+            .HasOne<User>()
+            .WithMany()
+            .HasForeignKey(t => t.UserId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        modelBuilder.Entity<ApiToken>()
+            .HasIndex(t => t.TokenHash)
             .IsUnique();
     }
 }
