@@ -1,10 +1,13 @@
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.OpenApi;
 using Microsoft.IdentityModel.Tokens;
 using Serilog;
 using System.Text;
 using Microsoft.AspNetCore.RateLimiting;
 using System.Threading.RateLimiting;
+using Microsoft.AspNetCore.Authentication;
+using Vanadium.Note.REST.Auth;
 using Vanadium.Note.REST.Data;
 using Vanadium.Note.REST.Middleware;
 using Vanadium.Note.REST.Services;
@@ -52,7 +55,21 @@ builder.Services.AddDbContext<NoteDbContext>(options =>
 var jwtSecret = builder.Configuration["Auth:JwtSecret"]
     ?? throw new InvalidOperationException("Auth:JwtSecret is not configured. Set Auth:JwtSecret in appsettings.");
 
-builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+const string smartScheme = "Smart";
+
+builder.Services.AddAuthentication(smartScheme)
+    .AddPolicyScheme(smartScheme, "JWT or PAT", options =>
+    {
+        // Route personal access tokens to the PAT handler and everything else to JWT.
+        options.ForwardDefaultSelector = context =>
+        {
+            var authHeader = context.Request.Headers.Authorization.ToString();
+            return authHeader.StartsWith($"Bearer {ApiTokenService.TokenPrefix}", StringComparison.Ordinal)
+                ? ApiTokenAuthHandler.SchemeName
+                : JwtBearerDefaults.AuthenticationScheme;
+        };
+    })
+    .AddScheme<AuthenticationSchemeOptions, ApiTokenAuthHandler>(ApiTokenAuthHandler.SchemeName, null)
     .AddJwtBearer(options =>
     {
         options.TokenValidationParameters = new TokenValidationParameters
@@ -94,10 +111,27 @@ builder.Services.AddControllers();
 builder.Services.AddScoped<NoteService>();
 builder.Services.AddScoped<LabelService>();
 builder.Services.AddScoped<SettingsService>();
+builder.Services.AddScoped<ApiTokenService>();
 builder.Services.AddScoped<FileCleanupService>();
 builder.Services.AddHostedService<OrphanFileCleanupJob>();
 builder.Services.AddEndpointsApiExplorer();
-builder.Services.AddSwaggerGen();
+builder.Services.AddSwaggerGen(options =>
+{
+    options.AddSecurityDefinition(JwtBearerDefaults.AuthenticationScheme, new OpenApiSecurityScheme
+    {
+        Name = "Authorization",
+        Type = SecuritySchemeType.Http,
+        Scheme = "bearer",
+        BearerFormat = "JWT",
+        In = ParameterLocation.Header,
+        Description = "Enter the JWT token returned by /api/auth/login (without the 'Bearer ' prefix)."
+    });
+
+    options.AddSecurityRequirement(document => new OpenApiSecurityRequirement
+    {
+        [new OpenApiSecuritySchemeReference(JwtBearerDefaults.AuthenticationScheme, document)] = new List<string>()
+    });
+});
 
 var app = builder.Build();
 

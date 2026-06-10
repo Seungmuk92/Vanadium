@@ -41,6 +41,7 @@ namespace Vanadium.Note.Web
             builder.Services.AddScoped<NoteService>();
             builder.Services.AddScoped<LabelService>();
             builder.Services.AddScoped<SettingsService>();
+            builder.Services.AddScoped<ApiTokenService>();
             builder.Services.AddScoped<ThemeService>();
             builder.Services.AddScoped<KeyboardShortcutService>();
             builder.Services.AddMudServices();

@@ -992,10 +992,47 @@ function runCommand(editor, cmd) {
     }
 }
 
+// ── Authenticated image loading ───────────────────────────────────────────────
+//
+// After Tiptap renders content, <img> tags carry the original /api/images/{id}
+// URLs.  The browser cannot load those directly now that GET requires a JWT.
+// This function fetches each matching image with the Authorization header,
+// creates an object URL from the response blob, and swaps it into the DOM src.
+// The ProseMirror model is deliberately NOT touched — editor.getHTML() still
+// returns the canonical API URL, which is what gets persisted.
+//
+// blobUrls is a per-editor array; callers are responsible for revoking its
+// entries when the editor is destroyed or content is replaced.
+
+async function resolveAuthenticatedImages(editorDom, apiBaseUrl, authToken, blobUrls) {
+    const prefix = `${apiBaseUrl}/api/images/`;
+    const headers = authToken ? { 'Authorization': `Bearer ${authToken}` } : {};
+    const imgs = editorDom.querySelectorAll(`img[src^="${CSS.escape(prefix)}"], img[src^="${prefix}"]`);
+
+    for (const img of imgs) {
+        const src = img.getAttribute('src');
+        if (!src || !src.startsWith(prefix)) continue;
+
+        try {
+            const response = await fetch(src, { headers });
+            if (!response.ok) {
+                console.warn(`[tiptap] Image auth fetch failed: ${src} (HTTP ${response.status})`);
+                continue;
+            }
+            const blob = await response.blob();
+            const blobUrl = URL.createObjectURL(blob);
+            blobUrls.push(blobUrl);
+            img.src = blobUrl;
+        } catch (err) {
+            console.error('[tiptap] Image fetch error', { src, error: err.message });
+        }
+    }
+}
+
 // ── Public API ───────────────────────────────────────────────────────────────
 
 window.tiptapInterop = {
-    init(elementId, dotnetRef, initialContent, apiBaseUrl, authToken) {
+    async init(elementId, dotnetRef, initialContent, apiBaseUrl, authToken) {
         const el = document.getElementById(elementId);
         if (!el) {
             console.error(`[tiptap] Element not found: '${elementId}'`);
@@ -1086,6 +1123,12 @@ window.tiptapInterop = {
                         toast.done();
                         console.log(`[tiptap] Image pasted and uploaded: ${file.name} (${file.size}B)`);
                         editor.chain().focus().setImage({ src: `${apiBaseUrl}${url}` }).run();
+                        // The browser cannot load /api/images/* without a JWT, so resolve
+                        // the newly inserted <img> to a Blob URL immediately after insertion.
+                        const entry = _editors[elementId];
+                        if (entry) {
+                            await resolveAuthenticatedImages(editor.view.dom, apiBaseUrl, authToken, entry.blobUrls);
+                        }
                     } catch (err) {
                         toast.error();
                         console.error('[tiptap] Paste image upload failed', { file: file.name, size: file.size, error: err.message });
@@ -1178,6 +1221,11 @@ window.tiptapInterop = {
                             type: 'image',
                             attrs: { src: `${apiBaseUrl}${url}`, class: 'tiptap-image' },
                         }).run();
+                        // Resolve the newly inserted <img> to a Blob URL immediately.
+                        const entry = _editors[elementId];
+                        if (entry) {
+                            await resolveAuthenticatedImages(editor.view.dom, apiBaseUrl, authToken, entry.blobUrls);
+                        }
                     } else {
                         // Other files are inserted as file attachment links
                         const { url, filename } = await uploadWithProgress(
@@ -1198,16 +1246,28 @@ window.tiptapInterop = {
             }
         });
 
-        _editors[elementId] = { editor, bubbleMenuEl, linkPopover };
+        const blobUrls = [];
+        _editors[elementId] = { editor, bubbleMenuEl, linkPopover, apiBaseUrl, authToken, blobUrls };
         console.log(`[tiptap] Editor initialized: ${elementId}`);
+
+        // Resolve any images that were injected with initialContent.
+        if (initialContent) {
+            await resolveAuthenticatedImages(editor.view.dom, apiBaseUrl, authToken, blobUrls);
+        }
     },
 
     focus(elementId) {
         _editors[elementId]?.editor.commands.focus('start');
     },
 
-    setContent(elementId, content) {
-        _editors[elementId]?.editor.commands.setContent(content, false);
+    async setContent(elementId, content) {
+        const entry = _editors[elementId];
+        if (!entry) return;
+        // Revoke previous blob URLs before the DOM is replaced with new content.
+        for (const url of entry.blobUrls) URL.revokeObjectURL(url);
+        entry.blobUrls = [];
+        entry.editor.commands.setContent(content, false);
+        await resolveAuthenticatedImages(entry.editor.view.dom, entry.apiBaseUrl, entry.authToken, entry.blobUrls);
     },
 
     setInputValue(elementId, value) {
@@ -1302,6 +1362,7 @@ window.tiptapInterop = {
         const entry = _editors[elementId];
         if (entry) {
             hideCalloutPicker();
+            for (const url of entry.blobUrls) URL.revokeObjectURL(url);
             entry.editor.destroy();
             entry.bubbleMenuEl.remove();
             entry.linkPopover.popover.remove();

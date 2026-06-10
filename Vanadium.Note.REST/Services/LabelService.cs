@@ -94,8 +94,12 @@ public class LabelService(NoteDbContext db, ILogger<LabelService> logger)
 
     // ── Note-Label assignments ────────────────────────────────────────────────
 
-    public async Task AddLabelToNoteAsync(Guid noteId, Guid labelId)
+    public async Task AddLabelToNoteAsync(Guid userId, Guid noteId, Guid labelId)
     {
+        var noteOwned = await db.Notes.AnyAsync(n => n.Id == noteId && n.UserId == userId);
+        if (!noteOwned)
+            throw new KeyNotFoundException("Note not found.");
+
         var exists = await db.NoteLabels.AnyAsync(nl => nl.NoteId == noteId && nl.LabelId == labelId);
         if (exists)
         {
@@ -106,7 +110,7 @@ public class LabelService(NoteDbContext db, ILogger<LabelService> logger)
         var label = await db.Labels
             .Include(l => l.Category)
             .FirstOrDefaultAsync(l => l.Id == labelId)
-            ?? throw new KeyNotFoundException("Label not found");
+            ?? throw new KeyNotFoundException("Label not found.");
 
         // Category constraint: remove any existing label from the same category
         if (label.CategoryId is not null)
@@ -130,8 +134,12 @@ public class LabelService(NoteDbContext db, ILogger<LabelService> logger)
         await db.SaveChangesAsync();
     }
 
-    public async Task<bool> RemoveLabelFromNoteAsync(Guid noteId, Guid labelId)
+    public async Task<bool> RemoveLabelFromNoteAsync(Guid userId, Guid noteId, Guid labelId)
     {
+        var noteOwned = await db.Notes.AnyAsync(n => n.Id == noteId && n.UserId == userId);
+        if (!noteOwned)
+            return false;
+
         var noteLabel = await db.NoteLabels.FindAsync(noteId, labelId);
         if (noteLabel is null) return false;
         db.NoteLabels.Remove(noteLabel);

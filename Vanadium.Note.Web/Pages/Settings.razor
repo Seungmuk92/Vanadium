@@ -1,9 +1,11 @@
 @page "/settings"
 @attribute [Authorize]
 @inject SettingsService SettingsService
+@inject ApiTokenService ApiTokenService
 @inject ThemeService ThemeService
 @inject ISnackbar Snackbar
 @inject IJSRuntime JS
+@inject IDialogService DialogService
 
 <PageTitle>Settings</PageTitle>
 
@@ -87,6 +89,84 @@
                 @(_isSaving ? "Saving..." : "Save")
             </MudButton>
         </div>
+
+        <div class="settings-section">
+            <h2 class="settings-section-title">API Tokens</h2>
+            <p class="settings-hint">
+                Personal access tokens let external scripts and services call the API
+                without logging in. Send the token in the
+                <code>Authorization: Bearer &lt;token&gt;</code> header. A token is shown
+                only once at creation — store it somewhere safe.
+            </p>
+
+            @if (_newToken is not null)
+            {
+                <MudAlert Severity="Severity.Success" Class="mb-4" NoIcon="true">
+                    <div class="token-reveal">
+                        <div class="token-reveal-label">
+                            New token "<strong>@_newToken.Name</strong>" — copy it now, it won't be shown again.
+                        </div>
+                        <div class="token-reveal-row">
+                            <MudTextField T="string"
+                                          Value="_newToken.Token"
+                                          ReadOnly="true"
+                                          Variant="Variant.Outlined"
+                                          Margin="Margin.Dense"
+                                          Class="token-reveal-value" />
+                            <MudIconButton Icon="@Icons.Material.Filled.ContentCopy"
+                                           Color="Color.Primary"
+                                           OnClick="() => CopyToken(_newToken.Token)"
+                                           title="Copy" />
+                        </div>
+                    </div>
+                </MudAlert>
+            }
+
+            <div class="settings-actions" style="justify-content: flex-start; margin-bottom: 1rem;">
+                <MudButton Variant="Variant.Filled"
+                           Color="Color.Primary"
+                           StartIcon="@Icons.Material.Filled.Add"
+                           OnClick="OpenCreateDialog">
+                    Create token
+                </MudButton>
+            </div>
+
+            @if (_isLoadingTokens)
+            {
+                <p class="empty-message">Loading tokens...</p>
+            }
+            else if (_tokens.Count == 0)
+            {
+                <p class="empty-message">No API tokens yet.</p>
+            }
+            else
+            {
+                <MudTable Items="_tokens" Dense="true" Hover="true" Class="token-table">
+                    <HeaderContent>
+                        <MudTh>Name</MudTh>
+                        <MudTh>Token</MudTh>
+                        <MudTh>Created</MudTh>
+                        <MudTh>Expires</MudTh>
+                        <MudTh>Last used</MudTh>
+                        <MudTh></MudTh>
+                    </HeaderContent>
+                    <RowTemplate>
+                        <MudTd DataLabel="Name">@context.Name</MudTd>
+                        <MudTd DataLabel="Token">van_pat_…@context.TokenSuffix</MudTd>
+                        <MudTd DataLabel="Created">@context.CreatedAt.ToLocalTime().ToString("yyyy-MM-dd")</MudTd>
+                        <MudTd DataLabel="Expires">@(context.ExpiresAt is null ? "Never" : context.ExpiresAt.Value.ToLocalTime().ToString("yyyy-MM-dd"))</MudTd>
+                        <MudTd DataLabel="Last used">@(context.LastUsedAt is null ? "Never" : context.LastUsedAt.Value.ToLocalTime().ToString("yyyy-MM-dd HH:mm"))</MudTd>
+                        <MudTd>
+                            <MudIconButton Icon="@Icons.Material.Filled.Delete"
+                                           Color="Color.Error"
+                                           Size="Size.Small"
+                                           OnClick="() => DeleteTokenAsync(context)"
+                                           title="Revoke" />
+                        </MudTd>
+                    </RowTemplate>
+                </MudTable>
+            }
+        </div>
     }
 </div>
 
@@ -94,6 +174,10 @@
     private UserSettings _settings = new();
     private bool _isLoading = true;
     private bool _isSaving = false;
+
+    private List<ApiTokenSummary> _tokens = new();
+    private bool _isLoadingTokens = true;
+    private CreateApiTokenResponse? _newToken;
 
     protected override async Task OnInitializedAsync()
     {
@@ -104,6 +188,72 @@
             Snackbar.Add(result.Error ?? "Failed to load settings.", Severity.Error);
 
         _isLoading = false;
+
+        await LoadTokensAsync();
+    }
+
+    private async Task LoadTokensAsync()
+    {
+        _isLoadingTokens = true;
+        var result = await ApiTokenService.ListAsync();
+        if (result.IsSuccess)
+            _tokens = result.Value!;
+        else
+            Snackbar.Add(result.Error ?? "Failed to load API tokens.", Severity.Error);
+        _isLoadingTokens = false;
+    }
+
+    private async Task OpenCreateDialog()
+    {
+        var dialog = await DialogService.ShowAsync<CreateApiTokenDialog>("Create API token");
+        var result = await dialog.Result;
+        if (result is null || result.Canceled || result.Data is not CreateApiTokenRequest request)
+            return;
+
+        var created = await ApiTokenService.CreateAsync(request);
+        if (created.IsSuccess)
+        {
+            _newToken = created.Value;
+            Snackbar.Add("API token created.", Severity.Success);
+            await LoadTokensAsync();
+        }
+        else
+        {
+            Snackbar.Add(created.Error ?? "Failed to create API token.", Severity.Error);
+        }
+    }
+
+    private async Task DeleteTokenAsync(ApiTokenSummary token)
+    {
+        var parameters = new DialogParameters<ConfirmDialog>
+        {
+            { x => x.Message, $"Revoke \"{token.Name}\"? Any script using it will stop working immediately." },
+            { x => x.ConfirmText, "Revoke" },
+            { x => x.ConfirmColor, Color.Error }
+        };
+        var dialog = await DialogService.ShowAsync<ConfirmDialog>("Revoke token", parameters);
+        var dialogResult = await dialog.Result;
+        if (dialogResult is null || dialogResult.Canceled)
+            return;
+
+        var result = await ApiTokenService.DeleteAsync(token.Id);
+        if (result.IsSuccess)
+        {
+            if (_newToken?.Id == token.Id)
+                _newToken = null;
+            Snackbar.Add("API token revoked.", Severity.Success);
+            await LoadTokensAsync();
+        }
+        else
+        {
+            Snackbar.Add(result.Error ?? "Failed to revoke API token.", Severity.Error);
+        }
+    }
+
+    private async Task CopyToken(string token)
+    {
+        await JS.InvokeVoidAsync("navigator.clipboard.writeText", token);
+        Snackbar.Add("Token copied to clipboard.", Severity.Info);
     }
 
     private async Task SaveAsync()
