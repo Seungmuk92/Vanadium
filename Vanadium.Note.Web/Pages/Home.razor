@@ -435,22 +435,43 @@
             .Any(n => n.ChildCount > 0);
 
         var message = hasChildren
-            ? $"Delete {selectedIds.Count} note(s)? Some notes have sub-notes that will also be permanently deleted."
-            : $"Delete {selectedIds.Count} selected note(s)?";
+            ? $"Move {selectedIds.Count} note(s) to the Recycle Bin? Sub-notes will be moved too. Items in the Recycle Bin are deleted permanently after 30 days."
+            : $"Move {selectedIds.Count} selected note(s) to the Recycle Bin?";
 
         var confirmed = await JS.InvokeAsync<bool>("confirm", message);
         if (!confirmed) return;
 
-        Logger.LogInformation("Deleting {Count} note(s).", selectedIds.Count);
+        Logger.LogInformation("Moving {Count} note(s) to recycle bin.", selectedIds.Count);
+        var deletedIds = new List<Guid>();
         var failCount = 0;
         foreach (var id in selectedIds.ToList())
         {
             var result = await NoteService.DeleteAsync(id);
-            if (!result.IsSuccess)
+            if (result.IsSuccess)
+                deletedIds.Add(id);
+            else
                 failCount++;
         }
         if (failCount > 0)
             Snackbar.Add($"Failed to delete {failCount} note(s).", Severity.Error);
+        if (deletedIds.Count > 0)
+        {
+            Snackbar.Add(
+                deletedIds.Count == 1 ? "Note moved to the Recycle Bin." : $"{deletedIds.Count} notes moved to the Recycle Bin.",
+                Severity.Normal,
+                config =>
+                {
+                    config.Action = "Undo";
+                    config.ActionColor = Color.Primary;
+                    config.OnClick = async _ =>
+                    {
+                        foreach (var id in deletedIds)
+                            await NoteService.RestoreAsync(id);
+                        await LoadNotes();
+                        StateHasChanged();
+                    };
+                });
+        }
 
         selectedIds.Clear();
         await LoadNotes();

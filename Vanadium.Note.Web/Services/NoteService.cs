@@ -125,6 +125,72 @@ public class NoteService(HttpClient http, ILogger<NoteService> logger)
         }
     }
 
+    public async Task<ServiceResult<PagedResult<RecycleBinNoteSummary>>> GetRecycleBinAsync(
+        int page = 1, int pageSize = 50)
+    {
+        try
+        {
+            var result = await http.GetFromJsonAsync<PagedResult<RecycleBinNoteSummary>>(
+                $"api/notes/recycle-bin?page={page}&pageSize={pageSize}");
+            return result is not null
+                ? ServiceResult<PagedResult<RecycleBinNoteSummary>>.Ok(result)
+                : ServiceResult<PagedResult<RecycleBinNoteSummary>>.Fail("Failed to load recycle bin.");
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Failed to load recycle bin.");
+            return ServiceResult<PagedResult<RecycleBinNoteSummary>>.Fail("Failed to load recycle bin.");
+        }
+    }
+
+    public async Task<ServiceResult<bool>> RestoreAsync(Guid id)
+    {
+        try
+        {
+            var response = await http.PostAsync($"api/notes/{id}/restore", null);
+            return response.IsSuccessStatusCode
+                ? ServiceResult<bool>.Ok(true)
+                : ServiceResult<bool>.Fail("Failed to restore note.");
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Failed to restore note {NoteId}.", id);
+            return ServiceResult<bool>.Fail("Failed to restore note.");
+        }
+    }
+
+    public async Task<ServiceResult<bool>> DeletePermanentAsync(Guid id)
+    {
+        try
+        {
+            var response = await http.DeleteAsync($"api/notes/{id}/permanent");
+            return response.IsSuccessStatusCode
+                ? ServiceResult<bool>.Ok(true)
+                : ServiceResult<bool>.Fail("Failed to permanently delete note.");
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Failed to permanently delete note {NoteId}.", id);
+            return ServiceResult<bool>.Fail("Failed to permanently delete note.");
+        }
+    }
+
+    public async Task<ServiceResult<bool>> EmptyRecycleBinAsync()
+    {
+        try
+        {
+            var response = await http.DeleteAsync("api/notes/recycle-bin");
+            return response.IsSuccessStatusCode
+                ? ServiceResult<bool>.Ok(true)
+                : ServiceResult<bool>.Fail("Failed to empty recycle bin.");
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Failed to empty recycle bin.");
+            return ServiceResult<bool>.Fail("Failed to empty recycle bin.");
+        }
+    }
+
     public async Task<ServiceResult<List<MentionSuggestion>>> SearchForMentionAsync(string query)
     {
         try

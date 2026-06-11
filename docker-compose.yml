@@ -10,6 +10,7 @@ services:
       Cors__AllowedOrigins: ${CORS_ALLOWED_ORIGINS:-http://localhost}
       Seq__ServerUrl: ${SEQ_URL:-}
       Seq__ApiKey: ${SEQ_API_KEY:-}
+      RecycleBin__RetentionDays: ${RECYCLE_BIN_RETENTION_DAYS:-30}
 
   web:
     image: smoh92/vanadium-web:latest
@@ -17,4 +18,4 @@ services:
     ports:
       - "80:80"
     environment:
-      API_BASE_URL: ${API_BASE_URL:-http://localhost:5000}
+   
