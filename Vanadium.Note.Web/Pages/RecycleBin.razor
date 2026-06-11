@@ -10,72 +10,70 @@
 <div class="recycle-bin-page">
     <div class="recycle-bin-header">
         <h1>Recycle Bin</h1>
-        @if (_items.Count > 0)
+        <span class="recycle-bin-hint">Items are deleted permanently after @RetentionDays days.</span>
+        @if (totalCount > 0)
         {
-            <MudButton Variant="Variant.Outlined"
-                       Color="Color.Error"
-                       StartIcon="@Icons.Material.Filled.DeleteForever"
-                       OnClick="EmptyRecycleBin">
-                Empty Recycle Bin
-            </MudButton>
+            <button class="btn btn-outline-danger" @onclick="EmptyRecycleBin">Empty Recycle Bin</button>
         }
     </div>
 
-    <p class="recycle-bin-hint">
-        Items in the recycle bin are deleted permanently after @RetentionDays days.
-    </p>
-
-    @if (_isLoading && _items.Count == 0)
+    @if (isLoading && !items.Any())
     {
         <p class="empty-message">Loading...</p>
     }
-    else if (_items.Count == 0)
+    else if (!items.Any())
     {
         <p class="empty-message">The recycle bin is empty.</p>
     }
     else
     {
-        <div class="recycle-bin-list">
-            @foreach (var item in _items)
+        <div class="note-table">
+            <div class="note-row note-header">
+                <div class="col-title">Title</div>
+                <div class="col-date">Deleted</div>
+                <div class="col-actions"></div>
+            </div>
+            @foreach (var item in items)
             {
-                <div class="recycle-bin-row">
-                    <div class="recycle-bin-row-main">
-                        <span class="recycle-bin-title">
-                            @(string.IsNullOrWhiteSpace(item.Title) ? "Untitled" : item.Title)
-                        </span>
-                        <span class="recycle-bin-meta">
-                            Deleted @item.DeletedAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm")
-                            &middot; purges in @DaysRemaining(item.DeletedAt) day(s)
+                <div class="note-row note-item">
+                    <div class="col-title">
+                        <div class="note-title-row">
+                            <div class="note-title-text">
+                                @(string.IsNullOrWhiteSpace(item.Title) ? "(No title)" : item.Title)
+                            </div>
                             @if (item.ChildCount > 0)
                             {
-                                <text>&middot; @item.ChildCount sub-note(s)</text>
+                                <span class="child-count-badge">+@item.ChildCount</span>
                             }
-                        </span>
+                        </div>
+                        <div class="purge-hint">Purges in @DaysRemaining(item.DeletedAt) day(s)</div>
                     </div>
-                    <div class="recycle-bin-row-actions">
-                        <MudTooltip Text="Restore">
-                            <MudIconButton Icon="@Icons.Material.Filled.RestoreFromTrash"
-                                           Color="Color.Primary"
-                                           Size="Size.Small"
-                                           OnClick="() => RestoreNote(item)" />
-                        </MudTooltip>
-                        <MudTooltip Text="Delete forever">
-                            <MudIconButton Icon="@Icons.Material.Filled.DeleteForever"
-                                           Color="Color.Error"
-                                           Size="Size.Small"
-                                           OnClick="() => DeleteForever(item)" />
-                        </MudTooltip>
+                    <div class="col-date">
+                        @item.DeletedAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm")
+                    </div>
+                    <div class="col-actions">
+                        <button class="row-btn" @onclick="() => RestoreNote(item)">Restore</button>
+                        <button class="row-btn row-btn-danger" @onclick="() => DeleteForever(item)">Delete forever</button>
                     </div>
                 </div>
             }
         </div>
 
-        @if (_totalCount > _items.Count)
+        @if (TotalPages > 1)
         {
-            <div class="recycle-bin-load-more">
-                <MudButton Variant="Variant.Text" OnClick="LoadMore">
-                    Load more (@_items.Count / @_totalCount)
-                </MudButton>
+            <div class="pagination-bar">
+                <div class="pagination-controls">
+                    <button class="page-btn" disabled="@(currentPage == 1)" @onclick="() => LoadPage(1)">«</button>
+                    <button class="page-btn" disabled="@(currentPage == 1)" @onclick="() => LoadPage(currentPage - 1)">‹</button>
+                    @for (int i = Math.Max(1, currentPage - 2); i <= Math.Min(TotalPages, currentPage + 2); i++)
+                    {
+                        var p = i;
+                        <button class="page-btn @(p == currentPage ? "page-btn-active" : "")" @onclick="() => LoadPage(p)">@p</button>
+                    }
+                    <button class="page-btn" disabled="@(currentPage == TotalPages)" @onclick="() => LoadPage(currentPage + 1)">›</button>
+                    <button class="page-btn" disabled="@(currentPage == TotalPages)" @onclick="() => LoadPage(TotalPages)">»</button>
+                </div>
+                <span class="pagination-info">@totalCount note(s)</span>
             </div>
         }
     }
@@ -83,41 +81,42 @@
 
 @code {
     private const int RetentionDays = 30;
-    private const int PageSize = 50;
+    private const int PageSize = 30;
 
-    private readonly List<RecycleBinNoteSummary> _items = [];
-    private int _totalCount;
-    private int _currentPage = 1;
-    private bool _isLoading = true;
+    private List<RecycleBinNoteSummary> items = [];
+    private int totalCount;
+    private int currentPage = 1;
+    private bool isLoading = true;
 
-    protected override async Task OnInitializedAsync() => await LoadRecycleBin(reset: true);
+    private int TotalPages => Math.Max(1, (int)Math.Ceiling((double)totalCount / PageSize));
 
-    private async Task LoadRecycleBin(bool reset)
+    protected override async Task OnInitializedAsync() => await LoadPage(1);
+
+    private async Task LoadPage(int page)
     {
-        _isLoading = true;
-        if (reset)
-        {
-            _currentPage = 1;
-            _items.Clear();
-        }
+        currentPage = page;
+        isLoading = true;
 
-        var result = await NoteService.GetRecycleBinAsync(_currentPage, PageSize);
+        var result = await NoteService.GetRecycleBinAsync(page, PageSize);
         if (result.IsSuccess)
         {
-            _items.AddRange(result.Value!.Items);
-            _totalCount = result.Value!.TotalCount;
+            items = result.Value!.Items;
+            totalCount = result.Value!.TotalCount;
         }
         else
         {
             Snackbar.Add(result.Error ?? "Failed to load recycle bin.", Severity.Error);
         }
-        _isLoading = false;
+        isLoading = false;
     }
 
-    private async Task LoadMore()
+    private async Task ReloadAfterRemoval()
     {
-        _currentPage++;
-        await LoadRecycleBin(reset: false);
+        // If the last item on the current page was removed, step back a page.
+        var page = currentPage;
+        if (items.Count <= 1 && page > 1)
+            page--;
+        await LoadPage(page);
     }
 
     private static int DaysRemaining(DateTime deletedAtUtc)
@@ -135,12 +134,12 @@
             return;
         }
         Snackbar.Add("Note restored.", Severity.Success);
-        await LoadRecycleBin(reset: true);
+        await ReloadAfterRemoval();
     }
 
     private async Task DeleteForever(RecycleBinNoteSummary item)
     {
-        var title = string.IsNullOrWhiteSpace(item.Title) ? "Untitled" : item.Title;
+        var title = string.IsNullOrWhiteSpace(item.Title) ? "(No title)" : item.Title;
         var message = item.ChildCount > 0
             ? $"Permanently delete \"{title}\" and its sub-note(s)? This cannot be undone."
             : $"Permanently delete \"{title}\"? This cannot be undone.";
@@ -153,12 +152,12 @@
             return;
         }
         Logger.LogInformation("Note permanently deleted from recycle bin page.");
-        await LoadRecycleBin(reset: true);
+        await ReloadAfterRemoval();
     }
 
     private async Task EmptyRecycleBin()
     {
-        var message = $"Permanently delete all {_totalCount} note(s) in the recycle bin? This cannot be undone.";
+        var message = $"Permanently delete all {totalCount} note(s) in the recycle bin? This cannot be undone.";
         if (!await ConfirmAsync("Empty Recycle Bin", message, "Empty Recycle Bin")) return;
 
         var result = await NoteService.EmptyRecycleBinAsync();
@@ -167,8 +166,8 @@
             Snackbar.Add(result.Error ?? "Failed to empty recycle bin.", Severity.Error);
             return;
         }
-        Snackbar.Add("Recycle Bin emptied.", Severity.Success);
-        await LoadRecycleBin(reset: true);
+        Snackbar.Add("Recycle bin emptied.", Severity.Success);
+        await LoadPage(1);
     }
 
     private async Task<bool> ConfirmAsync(string title, string message, string confirmText)
