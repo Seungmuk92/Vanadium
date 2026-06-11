@@ -401,7 +401,8 @@ public class NoteService(NoteDbContext db, FileCleanupService fileCleanup, ILogg
             {
                 Id = n.Id,
                 Title = n.Title,
-                DeletedAt = n.DeletedAt!.Value
+                DeletedAt = n.DeletedAt!.Value,
+                IsArchived = n.ArchivedAt != null
             })
             .ToListAsync();
 

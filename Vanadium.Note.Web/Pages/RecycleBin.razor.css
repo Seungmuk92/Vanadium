@@ -88,6 +88,19 @@
     margin-left: 0.25rem;
 }
 
+.archived-badge {
+    flex-shrink: 0;
+    font-size: 0.65rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    padding: 0.1rem 0.4rem;
+    border: 1px solid var(--mud-palette-divider);
+    border-radius: 999px;
+    opacity: 0.6;
+    margin-left: 0.25rem;
+}
+
 .purge-hint {
     margin-top: 0.1rem;
     font-size: 0.68rem;

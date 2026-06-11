@@ -384,6 +384,11 @@ public class ArchiveServiceTests
         Assert.NotNull((await h.FindAsync(child.Id))!.DeletedAt);
         Assert.Empty((await h.Notes.GetArchive(user.Id, 1, 30)).Items);
 
+        // The recycle bin flags it as archived (UI badge: restore goes to the Archive).
+        var bin = await h.Notes.GetRecycleBin(user.Id, 1, 30);
+        var binItem = Assert.Single(bin.Items);
+        Assert.True(binItem.IsArchived);
+
         // Restore: back to the archive, not the active list (lossless).
         Assert.True(await h.Notes.Restore(user.Id, root.Id));
         var restored = await h.FindAsync(root.Id);
@@ -395,6 +400,24 @@ public class ArchiveServiceTests
         Assert.Single(archive.Items);
         var paged = await h.Notes.GetPaged(user.Id, 1, 30, null, "date", "desc", null);
         Assert.DoesNotContain(paged.Items, i => i.Id == root.Id);
+    }
+
+    [Fact]
+    public async Task GetRecycleBin_FlagsOnlyArchivedNotes()
+    {
+        using var h = new TestHost();
+        var user = await h.CreateUserAsync();
+        var plain = await h.CreateNoteAsync(user.Id, "Plain");
+        var archived = await h.CreateNoteAsync(user.Id, "Archived");
+        await h.Notes.Archive(user.Id, archived.Id);
+        await h.Notes.Delete(user.Id, plain.Id);
+        await h.Notes.Delete(user.Id, archived.Id);
+
+        var bin = await h.Notes.GetRecycleBin(user.Id, 1, 30);
+
+        Assert.Equal(2, bin.TotalCount);
+        Assert.False(bin.Items.Single(i => i.Id == plain.Id).IsArchived);
+        Assert.True(bin.Items.Single(i => i.Id == archived.Id).IsArchived);
     }
 
     // ── T-14 / E8: no permanent-delete shortcut from the archive ─────────────

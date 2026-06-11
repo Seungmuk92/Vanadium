@@ -41,6 +41,10 @@
                             <div class="note-title-text">
                                 @(string.IsNullOrWhiteSpace(item.Title) ? "(No title)" : item.Title)
                             </div>
+                            @if (item.IsArchived)
+                            {
+                                <span class="archived-badge">Archived</span>
+                            }
                             @if (item.ChildCount > 0)
                             {
                                 <span class="child-count-badge">+@item.ChildCount</span>
