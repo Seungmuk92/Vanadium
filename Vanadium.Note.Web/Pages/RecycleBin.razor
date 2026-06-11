@@ -1,0 +1,186 @@
+@page "/recycle-bin"
+@attribute [Authorize]
+@inject NoteService NoteService
+@inject ISnackbar Snackbar
+@inject IDialogService DialogService
+@inject ILogger<RecycleBin> Logger
+
+<PageTitle>Recycle Bin</PageTitle>
+
+<div class="recycle-bin-page">
+    <div class="recycle-bin-header">
+        <h1>Recycle Bin</h1>
+        @if (_items.Count > 0)
+        {
+            <MudButton Variant="Variant.Outlined"
+                       Color="Color.Error"
+                       StartIcon="@Icons.Material.Filled.DeleteForever"
+                       OnClick="EmptyRecycleBin">
+                Empty Recycle Bin
+            </MudButton>
+        }
+    </div>
+
+    <p class="recycle-bin-hint">
+        Items in the recycle bin are deleted permanently after @RetentionDays days.
+    </p>
+
+    @if (_isLoading && _items.Count == 0)
+    {
+        <p class="empty-message">Loading...</p>
+    }
+    else if (_items.Count == 0)
+    {
+        <p class="empty-message">The recycle bin is empty.</p>
+    }
+    else
+    {
+        <div class="recycle-bin-list">
+            @foreach (var item in _items)
+            {
+                <div class="recycle-bin-row">
+                    <div class="recycle-bin-row-main">
+                        <span class="recycle-bin-title">
+                            @(string.IsNullOrWhiteSpace(item.Title) ? "Untitled" : item.Title)
+                        </span>
+                        <span class="recycle-bin-meta">
+                            Deleted @item.DeletedAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm")
+                            &middot; purges in @DaysRemaining(item.DeletedAt) day(s)
+                            @if (item.ChildCount > 0)
+                            {
+                                <text>&middot; @item.ChildCount sub-note(s)</text>
+                            }
+                        </span>
+                    </div>
+                    <div class="recycle-bin-row-actions">
+                        <MudTooltip Text="Restore">
+                            <MudIconButton Icon="@Icons.Material.Filled.RestoreFromTrash"
+                                           Color="Color.Primary"
+                                           Size="Size.Small"
+                                           OnClick="() => RestoreNote(item)" />
+                        </MudTooltip>
+                        <MudTooltip Text="Delete forever">
+                            <MudIconButton Icon="@Icons.Material.Filled.DeleteForever"
+                                           Color="Color.Error"
+                                           Size="Size.Small"
+                                           OnClick="() => DeleteForever(item)" />
+                        </MudTooltip>
+                    </div>
+                </div>
+            }
+        </div>
+
+        @if (_totalCount > _items.Count)
+        {
+            <div class="recycle-bin-load-more">
+                <MudButton Variant="Variant.Text" OnClick="LoadMore">
+                    Load more (@_items.Count / @_totalCount)
+                </MudButton>
+            </div>
+        }
+    }
+</div>
+
+@code {
+    private const int RetentionDays = 30;
+    private const int PageSize = 50;
+
+    private readonly List<RecycleBinNoteSummary> _items = [];
+    private int _totalCount;
+    private int _currentPage = 1;
+    private bool _isLoading = true;
+
+    protected override async Task OnInitializedAsync() => await LoadRecycleBin(reset: true);
+
+    private async Task LoadRecycleBin(bool reset)
+    {
+        _isLoading = true;
+        if (reset)
+        {
+            _currentPage = 1;
+            _items.Clear();
+        }
+
+        var result = await NoteService.GetRecycleBinAsync(_currentPage, PageSize);
+        if (result.IsSuccess)
+        {
+            _items.AddRange(result.Value!.Items);
+            _totalCount = result.Value!.TotalCount;
+        }
+        else
+        {
+            Snackbar.Add(result.Error ?? "Failed to load recycle bin.", Severity.Error);
+        }
+        _isLoading = false;
+    }
+
+    private async Task LoadMore()
+    {
+        _currentPage++;
+        await LoadRecycleBin(reset: false);
+    }
+
+    private static int DaysRemaining(DateTime deletedAtUtc)
+    {
+        var remaining = deletedAtUtc.AddDays(RetentionDays) - DateTime.UtcNow;
+        return Math.Max(0, (int)Math.Ceiling(remaining.TotalDays));
+    }
+
+    private async Task RestoreNote(RecycleBinNoteSummary item)
+    {
+        var result = await NoteService.RestoreAsync(item.Id);
+        if (!result.IsSuccess)
+        {
+            Snackbar.Add(result.Error ?? "Failed to restore note.", Severity.Error);
+            return;
+        }
+        Snackbar.Add("Note restored.", Severity.Success);
+        await LoadRecycleBin(reset: true);
+    }
+
+    private async Task DeleteForever(RecycleBinNoteSummary item)
+    {
+        var title = string.IsNullOrWhiteSpace(item.Title) ? "Untitled" : item.Title;
+        var message = item.ChildCount > 0
+            ? $"Permanently delete \"{title}\" and its sub-note(s)? This cannot be undone."
+            : $"Permanently delete \"{title}\"? This cannot be undone.";
+        if (!await ConfirmAsync("Delete forever", message, "Delete forever")) return;
+
+        var result = await NoteService.DeletePermanentAsync(item.Id);
+        if (!result.IsSuccess)
+        {
+            Snackbar.Add(result.Error ?? "Failed to permanently delete note.", Severity.Error);
+            return;
+        }
+        Logger.LogInformation("Note permanently deleted from recycle bin page.");
+        await LoadRecycleBin(reset: true);
+    }
+
+    private async Task EmptyRecycleBin()
+    {
+        var message = $"Permanently delete all {_totalCount} note(s) in the recycle bin? This cannot be undone.";
+        if (!await ConfirmAsync("Empty Recycle Bin", message, "Empty Recycle Bin")) return;
+
+        var result = await NoteService.EmptyRecycleBinAsync();
+        if (!result.IsSuccess)
+        {
+            Snackbar.Add(result.Error ?? "Failed to empty recycle bin.", Severity.Error);
+            return;
+        }
+        Snackbar.Add("Recycle Bin emptied.", Severity.Success);
+        await LoadRecycleBin(reset: true);
+    }
+
+    private async Task<bool> ConfirmAsync(string title, string message, string confirmText)
+    {
+        var parameters = new DialogParameters<ConfirmDialog>
+        {
+            { x => x.Message, message },
+            { x => x.ConfirmText, confirmText },
+            { x => x.ConfirmColor, Color.Error }
+        };
+        var dialog = await DialogService.ShowAsync<ConfirmDialog>(title, parameters);
+        var dialogResult = await dialog.Result;
+        return dialogResult is not null && !dialogResult.Canceled;
+    }
+}

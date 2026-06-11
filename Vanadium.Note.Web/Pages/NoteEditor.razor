@@ -509,23 +509,29 @@
         {
             var parts = new List<string>();
             if (childCount > 0)
-                parts.Add($"This note has {childCount} sub-note(s) that will also be permanently deleted.");
-            if (parentNoteId.HasValue)
-                parts.Add("Any page link to this note in the parent note will also be removed.");
+                parts.Add($"This note has {childCount} sub-note(s) that will be moved to the Recycle Bin too.");
 
             if (parts.Count > 0)
             {
-                parts.Add("Delete this note?");
+                parts.Add("Move this note to the Recycle Bin? Items in the Recycle Bin are deleted permanently after 30 days.");
                 var confirmed = await JS.InvokeAsync<bool>("confirm", string.Join("\n\n", parts));
                 if (!confirmed) return;
             }
 
-            var result = await NoteService.DeleteAsync(Id.Value);
+            var noteId = Id.Value;
+            var result = await NoteService.DeleteAsync(noteId);
             if (!result.IsSuccess)
             {
                 Snackbar.Add(result.Error ?? "Failed to delete note.", Severity.Error);
                 return;
             }
+
+            Snackbar.Add("Note moved to the Recycle Bin.", Severity.Normal, config =>
+            {
+                config.Action = "Undo";
+                config.ActionColor = Color.Primary;
+                config.OnClick = async _ => await NoteService.RestoreAsync(noteId);
+            });
         }
         Nav.NavigateTo("/");
     }

@@ -49,7 +49,10 @@ public class AccountService(NoteDbContext db, ILogger<AccountService> logger)
             // Notes first — the DB cascades NoteLabels (via NoteId) and any child
             // notes (self-referencing ParentNoteId cascade), all of which belong
             // to this same user and are included in the predicate regardless.
-            var notesRemoved = await db.Notes.Where(n => n.UserId == userId).ExecuteDeleteAsync(ct);
+            // IgnoreQueryFilters: soft-deleted notes must also be wiped — the global
+            // soft-delete filter would otherwise let them survive an account wipe.
+            var notesRemoved = await db.Notes.IgnoreQueryFilters()
+                .Where(n => n.UserId == userId).ExecuteDeleteAsync(ct);
 
             // Labels before categories: a category cascade would also clear labels,
             // but deleting labels explicitly first keeps the intent obvious.
