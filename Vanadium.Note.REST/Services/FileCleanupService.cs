@@ -44,9 +44,11 @@ public class FileCleanupService(NoteDbContext db, IWebHostEnvironment env, ILogg
         logger.LogDebug("On-delete orphan check: {FileCount} file(s) and {ImageCount} image(s) referenced in deleted content.",
             fileIds.Count, imageIds.Count);
 
-        // Combine all surviving notes' content into one string for fast lookup
+        // Combine all surviving notes' content into one string for fast lookup.
+        // IgnoreQueryFilters: soft-deleted notes still reference their files — their
+        // attachments must NOT be treated as orphans until they are purged.
         var survivingContent = string.Join(' ',
-            await db.Notes.Select(n => n.Content).ToListAsync(ct));
+            await db.Notes.IgnoreQueryFilters().Select(n => n.Content).ToListAsync(ct));
 
         var filesRemoved  = await DeleteFileAttachmentsAsync(fileIds, survivingContent, ct);
         var imagesRemoved = DeleteImageFiles(imageIds, survivingContent);
@@ -63,8 +65,10 @@ public class FileCleanupService(NoteDbContext db, IWebHostEnvironment env, ILogg
     /// </summary>
     public async Task DeleteAllOrphansAsync(CancellationToken ct = default)
     {
+        // IgnoreQueryFilters: content of soft-deleted notes still counts as a live
+        // file reference until the recycle bin purge actually deletes the note.
         var allContent = string.Join(' ',
-            await db.Notes.Select(n => n.Content).ToListAsync(ct));
+            await db.Notes.IgnoreQueryFilters().Select(n => n.Content).ToListAsync(ct));
 
         // --- File attachments (have DB records) ---
         var attachments = await db.FileAttachments.ToListAsync(ct);

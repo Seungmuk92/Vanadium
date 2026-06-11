@@ -86,7 +86,13 @@ Auto-save fires 1500 ms after the last content/title change via a debounced `Can
 
 ### File uploads
 
-Files are uploaded to `Vanadium.Note.REST/uploads/` as `file_{guid}`. Metadata is stored in `FileAttachments`. An `OrphanFileCleanupJob` (background hosted service) periodically removes files whose GUIDs no longer appear in any note's HTML content.
+Files are uploaded to `Vanadium.Note.REST/uploads/` as `file_{guid}`. Metadata is stored in `FileAttachments`. An `OrphanFileCleanupJob` (background hosted service) periodically removes files whose GUIDs no longer appear in any note's HTML content. Soft-deleted notes' content still counts as a live reference (the scans use `IgnoreQueryFilters()`).
+
+### Note recycle bin (soft delete)
+
+`DELETE /api/notes/{id}` is a SOFT delete: it sets `NoteItem.DeletedAt` (+ `IsDeletionRoot` on the directly-deleted note) on the note and its active descendants. Soft-deleted notes are hidden by a **global query filter** (`DeletedAt == null`) on `NoteItem` (and a matching filter on `NoteLabel`). Recycle Bin-aware paths use `IgnoreQueryFilters()`: recycle bin list/restore/permanent delete in `NoteService`, `RecycleBinPurgeJob`, both content scans in `FileCleanupService`, and the account wipe in `AccountService`. **Any new code that scans note content or bulk-deletes notes must consider whether it needs `IgnoreQueryFilters()`** — otherwise soft-deleted notes' files get garbage-collected early or soft-deleted notes survive deletion.
+
+Recycle bin endpoints: `GET /api/notes/recycle-bin`, `POST /api/notes/{id}/restore`, `DELETE /api/notes/{id}/permanent` (409 on active notes), `DELETE /api/notes/recycle-bin` (empty). `RecycleBinPurgeJob` (hosted service) permanently deletes notes soft-deleted longer than `RecycleBin:RetentionDays` (default 30). Reference stripping and file cleanup happen at PERMANENT delete time, not at recycle bin time, so restores are lossless. Full design: `docs/recycle-bin-feature.md`.
 
 ### Label system
 
@@ -102,6 +108,7 @@ Labels have an optional `LabelCategory`. Within a category, labels are mutually 
 | `/board` | `Board.razor` — kanban-style board view |
 | `/editor` | `NoteEditor.razor` — new note |
 | `/editor/{id}` | `NoteEditor.razor` — edit existing note |
+| `/recycle-bin` | `RecycleBin.razor` — recycle bin list (restore / delete forever / empty) |
 | `/login` | `Login.razor` |
 
 ### Web deployment

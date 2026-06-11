@@ -1,0 +1,185 @@
+@page "/recycle-bin"
+@attribute [Authorize]
+@inject NoteService NoteService
+@inject ISnackbar Snackbar
+@inject IDialogService DialogService
+@inject ILogger<RecycleBin> Logger
+
+<PageTitle>Recycle Bin</PageTitle>
+
+<div class="recycle-bin-page">
+    <div class="recycle-bin-header">
+        <h1>Recycle Bin</h1>
+        <span class="recycle-bin-hint">Items are deleted permanently after @RetentionDays days.</span>
+        @if (totalCount > 0)
+        {
+            <button class="btn btn-outline-danger" @onclick="EmptyRecycleBin">Empty Recycle Bin</button>
+        }
+    </div>
+
+    @if (isLoading && !items.Any())
+    {
+        <p class="empty-message">Loading...</p>
+    }
+    else if (!items.Any())
+    {
+        <p class="empty-message">The recycle bin is empty.</p>
+    }
+    else
+    {
+        <div class="note-table">
+            <div class="note-row note-header">
+                <div class="col-title">Title</div>
+                <div class="col-date">Deleted</div>
+                <div class="col-actions"></div>
+            </div>
+            @foreach (var item in items)
+            {
+                <div class="note-row note-item">
+                    <div class="col-title">
+                        <div class="note-title-row">
+                            <div class="note-title-text">
+                                @(string.IsNullOrWhiteSpace(item.Title) ? "(No title)" : item.Title)
+                            </div>
+                            @if (item.ChildCount > 0)
+                            {
+                                <span class="child-count-badge">+@item.ChildCount</span>
+                            }
+                        </div>
+                        <div class="purge-hint">Purges in @DaysRemaining(item.DeletedAt) day(s)</div>
+                    </div>
+                    <div class="col-date">
+                        @item.DeletedAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm")
+                    </div>
+                    <div class="col-actions">
+                        <button class="row-btn" @onclick="() => RestoreNote(item)">Restore</button>
+                        <button class="row-btn row-btn-danger" @onclick="() => DeleteForever(item)">Delete forever</button>
+                    </div>
+                </div>
+            }
+        </div>
+
+        @if (TotalPages > 1)
+        {
+            <div class="pagination-bar">
+                <div class="pagination-controls">
+                    <button class="page-btn" disabled="@(currentPage == 1)" @onclick="() => LoadPage(1)">«</button>
+                    <button class="page-btn" disabled="@(currentPage == 1)" @onclick="() => LoadPage(currentPage - 1)">‹</button>
+                    @for (int i = Math.Max(1, currentPage - 2); i <= Math.Min(TotalPages, currentPage + 2); i++)
+                    {
+                        var p = i;
+                        <button class="page-btn @(p == currentPage ? "page-btn-active" : "")" @onclick="() => LoadPage(p)">@p</button>
+                    }
+                    <button class="page-btn" disabled="@(currentPage == TotalPages)" @onclick="() => LoadPage(currentPage + 1)">›</button>
+                    <button class="page-btn" disabled="@(currentPage == TotalPages)" @onclick="() => LoadPage(TotalPages)">»</button>
+                </div>
+                <span class="pagination-info">@totalCount note(s)</span>
+            </div>
+        }
+    }
+</div>
+
+@code {
+    private const int RetentionDays = 30;
+    private const int PageSize = 30;
+
+    private List<RecycleBinNoteSummary> items = [];
+    private int totalCount;
+    private int currentPage = 1;
+    private bool isLoading = true;
+
+    private int TotalPages => Math.Max(1, (int)Math.Ceiling((double)totalCount / PageSize));
+
+    protected override async Task OnInitializedAsync() => await LoadPage(1);
+
+    private async Task LoadPage(int page)
+    {
+        currentPage = page;
+        isLoading = true;
+
+        var result = await NoteService.GetRecycleBinAsync(page, PageSize);
+        if (result.IsSuccess)
+        {
+            items = result.Value!.Items;
+            totalCount = result.Value!.TotalCount;
+        }
+        else
+        {
+            Snackbar.Add(result.Error ?? "Failed to load recycle bin.", Severity.Error);
+        }
+        isLoading = false;
+    }
+
+    private async Task ReloadAfterRemoval()
+    {
+        // If the last item on the current page was removed, step back a page.
+        var page = currentPage;
+        if (items.Count <= 1 && page > 1)
+            page--;
+        await LoadPage(page);
+    }
+
+    private static int DaysRemaining(DateTime deletedAtUtc)
+    {
+        var remaining = deletedAtUtc.AddDays(RetentionDays) - DateTime.UtcNow;
+        return Math.Max(0, (int)Math.Ceiling(remaining.TotalDays));
+    }
+
+    private async Task RestoreNote(RecycleBinNoteSummary item)
+    {
+        var result = await NoteService.RestoreAsync(item.Id);
+        if (!result.IsSuccess)
+        {
+            Snackbar.Add(result.Error ?? "Failed to restore note.", Severity.Error);
+            return;
+        }
+        Snackbar.Add("Note restored.", Severity.Success);
+        await ReloadAfterRemoval();
+    }
+
+    private async Task DeleteForever(RecycleBinNoteSummary item)
+    {
+        var title = string.IsNullOrWhiteSpace(item.Title) ? "(No title)" : item.Title;
+        var message = item.ChildCount > 0
+            ? $"Permanently delete \"{title}\" and its sub-note(s)? This cannot be undone."
+            : $"Permanently delete \"{title}\"? This cannot be undone.";
+        if (!await ConfirmAsync("Delete forever", message, "Delete forever")) return;
+
+        var result = await NoteService.DeletePermanentAsync(item.Id);
+        if (!result.IsSuccess)
+        {
+            Snackbar.Add(result.Error ?? "Failed to permanently delete note.", Severity.Error);
+            return;
+        }
+        Logger.LogInformation("Note permanently deleted from recycle bin page.");
+        await ReloadAfterRemoval();
+    }
+
+    private async Task EmptyRecycleBin()
+    {
+        var message = $"Permanently delete all {totalCount} note(s) in the recycle bin? This cannot be undone.";
+        if (!await ConfirmAsync("Empty Recycle Bin", message, "Empty Recycle Bin")) return;
+
+        var result = await NoteService.EmptyRecycleBinAsync();
+        if (!result.IsSuccess)
+        {
+            Snackbar.Add(result.Error ?? "Failed to empty recycle bin.", Severity.Error);
+            return;
+        }
+        Snackbar.Add("Recycle bin emptied.", Severity.Success);
+        await LoadPage(1);
+    }
+
+    private async Task<bool> ConfirmAsync(string title, string message, string confirmText)
+    {
+        var parameters = new DialogParameters<ConfirmDialog>
+        {
+            { x => x.Message, message },
+            { x => x.ConfirmText, confirmText },
+            { x => x.ConfirmColor, Color.Error }
+        };
+        var dialog = await DialogService.ShowAsync<ConfirmDialog>(title, parameters);
+        var dialogResult = await dialog.Result;
+        return dialogResult is not null && !dialogResult.Canceled;
+    }
+}
