@@ -1,0 +1,191 @@
+/* Mirrors the Recycle Bin page (RecycleBin.razor.css) design language. */
+
+.archive-page {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
+}
+
+.archive-header {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    margin-bottom: 1rem;
+}
+
+.archive-hint {
+    flex: 1;
+    font-size: 0.8rem;
+    opacity: 0.55;
+}
+
+.empty-message {
+    color: #888;
+}
+
+.note-table {
+    display: flex;
+    flex-direction: column;
+    border: 1px solid var(--mud-palette-divider);
+    border-radius: 4px;
+    overflow-y: auto;
+    overflow-x: hidden;
+    background-color: var(--mud-palette-surface);
+    flex: 1;
+    min-height: 0;
+}
+
+.note-row {
+    display: grid;
+    grid-template-columns: 1fr 10rem 13rem;
+    align-items: center;
+    padding: 0.6rem 1rem;
+    border-bottom: 1px solid var(--mud-palette-divider);
+}
+
+.note-row:last-child {
+    border-bottom: none;
+}
+
+.note-header {
+    background-color: var(--vn-note-header-bg);
+    font-weight: 600;
+    font-size: 0.875rem;
+    color: var(--vn-note-header-color);
+    position: sticky;
+    top: 0;
+    z-index: 1;
+}
+
+.note-item:hover {
+    background-color: var(--vn-note-hover-bg);
+}
+
+.col-title {
+    font-size: 1rem;
+    overflow: hidden;
+}
+
+.note-title-row {
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+    overflow: hidden;
+}
+
+.note-title-text {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.note-title-link {
+    cursor: pointer;
+}
+
+.note-title-link:hover {
+    color: var(--mud-palette-primary);
+}
+
+.child-count-badge {
+    flex-shrink: 0;
+    font-size: 0.65rem;
+    opacity: 0.45;
+    margin-left: 0.25rem;
+}
+
+.col-date {
+    font-size: 0.8rem;
+    color: #888;
+    white-space: nowrap;
+    text-align: right;
+}
+
+.note-header .col-date {
+    color: var(--vn-note-header-color);
+}
+
+.col-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.3rem;
+}
+
+.row-btn {
+    height: 26px;
+    padding: 0 8px;
+    border: 1px solid var(--mud-palette-divider);
+    background: transparent;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 0.78rem;
+    color: inherit;
+    transition: background-color 0.12s, border-color 0.12s, color 0.12s;
+    line-height: 1;
+    white-space: nowrap;
+}
+
+.row-btn:hover {
+    background-color: var(--mud-palette-action-default-hover);
+    border-color: var(--mud-palette-primary);
+    color: var(--mud-palette-primary);
+}
+
+.row-btn-danger:hover {
+    border-color: #dc3545;
+    color: #dc3545;
+}
+
+/* ── Pagination (same as Notes page) ────────────────────────────────────── */
+
+.pagination-bar {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 1rem;
+    padding: 0.5rem 0 0.25rem;
+}
+
+.pagination-controls {
+    display: flex;
+    gap: 3px;
+    align-items: center;
+}
+
+.page-btn {
+    min-width: 30px;
+    height: 30px;
+    padding: 0 6px;
+    border: 1px solid var(--mud-palette-divider);
+    background: transparent;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 0.85rem;
+    color: inherit;
+    transition: background-color 0.12s;
+    line-height: 1;
+}
+
+.page-btn:hover:not(:disabled) {
+    background-color: var(--mud-palette-action-default-hover);
+}
+
+.page-btn:disabled {
+    opacity: 0.3;
+    cursor: default;
+}
+
+.page-btn-active {
+    background-color: var(--mud-palette-primary);
+    color: var(--mud-palette-primary-text);
+    border-color: var(--mud-palette-primary);
+}
+
+.pagination-info {
+    font-size: 0.78rem;
+    opacity: 0.5;
+    white-space: nowrap;
+}

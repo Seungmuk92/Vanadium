@@ -94,6 +94,16 @@ Files are uploaded to `Vanadium.Note.REST/uploads/` as `file_{guid}`. Metadata i
 
 Recycle bin endpoints: `GET /api/notes/recycle-bin`, `POST /api/notes/{id}/restore`, `DELETE /api/notes/{id}/permanent` (409 on active notes), `DELETE /api/notes/recycle-bin` (empty). `RecycleBinPurgeJob` (hosted service) permanently deletes notes soft-deleted longer than `RecycleBin:RetentionDays` (default 30). Reference stripping and file cleanup happen at PERMANENT delete time, not at recycle bin time, so restores are lossless. Full design: `docs/recycle-bin-feature.md`.
 
+### Note archive
+
+A third note state between active and deleted: `NoteItem.ArchivedAt` (+ `IsArchiveRoot` on the directly-archived note). Archived notes are kept forever (no purge job by design), hidden from Home/Board/children/mention search, included in full-text search (`NoteSummary.IsArchived` drives the UI badge), retrievable via `GET /api/notes/{id}`, and READ-ONLY: `PUT /api/notes/{id}` and label add/remove return 403 (`ProblemDetails`), checked before the optimistic-concurrency check. Creating or re-parenting under an archived note is rejected with 400. Archiving sweeps active descendants into a shared-`ArchivedAt` group (mirrors `DeletedAt` groups); unarchive restores the same group and re-attaches to root if the original parent is missing, soft-deleted, or still archived.
+
+**Archive deliberately has NO global query filter.** EF Core allows one `HasQueryFilter` per entity, archive visibility is not uniform (visible in search/GET-by-id/archive page, hidden elsewhere), and keeping archived notes visible to default queries means the `FileCleanupService` scans and `AccountService` wipe see archived content with zero changes. Archived-note exclusion is done with explicit `Where(n => n.ArchivedAt == null)` predicates on exactly the reads that need it (`GetPaged` non-search branch, `GetAllSummaries`, `GetChildren`, `SearchForMention`). Do not fold `ArchivedAt` into the global filter — every existing `IgnoreQueryFilters()` opt-out would silently change meaning.
+
+Archive ↔ recycle bin: `DELETE /api/notes/{id}` accepts archived notes and keeps `ArchivedAt`, so a recycle-bin restore returns the note to the Archive, not the active list. `DELETE /api/notes/{id}/permanent` still 409s for archived-but-not-deleted notes (no destruction shortcut).
+
+Archive endpoints: `POST /api/notes/{id}/archive` (idempotent, 204/404), `POST /api/notes/{id}/unarchive` (204/404), `GET /api/notes/archive?page=&pageSize=` (paged archive roots, `ArchivedAt` desc). Frontend: `/archive` page, read-only editor mode (`tiptapInterop.init` `editable` flag / `tiptapInterop.setEditable`), archive row action + Undo on Home. Full design: `docs/plannings/note-archive-feature.md`.
+
 ### Label system
 
 Labels have an optional `LabelCategory`. Within a category, labels are mutually exclusive on a note (adding one removes others in the same category). The many-to-many `NoteLabel` join table has a composite PK `(NoteId, LabelId)`.
@@ -107,7 +117,8 @@ Labels have an optional `LabelCategory`. Within a category, labels are mutually 
 | `/` | `Home.razor` — note list |
 | `/board` | `Board.razor` — kanban-style board view |
 | `/editor` | `NoteEditor.razor` — new note |
-| `/editor/{id}` | `NoteEditor.razor` — edit existing note |
+| `/editor/{id}` | `NoteEditor.razor` — edit existing note (read-only when archived) |
+| `/archive` | `Archive.razor` — archive list (unarchive / delete to recycle bin) |
 | `/recycle-bin` | `RecycleBin.razor` — recycle bin list (restore / delete forever / empty) |
 | `/login` | `Login.razor` |
 
@@ -148,11 +159,11 @@ When adding new middleware, place it AFTER `CorrelationIdMiddleware` so logs car
 
 ### Full-text search
 
-`NoteItem` indexes `Title` + `ContentText` via a PostgreSQL `tsvector` column with a GIN index. Searches go through `NoteService` query paths. When adding searchable fields, update both the migration (the generated tsvector column) and the search query — never search a regular column with `ILIKE` for performance reasons.
+`NoteItem.Title` + `ContentText` are indexed with a PostgreSQL GIN **trigram** index (`gin_trgm_ops`, since migration `20260426140544_SwitchToTrigramSearch`). `NoteService.ApplyFilters()` applies `EF.Functions.ILike` per whitespace-separated term, which the trigram index accelerates. When adding searchable fields, extend both the index and the search query — never `ILIKE` a non-indexed column for performance reasons. Search results include archived notes (flagged `IsArchived`); the non-search Home list excludes them.
 
 ## Known limitations
 
-- **No test projects exist.** When asked to add tests, propose a new `Vanadium.Note.REST.Tests` project before writing test code.
+- **Tests:** `Vanadium.Note.REST.Tests` (xUnit + EF Core SQLite in-memory) covers `NoteService`-level logic. PostgreSQL-only behavior (trigram `ILike` search) is out of unit scope and must be verified manually. Run with `dotnet test Vanadium.slnx`. The Web project has no tests.
 - **DTOs are duplicated** between REST and Web projects on purpose (kept simple). Do not introduce a shared `Vanadium.Note.Shared` project unless explicitly requested.
 - **No CI workflow** is set up. Build/lint must be verified locally with `dotnet build Vanadium.slnx`.
 - **No refresh tokens.** When the JWT expires, the user re-logs in. Don't propose refresh-token implementations without discussion.

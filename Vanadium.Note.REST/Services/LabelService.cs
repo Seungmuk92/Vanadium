@@ -94,11 +94,19 @@ public class LabelService(NoteDbContext db, ILogger<LabelService> logger)
 
     // ── Note-Label assignments ────────────────────────────────────────────────
 
+    /// <summary>Thrown when a label mutation targets an archived (read-only) note.</summary>
+    public class NoteArchivedException() : InvalidOperationException("Note is archived and read-only.");
+
     public async Task AddLabelToNoteAsync(Guid userId, Guid noteId, Guid labelId)
     {
-        var noteOwned = await db.Notes.AnyAsync(n => n.Id == noteId && n.UserId == userId);
-        if (!noteOwned)
+        var note = await db.Notes
+            .Where(n => n.Id == noteId && n.UserId == userId)
+            .Select(n => new { n.ArchivedAt })
+            .FirstOrDefaultAsync();
+        if (note is null)
             throw new KeyNotFoundException("Note not found.");
+        if (note.ArchivedAt is not null)
+            throw new NoteArchivedException();
 
         var exists = await db.NoteLabels.AnyAsync(nl => nl.NoteId == noteId && nl.LabelId == labelId);
         if (exists)
@@ -136,9 +144,14 @@ public class LabelService(NoteDbContext db, ILogger<LabelService> logger)
 
     public async Task<bool> RemoveLabelFromNoteAsync(Guid userId, Guid noteId, Guid labelId)
     {
-        var noteOwned = await db.Notes.AnyAsync(n => n.Id == noteId && n.UserId == userId);
-        if (!noteOwned)
+        var note = await db.Notes
+            .Where(n => n.Id == noteId && n.UserId == userId)
+            .Select(n => new { n.ArchivedAt })
+            .FirstOrDefaultAsync();
+        if (note is null)
             return false;
+        if (note.ArchivedAt is not null)
+            throw new NoteArchivedException();
 
         var noteLabel = await db.NoteLabels.FindAsync(noteId, labelId);
         if (noteLabel is null) return false;

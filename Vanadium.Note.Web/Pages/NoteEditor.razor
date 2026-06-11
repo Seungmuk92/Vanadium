@@ -31,13 +31,33 @@
     <div class="editor-actions">
         @if (!isNew)
         {
-            <button class="btn btn-outline-secondary" @onclick="CreateSubNote">+ Sub-note</button>
+            @if (!IsArchived)
+            {
+                <button class="btn btn-outline-secondary" @onclick="CreateSubNote">+ Sub-note</button>
+            }
             <button class="btn btn-outline-secondary" @onclick="ExportMarkdown">Export MD</button>
+            @if (!IsArchived)
+            {
+                <button class="btn btn-outline-secondary" @onclick="ArchiveNote">Archive</button>
+            }
             <button class="btn btn-outline-danger" @onclick="DeleteNote">Delete</button>
         }
-        <button class="btn btn-primary" @onclick="SaveNote">Save</button>
+        @if (!IsArchived)
+        {
+            <button class="btn btn-primary" @onclick="SaveNote">Save</button>
+        }
     </div>
 </div>
+
+@if (IsArchived)
+{
+    <div class="archived-banner">
+        <span>🗄 This note is archived and read-only.</span>
+        <div class="archived-banner-actions">
+            <button class="btn btn-sm btn-outline-secondary" @onclick="UnarchiveNote">Unarchive</button>
+        </div>
+    </div>
+}
 
 @if (_hasConflict)
 {
@@ -55,6 +75,7 @@
            type="text"
            placeholder="Title"
            value="@title"
+           disabled="@IsArchived"
            @oninput="OnTitleInput"
            @onkeydown="OnTitleKeyDown" />
 
@@ -67,10 +88,15 @@
                     <span class="label-cat-prefix">@label.CategoryName:</span>
                 }
                 <span>@label.Name</span>
-                <button class="label-chip-remove" @onclick="() => RemoveLabel(label.Id)">×</button>
+                @if (!IsArchived)
+                {
+                    <button class="label-chip-remove" @onclick="() => RemoveLabel(label.Id)">×</button>
+                }
             </span>
         }
 
+        @if (!IsArchived)
+        {
         <div class="label-add-wrapper">
             <button class="label-add-btn @(showLabelPicker ? "label-add-btn-active" : "")" @onclick="ToggleLabelPicker">
                 + Label
@@ -126,6 +152,7 @@
                 </div>
             }
         </div>
+        }
     </div>
 
     @if (showLabelManager)
@@ -216,6 +243,8 @@
     private string title = string.Empty;
     private string content = string.Empty;
     private bool isNew => Id is null;
+    private DateTime? archivedAt;
+    private bool IsArchived => archivedAt is not null;
     private Guid? parentNoteId;
     private string? parentTitle;
     private int childCount;
@@ -258,6 +287,7 @@
 
         title = string.Empty;
         content = string.Empty;
+        archivedAt = null;
         parentNoteId = null;
         parentTitle = null;
         childCount = 0;
@@ -274,6 +304,7 @@
             {
                 title = result.Value!.Title;
                 content = result.Value!.Content;
+                archivedAt = result.Value!.ArchivedAt;
                 noteLabels = result.Value!.Labels ?? [];
                 parentNoteId = result.Value!.ParentNoteId;
                 parentTitle = result.Value!.ParentTitle;
@@ -320,7 +351,7 @@
             var token = await TokenStore.GetAsync() ?? string.Empty;
             try
             {
-                await JS.InvokeVoidAsync("tiptapInterop.init", _editorId, _objRef, content, apiBase, token);
+                await JS.InvokeVoidAsync("tiptapInterop.init", _editorId, _objRef, content, apiBase, token, !IsArchived);
                 _editorMounted = true;
                 await ShortcutService.RegisterAsync("ctrl+s", "Save note", () => InvokeAsync(SaveNote));
             }
@@ -333,6 +364,7 @@
         {
             _contentJustLoaded = false;
             await JS.InvokeVoidAsync("tiptapInterop.setContent", _editorId, content);
+            await JS.InvokeVoidAsync("tiptapInterop.setEditable", _editorId, !IsArchived);
         }
     }
 
@@ -357,7 +389,7 @@
 
     private void ScheduleAutoSave()
     {
-        if (_hasConflict) return;
+        if (_hasConflict || IsArchived) return;
         _hasPendingChanges = true;
         SetStatus("Writing...", "status-pending");
         _debounceCts?.Cancel();
@@ -392,6 +424,12 @@
             _hasConflict = true;
             return null;
         }
+        if (result.IsForbidden)
+        {
+            // The note was archived by another session — switch to read-only mode.
+            await EnterArchivedModeAsync();
+            return null;
+        }
         if (!result.IsSuccess)
         {
             Logger.LogError("Save failed for note {NoteId}.", note.Id);
@@ -415,7 +453,7 @@
             var saved = await SaveCoreAsync();
             if (saved is null)
             {
-                SetStatus(_hasConflict ? "Conflict" : "Save failed", "status-error");
+                SetStatus(_hasConflict ? "Conflict" : IsArchived ? "Archived" : "Save failed", "status-error");
                 StateHasChanged();
                 return;
             }
@@ -464,7 +502,7 @@
         var saved = await SaveCoreAsync();
         if (saved is null)
         {
-            if (!_hasConflict)
+            if (!_hasConflict && !IsArchived)
                 Snackbar.Add("Failed to save note.", Severity.Error);
             else
                 StateHasChanged();
@@ -537,6 +575,71 @@
     }
 
     private void CreateSubNote() => Nav.NavigateTo($"/editor?parentId={Id}");
+
+    // ── Archive actions ───────────────────────────────────────────────────────
+
+    /// <summary>Switches the open editor to read-only mode after the server
+    /// reported the note as archived (403 on save from another session).</summary>
+    private async Task EnterArchivedModeAsync()
+    {
+        if (IsArchived) return;
+        archivedAt = DateTime.UtcNow; // marker only; the server holds the real value
+        _hasPendingChanges = false;
+        _debounceCts?.Cancel();
+        Snackbar.Add("This note has been archived and is now read-only.", Severity.Warning);
+        if (_editorMounted)
+            await JS.InvokeVoidAsync("tiptapInterop.setEditable", _editorId, false);
+        StateHasChanged();
+    }
+
+    private async Task ArchiveNote()
+    {
+        if (Id is null) return;
+
+        var confirmed = await JS.InvokeAsync<bool>("confirm",
+            "Archive this note? Sub-notes will be archived too. Archived notes are read-only and kept indefinitely.");
+        if (!confirmed) return;
+
+        // Flush any pending edits before the note becomes read-only.
+        _debounceCts?.Cancel();
+        if (_hasPendingChanges)
+            await SaveCoreAsync();
+
+        var noteId = Id.Value;
+        var result = await NoteService.ArchiveAsync(noteId);
+        if (!result.IsSuccess)
+        {
+            Snackbar.Add(result.Error ?? "Failed to archive note.", Severity.Error);
+            return;
+        }
+
+        _hasPendingChanges = false;
+        Snackbar.Add("Note archived.", Severity.Normal, config =>
+        {
+            config.Action = "Undo";
+            config.ActionColor = Color.Primary;
+            config.OnClick = async _ => await NoteService.UnarchiveAsync(noteId);
+        });
+        Nav.NavigateTo(BackUrl);
+    }
+
+    private async Task UnarchiveNote()
+    {
+        if (Id is null) return;
+
+        var result = await NoteService.UnarchiveAsync(Id.Value);
+        if (!result.IsSuccess)
+        {
+            Snackbar.Add(result.Error ?? "Failed to unarchive note.", Severity.Error);
+            return;
+        }
+
+        archivedAt = null;
+        if (_editorMounted)
+            await JS.InvokeVoidAsync("tiptapInterop.setEditable", _editorId, true);
+        Snackbar.Add("Note unarchived.", Severity.Success);
+        StateHasChanged();
+    }
 
     [JSInvokable]
     public async Task<PageLinkDto?> OnSlashCommandPage()
@@ -763,7 +866,7 @@
         _debounceCts?.Cancel();
         _debounceCts?.Dispose();
 
-        if (_hasPendingChanges && !_hasConflict)
+        if (_hasPendingChanges && !_hasConflict && !IsArchived)
             await SaveCoreAsync();
 
         _objRef?.Dispose();

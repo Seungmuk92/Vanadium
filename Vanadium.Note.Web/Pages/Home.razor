@@ -108,6 +108,19 @@
                             <div class="note-title-text">
                                 @(string.IsNullOrWhiteSpace(note.Title) ? "(No title)" : note.Title)
                             </div>
+                            @if (note.IsArchived)
+                            {
+                                <span class="archived-badge">Archived</span>
+                            }
+                            else
+                            {
+                                <button class="row-archive-btn"
+                                        title="Archive note"
+                                        @onclick:stopPropagation="true"
+                                        @onclick="() => ArchiveNote(note)">
+                                    Archive
+                                </button>
+                            }
                         </div>
                         @if (note.Labels?.Any() == true)
                         {
@@ -490,6 +503,38 @@
         else
             foreach (var note in notes)
                 selectedIds.Add(note.Id);
+    }
+
+    private async Task ArchiveNote(NoteSummary note)
+    {
+        var message = note.ChildCount > 0
+            ? "Archive this note? Sub-notes will be archived too. Archived notes are read-only and kept indefinitely."
+            : "Archive this note? Archived notes are read-only and kept indefinitely.";
+        var confirmed = await JS.InvokeAsync<bool>("confirm", message);
+        if (!confirmed) return;
+
+        var result = await NoteService.ArchiveAsync(note.Id);
+        if (!result.IsSuccess)
+        {
+            Snackbar.Add(result.Error ?? "Failed to archive note.", Severity.Error);
+            return;
+        }
+
+        var noteId = note.Id;
+        Snackbar.Add("Note archived.", Severity.Normal, config =>
+        {
+            config.Action = "Undo";
+            config.ActionColor = Color.Primary;
+            config.OnClick = async _ =>
+            {
+                await NoteService.UnarchiveAsync(noteId);
+                await LoadNotes();
+                StateHasChanged();
+            };
+        });
+
+        selectedIds.Remove(noteId);
+        await LoadNotes();
     }
 
     private void CreateNote() => Nav.NavigateTo("/editor");

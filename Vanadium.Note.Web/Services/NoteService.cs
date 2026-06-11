@@ -94,6 +94,8 @@ public class NoteService(HttpClient http, ILogger<NoteService> logger)
 
             if (response.StatusCode == HttpStatusCode.Conflict)
                 return ServiceResult<NoteItem>.Conflict();
+            if (response.StatusCode == HttpStatusCode.Forbidden)
+                return ServiceResult<NoteItem>.Forbidden();
             if (!response.IsSuccessStatusCode)
                 return ServiceResult<NoteItem>.Fail("Failed to save note.");
 
@@ -188,6 +190,56 @@ public class NoteService(HttpClient http, ILogger<NoteService> logger)
         {
             logger.LogError(ex, "Failed to empty recycle bin.");
             return ServiceResult<bool>.Fail("Failed to empty recycle bin.");
+        }
+    }
+
+    public async Task<ServiceResult<bool>> ArchiveAsync(Guid id)
+    {
+        try
+        {
+            var response = await http.PostAsync($"api/notes/{id}/archive", null);
+            return response.IsSuccessStatusCode
+                ? ServiceResult<bool>.Ok(true)
+                : ServiceResult<bool>.Fail("Failed to archive note.");
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Failed to archive note {NoteId}.", id);
+            return ServiceResult<bool>.Fail("Failed to archive note.");
+        }
+    }
+
+    public async Task<ServiceResult<bool>> UnarchiveAsync(Guid id)
+    {
+        try
+        {
+            var response = await http.PostAsync($"api/notes/{id}/unarchive", null);
+            return response.IsSuccessStatusCode
+                ? ServiceResult<bool>.Ok(true)
+                : ServiceResult<bool>.Fail("Failed to unarchive note.");
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Failed to unarchive note {NoteId}.", id);
+            return ServiceResult<bool>.Fail("Failed to unarchive note.");
+        }
+    }
+
+    public async Task<ServiceResult<PagedResult<ArchivedNoteSummary>>> GetArchiveAsync(
+        int page = 1, int pageSize = 50)
+    {
+        try
+        {
+            var result = await http.GetFromJsonAsync<PagedResult<ArchivedNoteSummary>>(
+                $"api/notes/archive?page={page}&pageSize={pageSize}");
+            return result is not null
+                ? ServiceResult<PagedResult<ArchivedNoteSummary>>.Ok(result)
+                : ServiceResult<PagedResult<ArchivedNoteSummary>>.Fail("Failed to load archive.");
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Failed to load archive.");
+            return ServiceResult<PagedResult<ArchivedNoteSummary>>.Fail("Failed to load archive.");
         }
     }
 

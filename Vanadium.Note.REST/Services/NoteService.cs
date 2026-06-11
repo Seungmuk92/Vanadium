@@ -17,22 +17,21 @@ public class NoteService(NoteDbContext db, FileCleanupService fileCleanup, ILogg
         string sortDir,
         Guid[]? labelIds)
     {
-        // When not searching, show root notes only
+        // When not searching, show active root notes only.
+        // When searching, archived notes are included (flagged IsArchived for the badge).
         bool rootOnly = string.IsNullOrWhiteSpace(search);
 
         var userNotes = db.Notes.Where(n => n.UserId == userId);
+        var baseNotes = rootOnly
+            ? userNotes.Where(n => n.ParentNoteId == null && n.ArchivedAt == null)
+            : userNotes;
 
         // Lean query for COUNT — no joins to label/category tables
-        var countQuery = ApplyFilters(
-            rootOnly ? userNotes.Where(n => n.ParentNoteId == null) : userNotes,
-            search, labelIds);
+        var countQuery = ApplyFilters(baseNotes, search, labelIds);
         var totalCount = await countQuery.CountAsync();
 
         // Full query for data — projects to NoteSummary to avoid fetching large Content column
-        var baseDataQuery = ApplyFilters(
-            rootOnly ? userNotes.Where(n => n.ParentNoteId == null) : userNotes,
-            search,
-            labelIds);
+        var baseDataQuery = ApplyFilters(baseNotes, search, labelIds);
 
         var orderedQuery = !string.IsNullOrWhiteSpace(search)
             ? baseDataQuery.OrderByDescending(n => n.UpdatedAt)
@@ -53,6 +52,7 @@ public class NoteService(NoteDbContext db, FileCleanupService fileCleanup, ILogg
                 n.Title,
                 n.UpdatedAt,
                 n.ParentNoteId,
+                IsArchived = n.ArchivedAt != null,
                 Labels = n.NoteLabels.Select(nl => new LabelSummary
                 {
                     Id = nl.Label.Id,
@@ -92,6 +92,7 @@ public class NoteService(NoteDbContext db, FileCleanupService fileCleanup, ILogg
                 ParentNoteId = n.ParentNoteId,
                 ParentTitle = n.ParentNoteId.HasValue ? parentTitles.GetValueOrDefault(n.ParentNoteId.Value) : null,
                 ChildCount = childCounts.GetValueOrDefault(n.Id),
+                IsArchived = n.IsArchived,
                 Labels = n.Labels.OrderBy(l => l.Name).ToList()
             }).ToList(),
             TotalCount = totalCount,
@@ -102,7 +103,8 @@ public class NoteService(NoteDbContext db, FileCleanupService fileCleanup, ILogg
 
     public async Task<List<NoteSummary>> GetAllSummaries(Guid userId, Guid[]? labelIds = null)
     {
-        var query = db.Notes.Where(n => n.UserId == userId);
+        // The board never shows archived notes.
+        var query = db.Notes.Where(n => n.UserId == userId && n.ArchivedAt == null);
 
         // OR logic: notes that have ANY of the specified labels
         if (labelIds is { Length: > 0 })
@@ -143,7 +145,7 @@ public class NoteService(NoteDbContext db, FileCleanupService fileCleanup, ILogg
     public async Task<List<NoteSummary>> GetChildren(Guid userId, Guid parentId)
     {
         var summaries = await db.Notes
-            .Where(n => n.UserId == userId && n.ParentNoteId == parentId)
+            .Where(n => n.UserId == userId && n.ParentNoteId == parentId && n.ArchivedAt == null)
             .OrderByDescending(n => n.UpdatedAt)
             .Select(n => new
             {
@@ -210,10 +212,18 @@ public class NoteService(NoteDbContext db, FileCleanupService fileCleanup, ILogg
         return note;
     }
 
-    public async Task<(NoteItem? Note, bool Conflict)> Update(Guid userId, Guid id, NoteItem note)
+    public async Task<(NoteItem? Note, bool Conflict, bool Archived)> Update(Guid userId, Guid id, NoteItem note)
     {
         var existing = await db.Notes.FirstOrDefaultAsync(n => n.Id == id && n.UserId == userId);
-        if (existing is null) return (null, false);
+        if (existing is null) return (null, false, false);
+
+        // Archived notes are read-only. Checked before the concurrency check so a
+        // stale editor session gets a clear "archived" signal, not a conflict dialog.
+        if (existing.ArchivedAt is not null)
+        {
+            logger.LogWarning("Update rejected — note {NoteId} is archived and read-only.", id);
+            return (null, false, true);
+        }
 
         // Optimistic concurrency: reject if the client's known version differs from DB,
         // unless UpdatedAt is default (force-save bypass).
@@ -222,7 +232,7 @@ public class NoteService(NoteDbContext db, FileCleanupService fileCleanup, ILogg
             logger.LogWarning(
                 "Conflict on note {NoteId}: client has {ClientVersion}, server has {ServerVersion}.",
                 id, note.UpdatedAt, existing.UpdatedAt);
-            return (null, true);
+            return (null, true, false);
         }
 
         var titleChanged = existing.Title != note.Title;
@@ -237,7 +247,7 @@ public class NoteService(NoteDbContext db, FileCleanupService fileCleanup, ILogg
         if (titleChanged)
             await UpdatePageLinkReferences(id, note.Title);
 
-        return (existing, false);
+        return (existing, false, false);
     }
 
     private async Task UpdatePageLinkReferences(Guid noteId, string newTitle)
@@ -332,7 +342,8 @@ public class NoteService(NoteDbContext db, FileCleanupService fileCleanup, ILogg
 
     public async Task<List<MentionSuggestionDto>> SearchForMention(Guid userId, string query, int limit = 10)
     {
-        var q = db.Notes.Where(n => n.UserId == userId);
+        // Mentions target active work — archived notes are excluded.
+        var q = db.Notes.Where(n => n.UserId == userId && n.ArchivedAt == null);
         if (!string.IsNullOrWhiteSpace(query))
         {
             var pattern = $"%{EscapeLikePattern(query.Trim())}%";
@@ -435,9 +446,13 @@ public class NoteService(NoteDbContext db, FileCleanupService fileCleanup, ILogg
 
         if (note.ParentNoteId.HasValue)
         {
-            // Filtered query: an active parent only. Missing or soft-deleted → detach.
-            var parentIsActive = await db.Notes.AnyAsync(n => n.Id == note.ParentNoteId.Value);
-            if (!parentIsActive)
+            // Filtered query: missing or soft-deleted parent → detach. An archived
+            // parent also detaches, unless the restored root is itself archived —
+            // then it returns to the archive where an archived parent is a legal home.
+            var parentIsValid = note.ArchivedAt is not null
+                ? await db.Notes.AnyAsync(n => n.Id == note.ParentNoteId.Value)
+                : await db.Notes.AnyAsync(n => n.Id == note.ParentNoteId.Value && n.ArchivedAt == null);
+            if (!parentIsValid)
                 note.ParentNoteId = null;
         }
 
@@ -454,6 +469,131 @@ public class NoteService(NoteDbContext db, FileCleanupService fileCleanup, ILogg
             "Note {NoteId} restored from recycle bin with {DescendantCount} descendant(s).",
             id, groupMembers.Count);
         return true;
+    }
+
+    /// <summary>
+    /// Archives the note and all of its active descendants in one operation
+    /// (shared ArchivedAt = restore group). Already-archived subtrees keep their
+    /// own group and unarchive independently. Idempotent: archiving an archived
+    /// note is a no-op. Returns false when the note is not found (or is in the
+    /// recycle bin, which the global filter hides from this lookup).
+    /// </summary>
+    public async Task<bool> Archive(Guid userId, Guid id)
+    {
+        var note = await db.Notes.FirstOrDefaultAsync(n => n.Id == id && n.UserId == userId);
+        if (note is null) return false;
+        if (note.ArchivedAt is not null) return true; // idempotent no-op
+
+        var archivedAt = UtcNowMicroseconds();
+        note.ArchivedAt = archivedAt;
+        note.IsArchiveRoot = true;
+
+        // Sweep active descendants into the same archive group. The BFS sees
+        // archived descendants too (archive has no global filter), so skip them:
+        // independently archived subtrees keep their own root and timestamp.
+        var descendants = (await CollectActiveDescendantsAsync(id))
+            .Where(d => d.ArchivedAt == null)
+            .ToList();
+        foreach (var descendant in descendants)
+        {
+            descendant.ArchivedAt = archivedAt;
+            descendant.IsArchiveRoot = false;
+        }
+
+        await db.SaveChangesAsync();
+        logger.LogInformation(
+            "Note {NoteId} archived with {DescendantCount} descendant(s).",
+            id, descendants.Count);
+        return true;
+    }
+
+    /// <summary>
+    /// Unarchives the note and the descendants archived in the same operation
+    /// (same ArchivedAt). Independently archived subtrees stay archived. If the
+    /// original parent is missing, soft-deleted, or still archived, the note is
+    /// reattached as a root note. Returns false when the note is not found or
+    /// not archived.
+    /// </summary>
+    public async Task<bool> Unarchive(Guid userId, Guid id)
+    {
+        var note = await db.Notes.FirstOrDefaultAsync(n =>
+            n.Id == id && n.UserId == userId && n.ArchivedAt != null);
+        if (note is null) return false;
+
+        var groupArchivedAt = note.ArchivedAt!.Value;
+        var groupMembers = await CollectArchivedGroupDescendantsAsync(id, groupArchivedAt);
+
+        note.ArchivedAt = null;
+        note.IsArchiveRoot = false;
+        foreach (var member in groupMembers)
+        {
+            member.ArchivedAt = null;
+            member.IsArchiveRoot = false;
+        }
+
+        // Never resurrect an active note under a missing, soft-deleted, or
+        // archived parent (the filtered query hides the first two).
+        if (note.ParentNoteId.HasValue)
+        {
+            var parentIsActive = await db.Notes.AnyAsync(n =>
+                n.Id == note.ParentNoteId.Value && n.ArchivedAt == null);
+            if (!parentIsActive)
+                note.ParentNoteId = null;
+        }
+
+        await db.SaveChangesAsync();
+        logger.LogInformation(
+            "Note {NoteId} unarchived with {DescendantCount} descendant(s).",
+            id, groupMembers.Count);
+        return true;
+    }
+
+    /// <summary>
+    /// Paged list of archive roots, newest first. The global filter automatically
+    /// excludes archived notes that are currently in the recycle bin.
+    /// </summary>
+    public async Task<PagedResult<ArchivedNoteSummary>> GetArchive(Guid userId, int page, int pageSize)
+    {
+        var query = db.Notes
+            .Where(n => n.UserId == userId && n.ArchivedAt != null && n.IsArchiveRoot);
+
+        var totalCount = await query.CountAsync();
+
+        var items = await query
+            .OrderByDescending(n => n.ArchivedAt)
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .Select(n => new ArchivedNoteSummary
+            {
+                Id = n.Id,
+                Title = n.Title,
+                ArchivedAt = n.ArchivedAt!.Value
+            })
+            .ToListAsync();
+
+        // Direct children swept in the same archive operation (same timestamp),
+        // mirroring the recycle bin's per-root child counts.
+        var ids = items.Select(i => i.Id).ToList();
+        if (ids.Count > 0)
+        {
+            var children = await db.Notes
+                .Where(n => n.ArchivedAt != null
+                    && n.ParentNoteId.HasValue
+                    && ids.Contains(n.ParentNoteId.Value))
+                .Select(n => new { ParentId = n.ParentNoteId!.Value, n.ArchivedAt })
+                .ToListAsync();
+            foreach (var item in items)
+                item.ChildCount = children.Count(c =>
+                    c.ParentId == item.Id && c.ArchivedAt == item.ArchivedAt);
+        }
+
+        return new PagedResult<ArchivedNoteSummary>
+        {
+            Items = items,
+            TotalCount = totalCount,
+            Page = page,
+            PageSize = pageSize
+        };
     }
 
     /// <summary>
@@ -574,6 +714,13 @@ public class NoteService(NoteDbContext db, FileCleanupService fileCleanup, ILogg
         => await CollectDescendantsAsync(
             rootId,
             db.Notes.IgnoreQueryFilters().Where(n => n.DeletedAt == groupDeletedAt));
+
+    /// <summary>BFS over archived descendants sharing the given archive-group timestamp.
+    /// Descends only through same-group notes, so independently archived subtrees stay put.</summary>
+    private async Task<List<NoteItem>> CollectArchivedGroupDescendantsAsync(Guid rootId, DateTime groupArchivedAt)
+        => await CollectDescendantsAsync(
+            rootId,
+            db.Notes.Where(n => n.ArchivedAt == groupArchivedAt));
 
     private static async Task<List<NoteItem>> CollectDescendantsAsync(Guid rootId, IQueryable<NoteItem> source)
     {

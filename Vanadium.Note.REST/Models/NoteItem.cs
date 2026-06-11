@@ -23,6 +23,16 @@ public class NoteItem
     [JsonIgnore]
     public bool IsDeletionRoot { get; set; }
 
+    /// <summary>Null = not archived. Non-null marks the note archived (read-only).
+    /// Notes archived in the same operation share the same value (restore group).
+    /// Serialized on purpose: the frontend editor uses it to switch to read-only mode.</summary>
+    public DateTime? ArchivedAt { get; set; }
+
+    /// <summary>True only on the note the user archived directly.
+    /// Sub-notes swept into the archive keep this false.</summary>
+    [JsonIgnore]
+    public bool IsArchiveRoot { get; set; }
+
     public Guid UserId { get; set; }
 
     [JsonIgnore]
