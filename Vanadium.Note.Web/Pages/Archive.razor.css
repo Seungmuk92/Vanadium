@@ -1,6 +1,6 @@
-/* Mirrors the Notes page (Home.razor.css) design language. */
+/* Mirrors the Recycle Bin page (RecycleBin.razor.css) design language. */
 
-.recycle-bin-page {
+.archive-page {
     display: flex;
     flex-direction: column;
     flex: 1;
@@ -8,14 +8,14 @@
     overflow: hidden;
 }
 
-.recycle-bin-header {
+.archive-header {
     display: flex;
     align-items: center;
     gap: 0.75rem;
     margin-bottom: 1rem;
 }
 
-.recycle-bin-hint {
+.archive-hint {
     flex: 1;
     font-size: 0.8rem;
     opacity: 0.55;
@@ -81,30 +81,19 @@
     white-space: nowrap;
 }
 
+.note-title-link {
+    cursor: pointer;
+}
+
+.note-title-link:hover {
+    color: var(--mud-palette-primary);
+}
+
 .child-count-badge {
     flex-shrink: 0;
     font-size: 0.65rem;
     opacity: 0.45;
     margin-left: 0.25rem;
-}
-
-.archived-badge {
-    flex-shrink: 0;
-    font-size: 0.65rem;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.03em;
-    padding: 0.1rem 0.4rem;
-    border: 1px solid var(--mud-palette-divider);
-    border-radius: 999px;
-    opacity: 0.6;
-    margin-left: 0.25rem;
-}
-
-.purge-hint {
-    margin-top: 0.1rem;
-    font-size: 0.68rem;
-    opacity: 0.45;
 }
 
 .col-date {

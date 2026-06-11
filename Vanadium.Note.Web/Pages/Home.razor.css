@@ -167,6 +167,48 @@
     margin-left: 0.25rem;
 }
 
+.archived-badge {
+    flex-shrink: 0;
+    font-size: 0.65rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    padding: 0.1rem 0.4rem;
+    border: 1px solid var(--mud-palette-divider);
+    border-radius: 999px;
+    opacity: 0.6;
+    margin-left: 0.25rem;
+}
+
+.row-archive-btn {
+    flex-shrink: 0;
+    visibility: hidden;
+    height: 22px;
+    padding: 0 7px;
+    margin-left: 0.4rem;
+    border: 1px solid var(--mud-palette-divider);
+    background: transparent;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 0.7rem;
+    color: inherit;
+    opacity: 0.65;
+    transition: background-color 0.12s, border-color 0.12s, color 0.12s;
+    line-height: 1;
+    white-space: nowrap;
+}
+
+.note-item:hover .row-archive-btn {
+    visibility: visible;
+}
+
+.row-archive-btn:hover {
+    background-color: var(--mud-palette-action-default-hover);
+    border-color: var(--mud-palette-primary);
+    color: var(--mud-palette-primary);
+    opacity: 1;
+}
+
 .col-date {
     font-size: 0.8rem;
     color: #888;

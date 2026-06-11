@@ -1032,7 +1032,7 @@ async function resolveAuthenticatedImages(editorDom, apiBaseUrl, authToken, blob
 // ── Public API ───────────────────────────────────────────────────────────────
 
 window.tiptapInterop = {
-    async init(elementId, dotnetRef, initialContent, apiBaseUrl, authToken) {
+    async init(elementId, dotnetRef, initialContent, apiBaseUrl, authToken, editable = true) {
         const el = document.getElementById(elementId);
         if (!el) {
             console.error(`[tiptap] Element not found: '${elementId}'`);
@@ -1086,6 +1086,7 @@ window.tiptapInterop = {
                 }),
             ],
             content: initialContent || '',
+            editable,
             onUpdate({ editor }) {
                 dotnetRef.invokeMethodAsync('OnEditorContentChanged', editor.getHTML())
                     .catch(err => console.error('[tiptap] OnEditorContentChanged failed', err));
@@ -1258,6 +1259,11 @@ window.tiptapInterop = {
 
     focus(elementId) {
         _editors[elementId]?.editor.commands.focus('start');
+    },
+
+    // Toggle read-only mode (used for archived notes).
+    setEditable(elementId, editable) {
+        _editors[elementId]?.editor.setEditable(editable);
     },
 
     async setContent(elementId, content) {

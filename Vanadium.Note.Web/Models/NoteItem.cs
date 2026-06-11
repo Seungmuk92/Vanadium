@@ -6,6 +6,10 @@ public class NoteItem
     public string Title { get; set; } = string.Empty;
     public string Content { get; set; } = string.Empty;
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
+
+    /// <summary>Non-null = the note is archived; the editor switches to read-only mode.</summary>
+    public DateTime? ArchivedAt { get; set; }
+
     public Guid? ParentNoteId { get; set; }
     public string? ParentTitle { get; set; }
     public int ChildCount { get; set; }
