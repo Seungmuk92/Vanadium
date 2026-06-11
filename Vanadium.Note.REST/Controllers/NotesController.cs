@@ -89,8 +89,8 @@ public class NotesController(NoteService noteService, LabelService labelService,
         var userId = await GetUserId();
         if (note.ParentNoteId.HasValue && !await IsActiveNote(userId, note.ParentNoteId.Value))
         {
-            logger.LogWarning("Create rejected — parent note {ParentNoteId} not found or in recycle bin.", note.ParentNoteId);
-            return BadRequest("Parent note does not exist or is in the recycle bin.");
+            logger.LogWarning("Create rejected — parent note {ParentNoteId} not found, archived, or in recycle bin.", note.ParentNoteId);
+            return BadRequest("Parent note does not exist, is archived, or is in the recycle bin.");
         }
         var created = await noteService.Create(userId, note);
         logger.LogInformation("Note created: {NoteId}", created.Id);
@@ -115,12 +115,16 @@ public class NotesController(NoteService noteService, LabelService labelService,
             }
             if (!await IsActiveNote(userId, note.ParentNoteId.Value))
             {
-                logger.LogWarning("Update rejected — parent note {ParentNoteId} not found or in recycle bin.", note.ParentNoteId);
-                return BadRequest("Parent note does not exist or is in the recycle bin.");
+                logger.LogWarning("Update rejected — parent note {ParentNoteId} not found, archived, or in recycle bin.", note.ParentNoteId);
+                return BadRequest("Parent note does not exist, is archived, or is in the recycle bin.");
             }
         }
 
-        var (updated, conflict) = await noteService.Update(userId, id, note);
+        var (updated, conflict, archived) = await noteService.Update(userId, id, note);
+        if (archived)
+            return Problem(
+                detail: "Note is archived and read-only.",
+                statusCode: StatusCodes.Status403Forbidden);
         if (conflict)
             return Conflict(new { message = "The note was modified by another session. Reload to get the latest version." });
         if (updated is null)
@@ -142,6 +146,40 @@ public class NotesController(NoteService noteService, LabelService labelService,
         }
         logger.LogInformation("Note moved to recycle bin: {NoteId}", id);
         return NoContent();
+    }
+
+    [HttpPost("{id:guid}/archive")]
+    public async Task<IActionResult> Archive(Guid id)
+    {
+        if (!await noteService.Archive(await GetUserId(), id))
+        {
+            logger.LogWarning("Archive failed — note {NoteId} not found", id);
+            return NotFound();
+        }
+        logger.LogInformation("Note archived: {NoteId}", id);
+        return NoContent();
+    }
+
+    [HttpPost("{id:guid}/unarchive")]
+    public async Task<IActionResult> Unarchive(Guid id)
+    {
+        if (!await noteService.Unarchive(await GetUserId(), id))
+        {
+            logger.LogWarning("Unarchive failed — note {NoteId} not found or not archived", id);
+            return NotFound();
+        }
+        logger.LogInformation("Note unarchived: {NoteId}", id);
+        return NoContent();
+    }
+
+    [HttpGet("archive")]
+    public async Task<ActionResult<PagedResult<ArchivedNoteSummary>>> GetArchive(
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 30)
+    {
+        page = Math.Max(1, page);
+        pageSize = Math.Clamp(pageSize, 1, 200);
+        return Ok(await noteService.GetArchive(await GetUserId(), page, pageSize));
     }
 
     [HttpGet("recycle-bin")]
@@ -192,6 +230,8 @@ public class NotesController(NoteService noteService, LabelService labelService,
         return NoContent();
     }
 
+    /// <summary>Active = not soft-deleted (global filter) and not archived.
+    /// Archived parents are rejected: no active note may live under an archived one.</summary>
     private async Task<bool> IsActiveNote(Guid userId, Guid noteId)
-        => await db.Notes.AnyAsync(n => n.Id == noteId && n.UserId == userId);
+        => await db.Notes.AnyAsync(n => n.Id == noteId && n.UserId == userId && n.ArchivedAt == null);
 }

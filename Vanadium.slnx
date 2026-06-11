@@ -1,4 +1,5 @@
 <Solution>
   <Project Path="Vanadium.Note.Web/Vanadium.Note.Web.csproj" />
   <Project Path="Vanadium.Note.REST/Vanadium.Note.REST.csproj" />
+  <Project Path="Vanadium.Note.REST.Tests/Vanadium.Note.REST.Tests.csproj" />
 </Solution>

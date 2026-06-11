@@ -82,6 +82,16 @@ public class NoteDbContext(DbContextOptions<NoteDbContext> options) : DbContext(
             .HasIndex(n => n.DeletedAt)
             .HasFilter("\"DeletedAt\" IS NOT NULL");
 
+        // Archive: deliberately NOT part of the global query filter. Archive visibility
+        // is not uniform (hidden on Home/Board/children/mentions, visible in search,
+        // single-note GET, and the archive page), so read paths exclude archived notes
+        // with explicit Where(n => n.ArchivedAt == null) predicates instead. This also
+        // keeps every existing IgnoreQueryFilters() opt-out scoped to the recycle bin
+        // and lets file-cleanup scans and account wipe see archived content unchanged.
+        modelBuilder.Entity<NoteItem>()
+            .HasIndex(n => n.ArchivedAt)
+            .HasFilter("\"ArchivedAt\" IS NOT NULL");
+
         modelBuilder.Entity<UserSettings>()
             .HasIndex(s => s.Username)
             .IsUnique();

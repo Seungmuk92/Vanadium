@@ -110,15 +110,28 @@ public class LabelsController(LabelService labelService, NoteDbContext db, ILogg
             logger.LogWarning("AddLabel failed — note {NoteId} or label {LabelId} not found", noteId, req.LabelId);
             return NotFound();
         }
+        catch (LabelService.NoteArchivedException)
+        {
+            logger.LogWarning("AddLabel rejected — note {NoteId} is archived and read-only.", noteId);
+            return Problem(detail: "Note is archived and read-only.", statusCode: StatusCodes.Status403Forbidden);
+        }
     }
 
     [HttpDelete("api/notes/{noteId:guid}/labels/{labelId:guid}")]
     public async Task<IActionResult> RemoveLabel(Guid noteId, Guid labelId)
     {
-        if (!await labelService.RemoveLabelFromNoteAsync(await GetUserId(), noteId, labelId))
+        try
         {
-            logger.LogWarning("RemoveLabel failed — note {NoteId} not owned or label {LabelId} not assigned", noteId, labelId);
-            return NotFound();
+            if (!await labelService.RemoveLabelFromNoteAsync(await GetUserId(), noteId, labelId))
+            {
+                logger.LogWarning("RemoveLabel failed — note {NoteId} not owned or label {LabelId} not assigned", noteId, labelId);
+                return NotFound();
+            }
+        }
+        catch (LabelService.NoteArchivedException)
+        {
+            logger.LogWarning("RemoveLabel rejected — note {NoteId} is archived and read-only.", noteId);
+            return Problem(detail: "Note is archived and read-only.", statusCode: StatusCodes.Status403Forbidden);
         }
         logger.LogInformation("Label {LabelId} removed from note {NoteId}", labelId, noteId);
         return NoContent();
