@@ -8,5 +8,9 @@ public class NoteSummary
     public Guid? ParentNoteId { get; set; }
     public string? ParentTitle { get; set; }
     public int ChildCount { get; set; }
+
+    /// <summary>True only in search results; drives the "Archived" badge in the UI.</summary>
+    public bool IsArchived { get; set; }
+
     public List<LabelSummary> Labels { get; set; } = [];
 }

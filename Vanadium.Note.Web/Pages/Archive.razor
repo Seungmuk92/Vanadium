@@ -1,20 +1,17 @@
-@page "/recycle-bin"
+@page "/archive"
 @attribute [Authorize]
 @inject NoteService NoteService
+@inject NavigationManager Nav
 @inject ISnackbar Snackbar
 @inject IDialogService DialogService
-@inject ILogger<RecycleBin> Logger
+@inject ILogger<Archive> Logger
 
-<PageTitle>Recycle Bin</PageTitle>
+<PageTitle>Archive</PageTitle>
 
-<div class="recycle-bin-page">
-    <div class="recycle-bin-header">
-        <h1>Recycle Bin</h1>
-        <span class="recycle-bin-hint">Items are deleted permanently after @RetentionDays days.</span>
-        @if (totalCount > 0)
-        {
-            <button class="btn btn-outline-danger" @onclick="EmptyRecycleBin">Empty Recycle Bin</button>
-        }
+<div class="archive-page">
+    <div class="archive-header">
+        <h1>Archive</h1>
+        <span class="archive-hint">Archived notes are read-only and kept indefinitely.</span>
     </div>
 
     @if (isLoading && !items.Any())
@@ -23,14 +20,17 @@
     }
     else if (!items.Any())
     {
-        <p class="empty-message">The recycle bin is empty.</p>
+        <p class="empty-message">
+            Nothing archived yet. Archive a note from the note list or the editor
+            to keep it without cluttering your workspace.
+        </p>
     }
     else
     {
         <div class="note-table">
             <div class="note-row note-header">
                 <div class="col-title">Title</div>
-                <div class="col-date">Deleted</div>
+                <div class="col-date">Archived</div>
                 <div class="col-actions"></div>
             </div>
             @foreach (var item in items)
@@ -38,26 +38,21 @@
                 <div class="note-row note-item">
                     <div class="col-title">
                         <div class="note-title-row">
-                            <div class="note-title-text">
+                            <div class="note-title-text note-title-link" @onclick="() => OpenNote(item.Id)">
                                 @(string.IsNullOrWhiteSpace(item.Title) ? "(No title)" : item.Title)
                             </div>
-                            @if (item.IsArchived)
-                            {
-                                <span class="archived-badge">Archived</span>
-                            }
                             @if (item.ChildCount > 0)
                             {
                                 <span class="child-count-badge">+@item.ChildCount</span>
                             }
                         </div>
-                        <div class="purge-hint">Purges in @DaysRemaining(item.DeletedAt) day(s)</div>
                     </div>
                     <div class="col-date">
-                        @item.DeletedAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm")
+                        @item.ArchivedAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm")
                     </div>
                     <div class="col-actions">
-                        <button class="row-btn" @onclick="() => RestoreNote(item)">Restore</button>
-                        <button class="row-btn row-btn-danger" @onclick="() => DeleteForever(item)">Delete forever</button>
+                        <button class="row-btn" @onclick="() => UnarchiveNote(item)">Unarchive</button>
+                        <button class="row-btn row-btn-danger" @onclick="() => DeleteNote(item)">Delete</button>
                     </div>
                 </div>
             }
@@ -84,10 +79,9 @@
 </div>
 
 @code {
-    private const int RetentionDays = 30;
     private const int PageSize = 30;
 
-    private List<RecycleBinNoteSummary> items = [];
+    private List<ArchivedNoteSummary> items = [];
     private int totalCount;
     private int currentPage = 1;
     private bool isLoading = true;
@@ -101,7 +95,7 @@
         currentPage = page;
         isLoading = true;
 
-        var result = await NoteService.GetRecycleBinAsync(page, PageSize);
+        var result = await NoteService.GetArchiveAsync(page, PageSize);
         if (result.IsSuccess)
         {
             items = result.Value!.Items;
@@ -109,7 +103,7 @@
         }
         else
         {
-            Snackbar.Add(result.Error ?? "Failed to load recycle bin.", Severity.Error);
+            Snackbar.Add(result.Error ?? "Failed to load archive.", Severity.Error);
         }
         isLoading = false;
     }
@@ -123,55 +117,38 @@
         await LoadPage(page);
     }
 
-    private static int DaysRemaining(DateTime deletedAtUtc)
-    {
-        var remaining = deletedAtUtc.AddDays(RetentionDays) - DateTime.UtcNow;
-        return Math.Max(0, (int)Math.Ceiling(remaining.TotalDays));
-    }
+    private void OpenNote(Guid id) =>
+        Nav.NavigateTo($"/editor/{id}?returnUrl=/archive");
 
-    private async Task RestoreNote(RecycleBinNoteSummary item)
+    private async Task UnarchiveNote(ArchivedNoteSummary item)
     {
-        var result = await NoteService.RestoreAsync(item.Id);
+        var result = await NoteService.UnarchiveAsync(item.Id);
         if (!result.IsSuccess)
         {
-            Snackbar.Add(result.Error ?? "Failed to restore note.", Severity.Error);
+            Snackbar.Add(result.Error ?? "Failed to unarchive note.", Severity.Error);
             return;
         }
-        Snackbar.Add("Note restored.", Severity.Success);
+        Snackbar.Add("Note unarchived.", Severity.Success);
         await ReloadAfterRemoval();
     }
 
-    private async Task DeleteForever(RecycleBinNoteSummary item)
+    private async Task DeleteNote(ArchivedNoteSummary item)
     {
         var title = string.IsNullOrWhiteSpace(item.Title) ? "(No title)" : item.Title;
         var message = item.ChildCount > 0
-            ? $"Permanently delete \"{title}\" and its sub-note(s)? This cannot be undone."
-            : $"Permanently delete \"{title}\"? This cannot be undone.";
-        if (!await ConfirmAsync("Delete forever", message, "Delete forever")) return;
+            ? $"Move \"{title}\" and its sub-note(s) to the Recycle Bin? Items in the Recycle Bin are deleted permanently after 30 days."
+            : $"Move \"{title}\" to the Recycle Bin? Items in the Recycle Bin are deleted permanently after 30 days.";
+        if (!await ConfirmAsync("Move to Recycle Bin", message, "Move to Recycle Bin")) return;
 
-        var result = await NoteService.DeletePermanentAsync(item.Id);
+        var result = await NoteService.DeleteAsync(item.Id);
         if (!result.IsSuccess)
         {
-            Snackbar.Add(result.Error ?? "Failed to permanently delete note.", Severity.Error);
+            Snackbar.Add(result.Error ?? "Failed to delete note.", Severity.Error);
             return;
         }
-        Logger.LogInformation("Note permanently deleted from recycle bin page.");
+        Logger.LogInformation("Archived note moved to recycle bin from archive page.");
+        Snackbar.Add("Note moved to the Recycle Bin.", Severity.Normal);
         await ReloadAfterRemoval();
-    }
-
-    private async Task EmptyRecycleBin()
-    {
-        var message = $"Permanently delete all {totalCount} note(s) in the recycle bin? This cannot be undone.";
-        if (!await ConfirmAsync("Empty Recycle Bin", message, "Empty Recycle Bin")) return;
-
-        var result = await NoteService.EmptyRecycleBinAsync();
-        if (!result.IsSuccess)
-        {
-            Snackbar.Add(result.Error ?? "Failed to empty recycle bin.", Severity.Error);
-            return;
-        }
-        Snackbar.Add("Recycle bin emptied.", Severity.Success);
-        await LoadPage(1);
     }
 
     private async Task<bool> ConfirmAsync(string title, string message, string confirmText)
