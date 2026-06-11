@@ -67,6 +67,21 @@ public class NoteDbContext(DbContextOptions<NoteDbContext> options) : DbContext(
             .HasMethod("GIN")
             .HasOperators("gin_trgm_ops", "gin_trgm_ops");
 
+        // Recycle Bin: hide soft-deleted notes from every query by default.
+        // Recycle Bin-aware paths (recycle bin listing, restore, purge, orphan-file scans,
+        // account wipe) must opt out explicitly via IgnoreQueryFilters().
+        modelBuilder.Entity<NoteItem>()
+            .HasQueryFilter(n => n.DeletedAt == null);
+
+        // Matching filter on the join table: NoteLabel has a required navigation
+        // to the filtered NoteItem, so it must be filtered the same way.
+        modelBuilder.Entity<NoteLabel>()
+            .HasQueryFilter(nl => nl.Note.DeletedAt == null);
+
+        modelBuilder.Entity<NoteItem>()
+            .HasIndex(n => n.DeletedAt)
+            .HasFilter("\"DeletedAt\" IS NOT NULL");
+
         modelBuilder.Entity<UserSettings>()
             .HasIndex(s => s.Username)
             .IsUnique();

@@ -115,6 +115,7 @@ builder.Services.AddScoped<ApiTokenService>();
 builder.Services.AddScoped<FileCleanupService>();
 builder.Services.AddScoped<AccountService>();
 builder.Services.AddHostedService<OrphanFileCleanupJob>();
+builder.Services.AddHostedService<RecycleBinPurgeJob>();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(options =>
 {

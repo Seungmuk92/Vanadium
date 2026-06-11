@@ -86,7 +86,13 @@ public class NotesController(NoteService noteService, LabelService labelService,
     [HttpPost]
     public async Task<ActionResult<NoteItem>> Create([FromBody] NoteItem note)
     {
-        var created = await noteService.Create(await GetUserId(), note);
+        var userId = await GetUserId();
+        if (note.ParentNoteId.HasValue && !await IsActiveNote(userId, note.ParentNoteId.Value))
+        {
+            logger.LogWarning("Create rejected — parent note {ParentNoteId} not found or in recycle bin.", note.ParentNoteId);
+            return BadRequest("Parent note does not exist or is in the recycle bin.");
+        }
+        var created = await noteService.Create(userId, note);
         logger.LogInformation("Note created: {NoteId}", created.Id);
         return CreatedAtAction(nameof(Get), new { id = created.Id }, created);
     }
@@ -94,6 +100,7 @@ public class NotesController(NoteService noteService, LabelService labelService,
     [HttpPut("{id:guid}")]
     public async Task<ActionResult<NoteItem>> Update(Guid id, [FromBody] NoteItem note)
     {
+        var userId = await GetUserId();
         if (note.ParentNoteId.HasValue)
         {
             if (note.ParentNoteId.Value == id)
@@ -106,9 +113,14 @@ public class NotesController(NoteService noteService, LabelService labelService,
                 logger.LogWarning("Update rejected — circular parent reference detected for note {NoteId}.", id);
                 return BadRequest("Setting this parent would create a circular reference.");
             }
+            if (!await IsActiveNote(userId, note.ParentNoteId.Value))
+            {
+                logger.LogWarning("Update rejected — parent note {ParentNoteId} not found or in recycle bin.", note.ParentNoteId);
+                return BadRequest("Parent note does not exist or is in the recycle bin.");
+            }
         }
 
-        var (updated, conflict) = await noteService.Update(await GetUserId(), id, note);
+        var (updated, conflict) = await noteService.Update(userId, id, note);
         if (conflict)
             return Conflict(new { message = "The note was modified by another session. Reload to get the latest version." });
         if (updated is null)
@@ -128,7 +140,58 @@ public class NotesController(NoteService noteService, LabelService labelService,
             logger.LogWarning("Delete failed — note {NoteId} not found", id);
             return NotFound();
         }
-        logger.LogInformation("Note deleted: {NoteId}", id);
+        logger.LogInformation("Note moved to recycle bin: {NoteId}", id);
         return NoContent();
     }
+
+    [HttpGet("recycle-bin")]
+    public async Task<ActionResult<PagedResult<RecycleBinNoteSummary>>> GetRecycleBin(
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 30)
+    {
+        page = Math.Max(1, page);
+        pageSize = Math.Clamp(pageSize, 1, 200);
+        return Ok(await noteService.GetRecycleBin(await GetUserId(), page, pageSize));
+    }
+
+    [HttpPost("{id:guid}/restore")]
+    public async Task<IActionResult> Restore(Guid id)
+    {
+        if (!await noteService.Restore(await GetUserId(), id))
+        {
+            logger.LogWarning("Restore failed — note {NoteId} not found in recycle bin", id);
+            return NotFound();
+        }
+        logger.LogInformation("Note restored from recycle bin: {NoteId}", id);
+        return NoContent();
+    }
+
+    [HttpDelete("{id:guid}/permanent")]
+    public async Task<IActionResult> DeletePermanent(Guid id)
+    {
+        var (found, wasInRecycleBin) = await noteService.DeletePermanent(await GetUserId(), id);
+        if (!found)
+        {
+            logger.LogWarning("Permanent delete failed — note {NoteId} not found", id);
+            return NotFound();
+        }
+        if (!wasInRecycleBin)
+        {
+            logger.LogWarning("Permanent delete rejected — note {NoteId} is not in recycle bin", id);
+            return Conflict(new { message = "Note is not in the recycle bin. Move it to the recycle bin before deleting permanently." });
+        }
+        logger.LogInformation("Note permanently deleted: {NoteId}", id);
+        return NoContent();
+    }
+
+    [HttpDelete("recycle-bin")]
+    public async Task<IActionResult> EmptyRecycleBin()
+    {
+        var count = await noteService.EmptyRecycleBin(await GetUserId());
+        logger.LogInformation("Recycle Bin emptied: {Count} note(s) permanently deleted", count);
+        return NoContent();
+    }
+
+    private async Task<bool> IsActiveNote(Guid userId, Guid noteId)
+        => await db.Notes.AnyAsync(n => n.Id == noteId && n.UserId == userId);
 }

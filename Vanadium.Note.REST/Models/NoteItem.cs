@@ -15,6 +15,14 @@ public class NoteItem
     public string ContentText { get; set; } = string.Empty;
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
 
+    /// <summary>Null = active. Non-null marks the note as soft-deleted and is the purge clock.</summary>
+    public DateTime? DeletedAt { get; set; }
+
+    /// <summary>True only on the note the user deleted directly (the restore target).
+    /// Sub-notes swept into the recycle bin with a parent keep this false.</summary>
+    [JsonIgnore]
+    public bool IsDeletionRoot { get; set; }
+
     public Guid UserId { get; set; }
 
     [JsonIgnore]

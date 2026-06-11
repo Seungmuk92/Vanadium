@@ -345,18 +345,198 @@ public class NoteService(NoteDbContext db, FileCleanupService fileCleanup, ILogg
             .ToListAsync();
     }
 
+    /// <summary>
+    /// Soft delete: moves the note and all its active descendants to the recycle bin.
+    /// References in other notes and uploaded files are left untouched so a
+    /// restore is lossless; cleanup is deferred to permanent deletion.
+    /// </summary>
     public async Task<bool> Delete(Guid userId, Guid id)
     {
         var note = await db.Notes.FirstOrDefaultAsync(n => n.Id == id && n.UserId == userId);
         if (note is null) return false;
 
+        var deletedAt = UtcNowMicroseconds();
+        note.DeletedAt = deletedAt;
+        note.IsDeletionRoot = true;
+
+        // Active descendants are swept into the same recycle bin group (same timestamp).
+        // Descendants soft-deleted earlier keep their own group and restore independently.
+        var descendants = await CollectActiveDescendantsAsync(id);
+        foreach (var descendant in descendants)
+        {
+            descendant.DeletedAt = deletedAt;
+            descendant.IsDeletionRoot = false;
+        }
+
+        await db.SaveChangesAsync();
+        logger.LogInformation(
+            "Note {NoteId} moved to recycle bin with {DescendantCount} descendant(s).",
+            id, descendants.Count);
+        return true;
+    }
+
+    public async Task<PagedResult<RecycleBinNoteSummary>> GetRecycleBin(Guid userId, int page, int pageSize)
+    {
+        var query = db.Notes.IgnoreQueryFilters()
+            .Where(n => n.UserId == userId && n.DeletedAt != null && n.IsDeletionRoot);
+
+        var totalCount = await query.CountAsync();
+
+        var items = await query
+            .OrderByDescending(n => n.DeletedAt)
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .Select(n => new RecycleBinNoteSummary
+            {
+                Id = n.Id,
+                Title = n.Title,
+                DeletedAt = n.DeletedAt!.Value
+            })
+            .ToListAsync();
+
+        // Direct soft-deleted children per listed root (two-step, mirrors GetChildCountsAsync)
+        var ids = items.Select(i => i.Id).ToList();
+        if (ids.Count > 0)
+        {
+            var childCounts = await db.Notes.IgnoreQueryFilters()
+                .Where(n => n.DeletedAt != null
+                    && n.ParentNoteId.HasValue
+                    && ids.Contains(n.ParentNoteId.Value))
+                .GroupBy(n => n.ParentNoteId!.Value)
+                .Select(g => new { ParentId = g.Key, Count = g.Count() })
+                .ToDictionaryAsync(x => x.ParentId, x => x.Count);
+            foreach (var item in items)
+                item.ChildCount = childCounts.GetValueOrDefault(item.Id);
+        }
+
+        return new PagedResult<RecycleBinNoteSummary>
+        {
+            Items = items,
+            TotalCount = totalCount,
+            Page = page,
+            PageSize = pageSize
+        };
+    }
+
+    /// <summary>
+    /// Restores a deletion root and the descendants that were soft-deleted together
+    /// with it (same DeletedAt). If the original parent is missing or itself
+    /// soft-deleted, the note is reattached as a root note.
+    /// </summary>
+    public async Task<bool> Restore(Guid userId, Guid id)
+    {
+        var note = await db.Notes.IgnoreQueryFilters()
+            .FirstOrDefaultAsync(n =>
+                n.Id == id && n.UserId == userId && n.DeletedAt != null && n.IsDeletionRoot);
+        if (note is null) return false;
+
+        var groupDeletedAt = note.DeletedAt!.Value;
+        var groupMembers = await CollectDeletedGroupDescendantsAsync(id, groupDeletedAt);
+
+        if (note.ParentNoteId.HasValue)
+        {
+            // Filtered query: an active parent only. Missing or soft-deleted → detach.
+            var parentIsActive = await db.Notes.AnyAsync(n => n.Id == note.ParentNoteId.Value);
+            if (!parentIsActive)
+                note.ParentNoteId = null;
+        }
+
+        note.DeletedAt = null;
+        note.IsDeletionRoot = false;
+        foreach (var member in groupMembers)
+        {
+            member.DeletedAt = null;
+            member.IsDeletionRoot = false;
+        }
+
+        await db.SaveChangesAsync();
+        logger.LogInformation(
+            "Note {NoteId} restored from recycle bin with {DescendantCount} descendant(s).",
+            id, groupMembers.Count);
+        return true;
+    }
+
+    /// <summary>
+    /// Permanently deletes a soft-deleted note. Returns (Found, WasInRecycleBin):
+    /// active notes are refused so the recycle bin cannot be bypassed.
+    /// </summary>
+    public async Task<(bool Found, bool WasInRecycleBin)> DeletePermanent(Guid userId, Guid id)
+    {
+        var note = await db.Notes.IgnoreQueryFilters()
+            .FirstOrDefaultAsync(n => n.Id == id && n.UserId == userId);
+        if (note is null) return (false, false);
+        if (note.DeletedAt is null) return (true, false);
+
+        await HardDeleteAsync(note);
+        return (true, true);
+    }
+
+    /// <summary>Permanently deletes every soft-deleted note of the user. Returns the root count.</summary>
+    public async Task<int> EmptyRecycleBin(Guid userId)
+    {
+        var rootIds = await db.Notes.IgnoreQueryFilters()
+            .Where(n => n.UserId == userId && n.DeletedAt != null && n.IsDeletionRoot)
+            .Select(n => n.Id)
+            .ToListAsync();
+
+        var purged = 0;
+        foreach (var rootId in rootIds)
+        {
+            // Re-fetch: an earlier iteration may have cascade-deleted this root
+            // (a separately-soft-deleted sub-note of another soft-deleted parent).
+            var note = await db.Notes.IgnoreQueryFilters()
+                .FirstOrDefaultAsync(n => n.Id == rootId && n.DeletedAt != null);
+            if (note is null) continue;
+            await HardDeleteAsync(note);
+            purged++;
+        }
+
+        logger.LogInformation("Recycle Bin emptied for user {UserId}: {Count} note(s) purged.", userId, purged);
+        return purged;
+    }
+
+    /// <summary>
+    /// Permanently deletes deletion roots soft-deleted before <paramref name="cutoffUtc"/>.
+    /// Called by <see cref="RecycleBinPurgeJob"/>. Returns the number of roots purged.
+    /// </summary>
+    public async Task<int> PurgeExpired(DateTime cutoffUtc, CancellationToken ct = default)
+    {
+        var rootIds = await db.Notes.IgnoreQueryFilters()
+            .Where(n => n.IsDeletionRoot && n.DeletedAt != null && n.DeletedAt < cutoffUtc)
+            .Select(n => n.Id)
+            .ToListAsync(ct);
+
+        var purged = 0;
+        foreach (var rootId in rootIds)
+        {
+            ct.ThrowIfCancellationRequested();
+            var note = await db.Notes.IgnoreQueryFilters()
+                .FirstOrDefaultAsync(n => n.Id == rootId && n.DeletedAt != null, ct);
+            if (note is null) continue;
+            await HardDeleteAsync(note);
+            purged++;
+        }
+
+        return purged;
+    }
+
+    /// <summary>
+    /// Hard delete (previous Delete behavior): strips page-link/mention references
+    /// from remaining notes, deletes the row (DB cascades the subtree), then
+    /// cleans up files orphaned by the whole subtree's content.
+    /// </summary>
+    private async Task HardDeleteAsync(NoteItem note)
+    {
+        var subtree = await CollectDescendantsUnfilteredAsync(note.Id);
+
         // Remove any page-link blocks referencing this note from the parent's content
         if (note.ParentNoteId.HasValue)
         {
-            var parent = await db.Notes.FindAsync(note.ParentNoteId.Value);
+            var parent = await db.Notes.IgnoreQueryFilters()
+                .FirstOrDefaultAsync(n => n.Id == note.ParentNoteId.Value);
             if (parent is not null)
             {
-                var cleaned = RemovePageLinkFromContent(parent.Content, id);
+                var cleaned = RemovePageLinkFromContent(parent.Content, note.Id);
                 if (cleaned != parent.Content)
                 {
                     parent.Content = cleaned;
@@ -365,14 +545,51 @@ public class NoteService(NoteDbContext db, FileCleanupService fileCleanup, ILogg
             }
         }
 
-        // Strip mention links referencing this note from all other notes
-        await StripMentionReferencesAsync(id);
+        // Strip mention links referencing any note in the subtree from active notes
+        await StripMentionReferencesAsync(note.Id);
+        foreach (var descendant in subtree)
+            await StripMentionReferencesAsync(descendant.Id);
 
-        var content = note.Content;
+        var combinedContent = string.Join(' ',
+            subtree.Select(n => n.Content).Prepend(note.Content));
+
         db.Notes.Remove(note);
         await db.SaveChangesAsync();
-        await fileCleanup.DeleteOrphanedFromContentAsync(content);
-        return true;
+        await fileCleanup.DeleteOrphanedFromContentAsync(combinedContent);
+        logger.LogInformation(
+            "Note {NoteId} permanently deleted with {DescendantCount} descendant(s).",
+            note.Id, subtree.Count);
+    }
+
+    /// <summary>BFS over active descendants only (global filter applies).</summary>
+    private async Task<List<NoteItem>> CollectActiveDescendantsAsync(Guid rootId)
+        => await CollectDescendantsAsync(rootId, db.Notes);
+
+    /// <summary>BFS over all descendants regardless of recycle bin state.</summary>
+    private async Task<List<NoteItem>> CollectDescendantsUnfilteredAsync(Guid rootId)
+        => await CollectDescendantsAsync(rootId, db.Notes.IgnoreQueryFilters());
+
+    /// <summary>BFS over soft-deleted descendants sharing the given recycle-bin-group timestamp.</summary>
+    private async Task<List<NoteItem>> CollectDeletedGroupDescendantsAsync(Guid rootId, DateTime groupDeletedAt)
+        => await CollectDescendantsAsync(
+            rootId,
+            db.Notes.IgnoreQueryFilters().Where(n => n.DeletedAt == groupDeletedAt));
+
+    private static async Task<List<NoteItem>> CollectDescendantsAsync(Guid rootId, IQueryable<NoteItem> source)
+    {
+        const int maxDepth = 100;
+        var result = new List<NoteItem>();
+        var frontier = new List<Guid> { rootId };
+        for (var depth = 0; frontier.Count > 0 && depth < maxDepth; depth++)
+        {
+            var children = await source
+                .Where(n => n.ParentNoteId.HasValue && frontier.Contains(n.ParentNoteId.Value))
+                .ToListAsync();
+            if (children.Count == 0) break;
+            result.AddRange(children);
+            frontier = children.Select(c => c.Id).ToList();
+        }
+        return result;
     }
 
     private async Task StripMentionReferencesAsync(Guid noteId)
