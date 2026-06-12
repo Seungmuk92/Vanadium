@@ -972,6 +972,20 @@ function headingFoldedSpans(doc, headingNode, headingPos) {
     return spans;
 }
 
+// All folded sibling spans of every closed collapsible heading in the doc,
+// each tagged with its owning heading's position. Shared by the selection
+// guard and the Enter keymap (caret-in-hidden-range handling).
+function collectFoldedHeadingSpans(state) {
+    const result = [];
+    state.doc.descendants((node, pos) => {
+        if (node.type.name !== 'heading' || !node.attrs.collapsible || node.attrs.open) return;
+        for (const span of headingFoldedSpans(state.doc, node, pos)) {
+            result.push({ from: span.from, to: span.to, headingPos: pos });
+        }
+    });
+    return result;
+}
+
 function makeHeadingFoldArrow(open) {
     const btn = document.createElement('button');
     btn.type = 'button';
@@ -1033,21 +1047,29 @@ const headingFoldPlugin = new Plugin({
         const sel = newState.selection;
         if (!sel.empty) return null;
 
-        let fix = null;
-        newState.doc.descendants((node, pos) => {
-            if (fix) return false;
-            if (node.type.name !== 'heading' || !node.attrs.collapsible || node.attrs.open) return;
-            for (const span of headingFoldedSpans(newState.doc, node, pos)) {
-                if (sel.from > span.from && sel.from < span.to) {
-                    const backwards = sel.from < oldState.selection.from;
-                    const target = backwards ? span.from : span.to;
-                    fix = Selection.near(newState.doc.resolve(target), backwards ? -1 : 1);
-                    return false;
-                }
-            }
-        });
+        const spans = collectFoldedHeadingSpans(newState);
+        const inSpan = p => spans.some(s => p > s.from && p < s.to);
+        if (!inSpan(sel.from)) return null;
+        const span = spans.find(s => sel.from > s.from && sel.from < s.to);
 
-        return fix ? newState.tr.setSelection(fix) : null;
+        // Only an explicit forward move (ArrowDown/End) escapes forward.
+        // A fold click (selection position unchanged) or a backward move
+        // parks the caret at the end of the heading itself — visible, and
+        // exactly where the next Enter expands the section again.
+        const movedForward = sel.from > oldState.selection.from;
+        let fix = movedForward
+            ? Selection.near(newState.doc.resolve(span.to), 1)
+            : Selection.near(newState.doc.resolve(span.from), -1);
+        if (inSpan(fix.from)) {
+            // Nothing visible in that direction (e.g. fold reaches the end
+            // of the document) — escape to the other side instead.
+            fix = movedForward
+                ? Selection.near(newState.doc.resolve(span.from), -1)
+                : Selection.near(newState.doc.resolve(span.to), 1);
+        }
+        if (inSpan(fix.from)) return null; // give up rather than loop
+
+        return newState.tr.setSelection(fix);
     },
 });
 
@@ -1183,6 +1205,37 @@ const ToggleKeymap = Extension.create({
                 const { $from, empty } = state.selection;
                 if (!empty) return false;
 
+                // On a FOLDED collapsible heading, Enter expands the section
+                // instead of splitting into the hidden range below it.
+                if ($from.parent.type.name === 'heading'
+                    && $from.parent.attrs.collapsible
+                    && !$from.parent.attrs.open) {
+                    const tr = state.tr.setNodeMarkup(
+                        $from.before($from.depth), null, { ...$from.parent.attrs, open: true });
+                    tr.setMeta('addToHistory', false);
+                    view.dispatch(tr.scrollIntoView());
+                    return true;
+                }
+
+                // Caret stranded inside a folded heading's hidden range
+                // (selection guard could not find a visible escape, or older
+                // content states): Enter expands the owning section(s)
+                // instead of splitting invisible content.
+                {
+                    const spans = collectFoldedHeadingSpans(state)
+                        .filter(s => $from.pos > s.from && $from.pos < s.to);
+                    if (spans.length) {
+                        const tr = state.tr;
+                        for (const headingPos of new Set(spans.map(s => s.headingPos))) {
+                            const h = state.doc.nodeAt(headingPos);
+                            tr.setNodeMarkup(headingPos, null, { ...h.attrs, open: true });
+                        }
+                        tr.setMeta('addToHistory', false);
+                        view.dispatch(tr.scrollIntoView());
+                        return true;
+                    }
+                }
+
                 if ($from.parent.type.name === 'toggleSummary') {
                     const toggle = findAncestorOfType($from, 'toggle');
                     if (!toggle) return false;
@@ -1215,6 +1268,27 @@ const ToggleKeymap = Extension.create({
                     tr.setSelection(Selection.near(tr.doc.resolve(bodyPos + 1), 1));
                     view.dispatch(tr.scrollIntoView());
                     return true;
+                }
+
+                // Caret stranded inside the hidden body of a collapsed toggle
+                // (e.g. it stayed in the body when the arrow was clicked):
+                // Enter expands every closed ancestor toggle instead of typing
+                // into invisible content.
+                {
+                    const tr = state.tr;
+                    let opened = false;
+                    for (let d = $from.depth; d > 0; d--) {
+                        const n = $from.node(d);
+                        if (n.type.name === 'toggle' && !n.attrs.open) {
+                            tr.setNodeMarkup($from.before(d), null, { ...n.attrs, open: true });
+                            opened = true;
+                        }
+                    }
+                    if (opened) {
+                        tr.setMeta('addToHistory', false);
+                        view.dispatch(tr.scrollIntoView());
+                        return true;
+                    }
                 }
 
                 // (b) Trailing empty paragraph of a toggle body exits the toggle:
