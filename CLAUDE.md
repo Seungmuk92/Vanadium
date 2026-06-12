@@ -84,6 +84,12 @@ Notes store HTML produced by a **Tiptap** editor. JS interop is handled exclusiv
 
 Auto-save fires 1500 ms after the last content/title change via a debounced `CancellationTokenSource` pattern.
 
+Custom editor nodes (all in `wwwroot/js/tiptap-editor.js`, serialized as `div[data-type=...]`): `Callout`, `MermaidNode`, `PageLink`, `NoteMention`, `FileAttachment`, plus the collapsible trio `Toggle`/`ToggleSummary`/`ToggleContent` and `AccordionGroup`. **Serialization hard rule: user-visible text must live in element text content, never in attribute values** — the server derives `ContentText` via `StripHtml` (tag → space) for trigram search, and attribute values are discarded.
+
+### Collapsible content (toggles)
+
+Editor-layer-only feature (no backend/schema change): toggle blocks (`/toggle`), collapsible headings (`/toggleh1`–`/toggleh3`; the StarterKit `Heading` is extended with `data-collapsible`/`data-open` attrs — NOT a new node, registered as `CollapsibleHeading` with `StarterKit.configure({ heading: false })`), and accordion groups (`/accordion`, at most one toggle open per group, enforced by an `appendTransaction` plugin). Folding is CSS-only off `data-open` — collapsed bodies stay in the document HTML, so `ContentText` search and `OrphanFileCleanupJob` scanning are unaffected. Fold state persists with the note and rides the normal auto-save; fold transactions carry `addToHistory: false` so undo never replays them. Fold/unfold also works in read-only (archived) mode, in-memory only. Keymap: `Enter` in summary → body; `Mod-Enter` → fold/unfold; `Backspace` in empty summary → unwrap; `Enter` on trailing empty body paragraph → exit below the toggle. Full design: `docs/plannings/note-toggle-feature.md`.
+
 ### File uploads
 
 Files are uploaded to `Vanadium.Note.REST/uploads/` as `file_{guid}`. Metadata is stored in `FileAttachments`. An `OrphanFileCleanupJob` (background hosted service) periodically removes files whose GUIDs no longer appear in any note's HTML content. Soft-deleted notes' content still counts as a live reference (the scans use `IgnoreQueryFilters()`).

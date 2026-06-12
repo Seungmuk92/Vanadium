@@ -48,6 +48,11 @@
     --vn-mermaid-apply-bg: #7950f2;
     --vn-mermaid-apply-hover-bg: #6741d9;
     --vn-mermaid-apply-color: #ffffff;
+    /* Toggle / collapsible heading / accordion */
+    --vn-toggle-arrow-color: #868e96;
+    --vn-toggle-arrow-hover-bg: #f1f3f5;
+    --vn-toggle-placeholder-color: #adb5bd;
+    --vn-accordion-border: #dee2e6;
 }
 
 body.dark-mode {
@@ -100,6 +105,11 @@ body.dark-mode {
     --vn-mermaid-apply-bg: #7950f2;
     --vn-mermaid-apply-hover-bg: #6741d9;
     --vn-mermaid-apply-color: #ffffff;
+    /* Toggle / collapsible heading / accordion */
+    --vn-toggle-arrow-color: #9090a8;
+    --vn-toggle-arrow-hover-bg: #2a2a3e;
+    --vn-toggle-placeholder-color: #6a6a8a;
+    --vn-accordion-border: #3a3a4e;
     background-color: #121212;
     color: #e0e0e0;
 }
@@ -960,4 +970,128 @@ body.dark-mode .settings-hint code {
 .mermaid-rendered svg {
     max-width: 100%;
     height: auto;
+}
+
+/* ── Toggle block ──────────────────────────────────────────────────────────
+   Folding is CSS-only off data-open; the body stays in the DOM/document.
+   Dark mode is covered via the --vn-toggle-* / --vn-accordion-* variables.
+   Nesting indents naturally: each level's body sits right of its arrow
+   column (~1.25rem per level); beyond ~5 levels content narrows but stays
+   functional — no guard by design. */
+.toggle-block {
+    display: flex;
+    align-items: flex-start;
+    gap: 2px;
+    margin: 2px 0;
+}
+
+.toggle-arrow {
+    flex-shrink: 0;
+    background: none;
+    border: none;
+    cursor: pointer;
+    color: var(--vn-toggle-arrow-color);
+    font-size: 0.8rem;
+    line-height: 1.4;
+    padding: 2px 5px;
+    margin-top: 4px;
+    border-radius: 4px;
+    user-select: none;
+    transition: transform 0.15s, background 0.12s;
+}
+
+.toggle-arrow:hover {
+    background: var(--vn-toggle-arrow-hover-bg);
+}
+
+.toggle-block[data-open="true"] > .toggle-arrow {
+    transform: rotate(90deg); /* ▾ open */
+}
+
+.toggle-block[data-open="false"] > .toggle-inner > [data-type="toggle-content"] {
+    display: none; /* hidden, never removed */
+}
+
+.toggle-inner {
+    flex: 1;
+    min-width: 0;
+}
+
+.toggle-summary {
+    font-weight: 500;
+    padding: 2px 0;
+}
+
+.toggle-content > p:first-child { margin-top: 0.25rem; }
+.toggle-content > p:last-child  { margin-bottom: 0.25rem; }
+
+/* Placeholder for an empty toggle summary (Placeholder extension adds
+   .is-empty + data-placeholder with includeChildren enabled). */
+.toggle-summary.is-empty::before {
+    content: attr(data-placeholder);
+    color: var(--vn-toggle-placeholder-color);
+    float: left;
+    height: 0;
+    pointer-events: none;
+}
+
+/* ── Collapsible heading ───────────────────────────────────────────────────
+   The fold arrow flows inline before the heading text: always visible,
+   scales with the heading size, and has a generous click target (no more
+   hover-only gutter affordance). */
+.heading-fold-arrow {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.5em;
+    height: 1.5em;
+    margin-right: 0.3em;
+    vertical-align: -0.25em;
+    background: none;
+    border: none;
+    cursor: pointer;
+    color: var(--vn-toggle-arrow-color);
+    font-size: 0.72em;
+    line-height: 1;
+    border-radius: 6px;
+    user-select: none;
+    opacity: 0.6;
+    transform: rotate(90deg); /* ▾ open */
+    transition: opacity 0.12s, transform 0.15s, background 0.12s, color 0.12s;
+}
+
+h1:hover .heading-fold-arrow, h2:hover .heading-fold-arrow,
+h3:hover .heading-fold-arrow, h4:hover .heading-fold-arrow,
+h5:hover .heading-fold-arrow, h6:hover .heading-fold-arrow {
+    opacity: 1;
+}
+
+.heading-fold-arrow:hover {
+    background: var(--vn-toggle-arrow-hover-bg);
+    opacity: 1;
+}
+
+/* Folded: arrow points right and is accent-colored so the hidden
+   section is impossible to miss. */
+[data-open="false"] > .heading-fold-arrow {
+    opacity: 1;
+    transform: none; /* ▸ folded */
+    color: var(--mud-palette-primary, #7c4dff);
+}
+
+/* Node decoration applied to every sibling in a folded heading's range. */
+.heading-folded {
+    display: none;
+}
+
+/* ── Accordion group ─────────────────────────────────────────────────────── */
+.accordion-group {
+    border: 1px solid var(--vn-accordion-border);
+    border-radius: 6px;
+    margin: 6px 0;
+    padding: 2px 8px;
+}
+
+.accordion-group > .toggle-block:not(:first-child) {
+    border-top: 1px solid var(--vn-accordion-border);
 }

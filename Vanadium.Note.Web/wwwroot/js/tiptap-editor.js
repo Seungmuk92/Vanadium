@@ -1,6 +1,8 @@
 import { Editor, Node, Extension, mergeAttributes } from 'https://esm.sh/@tiptap/core@2'
-import { PluginKey, Plugin } from 'https://esm.sh/prosemirror-state'
+import { PluginKey, Plugin, Selection, TextSelection } from 'https://esm.sh/prosemirror-state'
+import { Decoration, DecorationSet } from 'https://esm.sh/prosemirror-view'
 import StarterKit from 'https://esm.sh/@tiptap/starter-kit@2'
+import Heading from 'https://esm.sh/@tiptap/extension-heading@2'
 import BubbleMenu from 'https://esm.sh/@tiptap/extension-bubble-menu@2'
 import Placeholder from 'https://esm.sh/@tiptap/extension-placeholder@2'
 import Link from 'https://esm.sh/@tiptap/extension-link@2'
@@ -126,7 +128,24 @@ const SLASH_COMMANDS = [
     { id: 'code',     label: 'Code Block',    desc: 'Monospace code block', icon: '</>', keywords: ['codeblock'] },
     { id: 'mermaid',  label: 'Diagram',       desc: 'Mermaid diagram',      icon: '◈',  keywords: ['mermaid', 'diagram', 'flowchart', 'chart', 'graph'] },
     { id: 'divider',  label: 'Divider',       desc: 'Horizontal rule',      icon: '—',  keywords: ['hr', 'rule'] },
+    { id: 'toggle',    label: 'Toggle',           desc: 'Collapsible block',          icon: '▸',   keywords: ['toggle', 'collapse', 'fold', 'details'] },
+    { id: 'toggleh1',  label: 'Toggle Heading 1', desc: 'Collapsible large heading',  icon: '▸H1', keywords: ['toggleheading', 'foldheading'] },
+    { id: 'toggleh2',  label: 'Toggle Heading 2', desc: 'Collapsible medium heading', icon: '▸H2', keywords: ['toggleheading', 'foldheading'] },
+    { id: 'toggleh3',  label: 'Toggle Heading 3', desc: 'Collapsible small heading',  icon: '▸H3', keywords: ['toggleheading', 'foldheading'] },
+    { id: 'accordion', label: 'Accordion',        desc: 'Exclusive toggle group',     icon: '≡',   keywords: ['accordion', 'faq', 'exclusive'] },
 ];
+
+// After a block insert, place the caret inside the summary of the nearest
+// matching node at/before the selection (i.e. the one just inserted).
+function placeCursorInInsertedSummary(editor, typeName, summaryOffset) {
+    const { state } = editor;
+    let found = null;
+    state.doc.descendants((node, pos) => {
+        if (pos > state.selection.from) return false;
+        if (node.type.name === typeName) found = pos;
+    });
+    if (found !== null) editor.commands.setTextSelection(found + summaryOffset);
+}
 
 function createSlashCommandsExtension(dotnetRef) {
     return Extension.create({
@@ -256,6 +275,55 @@ function createSlashCommandsExtension(dotnetRef) {
                             case 'code':     editor.chain().focus().toggleCodeBlock().run(); break;
                             case 'mermaid':  editor.chain().focus().insertContent({ type: 'mermaid', attrs: { code: '' } }).run(); break;
                             case 'divider':  editor.chain().focus().setHorizontalRule().run(); break;
+                            case 'toggle':
+                                editor.chain().focus().insertContent({
+                                    type: 'toggle',
+                                    attrs: { open: true },
+                                    content: [
+                                        { type: 'toggleSummary' },
+                                        { type: 'toggleContent', content: [{ type: 'paragraph' }] },
+                                    ],
+                                }).run();
+                                // toggle start +1 = summary start, +1 = inside summary
+                                placeCursorInInsertedSummary(editor, 'toggle', 2);
+                                break;
+                            case 'toggleh1':
+                                editor.chain().focus().setHeading({ level: 1 })
+                                    .updateAttributes('heading', { collapsible: true, open: true }).run();
+                                break;
+                            case 'toggleh2':
+                                editor.chain().focus().setHeading({ level: 2 })
+                                    .updateAttributes('heading', { collapsible: true, open: true }).run();
+                                break;
+                            case 'toggleh3':
+                                editor.chain().focus().setHeading({ level: 3 })
+                                    .updateAttributes('heading', { collapsible: true, open: true }).run();
+                                break;
+                            case 'accordion':
+                                editor.chain().focus().insertContent({
+                                    type: 'accordionGroup',
+                                    content: [
+                                        {
+                                            type: 'toggle',
+                                            attrs: { open: true },
+                                            content: [
+                                                { type: 'toggleSummary' },
+                                                { type: 'toggleContent', content: [{ type: 'paragraph' }] },
+                                            ],
+                                        },
+                                        {
+                                            type: 'toggle',
+                                            attrs: { open: false },
+                                            content: [
+                                                { type: 'toggleSummary' },
+                                                { type: 'toggleContent', content: [{ type: 'paragraph' }] },
+                                            ],
+                                        },
+                                    ],
+                                }).run();
+                                // group +1 = first toggle, +2 = its summary, +3 = inside it
+                                placeCursorInInsertedSummary(editor, 'accordionGroup', 3);
+                                break;
                         }
                     },
                 }),
@@ -725,6 +793,498 @@ const MermaidNode = Node.create({
     },
 });
 
+// ── Toggle nodes ─────────────────────────────────────────────────────────────
+//
+// Collapsible content blocks (Notion-style toggles). Folding is CSS-only:
+// the body stays in the document and in the serialized HTML, so search
+// (ContentText) and orphan-file scanning are unaffected. All user-visible
+// text lives in element text content, never in attributes (hard rule).
+// Design doc: docs/plannings/note-toggle-feature.md
+
+// Flip the `open` attribute of the node at pos. Fold state changes are
+// excluded from undo history (NFR-4) and work in read-only mode too:
+// `editable: false` only blocks user input, not programmatic transactions.
+function toggleOpenAt(view, pos) {
+    const node = view.state.doc.nodeAt(pos);
+    if (!node) return;
+    const tr = view.state.tr.setNodeMarkup(pos, null, { ...node.attrs, open: !node.attrs.open });
+    tr.setMeta('addToHistory', false);
+    view.dispatch(tr);
+}
+
+// Walk up from $pos and return the nearest ancestor of the given type.
+function findAncestorOfType($pos, typeName) {
+    for (let d = $pos.depth; d > 0; d--) {
+        const node = $pos.node(d);
+        if (node.type.name === typeName) {
+            return { node, pos: $pos.before(d), depth: d };
+        }
+    }
+    return null;
+}
+
+// Parent container. The content expression enforces exactly one summary
+// followed by one body — invalid shapes are unrepresentable.
+const Toggle = Node.create({
+    name: 'toggle',
+    group: 'block',
+    content: 'toggleSummary toggleContent',
+    defining: true,
+    isolating: true,
+
+    addAttributes() {
+        return {
+            open: {
+                default: true,
+                parseHTML: el => el.getAttribute('data-open') !== 'false',
+                renderHTML: attrs => ({ 'data-open': attrs.open ? 'true' : 'false' }),
+            },
+        };
+    },
+
+    parseHTML() {
+        return [
+            { tag: 'div[data-type="toggle"]' },
+            // Best-effort import of external/native HTML pastes.
+            { tag: 'details', getAttrs: el => ({ open: el.hasAttribute('open') }) },
+        ];
+    },
+
+    renderHTML({ HTMLAttributes }) {
+        return ['div', mergeAttributes(HTMLAttributes, {
+            'data-type': 'toggle',
+            class: 'toggle-block',
+        }), 0];
+    },
+
+    addNodeView() {
+        return ({ node, view, getPos }) => {
+            const dom = document.createElement('div');
+            dom.className = 'toggle-block';
+            dom.setAttribute('data-type', 'toggle');
+            dom.setAttribute('data-open', node.attrs.open ? 'true' : 'false');
+
+            const arrow = document.createElement('button');
+            arrow.type = 'button';
+            arrow.className = 'toggle-arrow';
+            arrow.contentEditable = 'false';
+            arrow.title = 'Toggle (Ctrl+Enter)';
+            arrow.setAttribute('aria-expanded', String(node.attrs.open));
+            arrow.textContent = '▸';
+
+            const inner = document.createElement('div');
+            inner.className = 'toggle-inner';
+
+            dom.appendChild(arrow);
+            dom.appendChild(inner);
+
+            // Prevent the editor from stealing focus / moving the caret.
+            arrow.addEventListener('mousedown', e => e.preventDefault());
+            arrow.addEventListener('click', e => {
+                e.preventDefault();
+                const pos = typeof getPos === 'function' ? getPos() : null;
+                if (pos == null) return;
+                toggleOpenAt(view, pos);
+            });
+
+            return {
+                dom,
+                contentDOM: inner,
+
+                update(updatedNode) {
+                    if (updatedNode.type.name !== 'toggle') return false;
+                    dom.setAttribute('data-open', updatedNode.attrs.open ? 'true' : 'false');
+                    arrow.setAttribute('aria-expanded', String(updatedNode.attrs.open));
+                    return true;
+                },
+
+                stopEvent(event) {
+                    return event.target === arrow || arrow.contains(event.target);
+                },
+
+                ignoreMutation(mutation) {
+                    if (mutation.type === 'selection') return false;
+                    return mutation.target === arrow || arrow.contains(mutation.target);
+                },
+            };
+        };
+    },
+});
+
+// Summary line: inline content only, exactly one line.
+const ToggleSummary = Node.create({
+    name: 'toggleSummary',
+    content: 'inline*',
+    defining: true,
+    selectable: false,
+
+    parseHTML() {
+        return [
+            { tag: 'div[data-type="toggle-summary"]' },
+            { tag: 'summary' }, // external <details> import
+        ];
+    },
+
+    renderHTML() {
+        return ['div', { 'data-type': 'toggle-summary', class: 'toggle-summary' }, 0];
+    },
+});
+
+// Body: one or more blocks of any kind (incl. nested toggles/accordions).
+const ToggleContent = Node.create({
+    name: 'toggleContent',
+    content: 'block+',
+    defining: true,
+    selectable: false,
+
+    parseHTML() {
+        return [{ tag: 'div[data-type="toggle-content"]' }];
+    },
+
+    renderHTML() {
+        return ['div', { 'data-type': 'toggle-content', class: 'toggle-content' }, 0];
+    },
+});
+
+// ── Collapsible heading ──────────────────────────────────────────────────────
+//
+// NOT a new node: the StarterKit Heading is extended with `collapsible` /
+// `open` attributes (design decision D2). The document stays a flat sequence;
+// the folded range is derived per render, never stored on the hidden nodes.
+// A plain heading serializes exactly as before — zero churn for existing notes.
+
+// Fold-range rule (§4.2): for heading H at child index i of parent P, the
+// folded range covers children i+1 .. j-1, where j is the first subsequent
+// child that is a heading with level <= H.level (or P's end).
+// Returns per-sibling {from, to} spans for node decorations.
+function headingFoldedSpans(doc, headingNode, headingPos) {
+    const $pos = doc.resolve(headingPos);
+    const parent = $pos.parent;
+    const index = $pos.index($pos.depth);
+    const spans = [];
+    let childPos = headingPos + headingNode.nodeSize;
+    for (let j = index + 1; j < parent.childCount; j++) {
+        const child = parent.child(j);
+        if (child.type.name === 'heading' && child.attrs.level <= headingNode.attrs.level) break;
+        spans.push({ from: childPos, to: childPos + child.nodeSize });
+        childPos += child.nodeSize;
+    }
+    return spans;
+}
+
+function makeHeadingFoldArrow(open) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'heading-fold-arrow';
+    btn.contentEditable = 'false';
+    btn.title = 'Fold section (Ctrl+Enter)';
+    btn.setAttribute('aria-expanded', String(open));
+    btn.textContent = '▸';
+    return btn;
+}
+
+const headingFoldPlugin = new Plugin({
+    key: new PluginKey('headingFold'),
+
+    props: {
+        decorations(state) {
+            const decos = [];
+            state.doc.descendants((node, pos) => {
+                if (node.type.name !== 'heading' || !node.attrs.collapsible) return;
+                decos.push(Decoration.widget(
+                    pos + 1,
+                    () => makeHeadingFoldArrow(node.attrs.open),
+                    { side: -1, key: `hfold-${pos}-${node.attrs.open}` }
+                ));
+                if (node.attrs.open) return;
+                for (const span of headingFoldedSpans(state.doc, node, pos)) {
+                    decos.push(Decoration.node(span.from, span.to, { class: 'heading-folded' }));
+                }
+            });
+            return DecorationSet.create(state.doc, decos);
+        },
+
+        // mousedown (not click) so the caret never jumps into the heading first.
+        // handleDOMEvents also fires with editable=false, so folding works in
+        // read-only mode (FR-H6).
+        handleDOMEvents: {
+            mousedown(view, event) {
+                const arrowEl = event.target?.closest?.('.heading-fold-arrow');
+                if (!arrowEl) return false;
+                event.preventDefault();
+                const headingDom = arrowEl.closest('h1,h2,h3,h4,h5,h6');
+                if (!headingDom) return true;
+                const headingPos = view.posAtDOM(headingDom, 0) - 1;
+                const node = view.state.doc.nodeAt(headingPos);
+                if (node?.type.name === 'heading' && node.attrs.collapsible) {
+                    toggleOpenAt(view, headingPos);
+                }
+                return true;
+            },
+        },
+    },
+
+    // Selection guard (FR-H5): if a transaction leaves the cursor inside a
+    // folded range, skip it past (or before, when moving backwards) the range.
+    // Deleting a folded heading needs no cleanup: decorations are recomputed
+    // from the new doc, so its hidden range simply un-hides.
+    appendTransaction(transactions, oldState, newState) {
+        if (!transactions.some(tr => tr.docChanged || tr.selectionSet)) return null;
+        const sel = newState.selection;
+        if (!sel.empty) return null;
+
+        let fix = null;
+        newState.doc.descendants((node, pos) => {
+            if (fix) return false;
+            if (node.type.name !== 'heading' || !node.attrs.collapsible || node.attrs.open) return;
+            for (const span of headingFoldedSpans(newState.doc, node, pos)) {
+                if (sel.from > span.from && sel.from < span.to) {
+                    const backwards = sel.from < oldState.selection.from;
+                    const target = backwards ? span.from : span.to;
+                    fix = Selection.near(newState.doc.resolve(target), backwards ? -1 : 1);
+                    return false;
+                }
+            }
+        });
+
+        return fix ? newState.tr.setSelection(fix) : null;
+    },
+});
+
+const CollapsibleHeading = Heading.extend({
+    addAttributes() {
+        return {
+            ...this.parent?.(),
+            collapsible: {
+                default: false,
+                parseHTML: el => el.getAttribute('data-collapsible') === 'true',
+                renderHTML: attrs => attrs.collapsible ? { 'data-collapsible': 'true' } : {},
+            },
+            open: {
+                default: true,
+                parseHTML: el => el.getAttribute('data-open') !== 'false',
+                renderHTML: attrs => attrs.collapsible && !attrs.open ? { 'data-open': 'false' } : {},
+            },
+        };
+    },
+
+    addProseMirrorPlugins() {
+        return [...(this.parent?.() ?? []), headingFoldPlugin];
+    },
+});
+
+// ── Accordion group ──────────────────────────────────────────────────────────
+//
+// A container of toggles where at most one is open at a time. Exclusivity is
+// an invariant over the children's `open` attributes, enforced in a single
+// place by appendTransaction — every path that opens a toggle (arrow click,
+// Mod-Enter, programmatic, hand-edited HTML once touched) is normalized here.
+
+const accordionExclusivityPlugin = new Plugin({
+    key: new PluginKey('accordionExclusivity'),
+
+    appendTransaction(transactions, oldState, newState) {
+        if (!transactions.some(tr => tr.docChanged)) return null;
+
+        // Positions (in new-state coordinates) of toggles that were already
+        // open before this transaction batch — used to find the one the user
+        // just opened, which is the one to keep.
+        const previouslyOpen = new Set();
+        oldState.doc.descendants((node, pos) => {
+            if (node.type.name !== 'toggle' || !node.attrs.open) return;
+            let mapped = pos;
+            for (const t of transactions) mapped = t.mapping.map(mapped);
+            previouslyOpen.add(mapped);
+        });
+
+        const fixes = [];
+        newState.doc.descendants((node, pos) => {
+            if (node.type.name !== 'accordionGroup') return;
+            const openChildren = [];
+            let childPos = pos + 1;
+            node.forEach(child => {
+                if (child.attrs.open) openChildren.push(childPos);
+                childPos += child.nodeSize;
+            });
+            if (openChildren.length <= 1) return;
+            const keep = openChildren.find(p => !previouslyOpen.has(p)) ?? openChildren[0];
+            for (const p of openChildren) {
+                if (p !== keep) fixes.push(p);
+            }
+        });
+
+        if (fixes.length === 0) return null;
+        const tr = newState.tr;
+        for (const p of fixes) {
+            const n = newState.doc.nodeAt(p);
+            tr.setNodeMarkup(p, null, { ...n.attrs, open: false });
+        }
+        tr.setMeta('addToHistory', false);
+        return tr;
+    },
+});
+
+const AccordionGroup = Node.create({
+    name: 'accordionGroup',
+    group: 'block',
+    content: 'toggle+', // toggles only, at least one; nested groups unrepresentable (FR-A6)
+    isolating: true,
+
+    parseHTML() {
+        return [{ tag: 'div[data-type="accordion-group"]' }];
+    },
+
+    renderHTML({ HTMLAttributes }) {
+        return ['div', mergeAttributes(HTMLAttributes, {
+            'data-type': 'accordion-group',
+            class: 'accordion-group',
+        }), 0];
+    },
+
+    addProseMirrorPlugins() {
+        return [accordionExclusivityPlugin];
+    },
+});
+
+// ── Toggle keymap ────────────────────────────────────────────────────────────
+
+// True when the toggle's body is exactly one empty paragraph.
+function isEmptyToggleBody(toggleNode) {
+    const body = toggleNode.child(1);
+    return body.childCount === 1
+        && body.firstChild.type.name === 'paragraph'
+        && body.firstChild.content.size === 0;
+}
+
+const ToggleKeymap = Extension.create({
+    name: 'toggleKeymap',
+    priority: 1000, // must win over StarterKit's default Enter/Backspace
+
+    addKeyboardShortcuts() {
+        return {
+            // Flip the nearest ancestor toggle from anywhere inside it, or the
+            // collapsible heading the cursor is on.
+            'Mod-Enter': ({ editor }) => {
+                const { $from } = editor.state.selection;
+                const toggle = findAncestorOfType($from, 'toggle');
+                if (toggle) {
+                    toggleOpenAt(editor.view, toggle.pos);
+                    return true;
+                }
+                if ($from.parent.type.name === 'heading' && $from.parent.attrs.collapsible) {
+                    toggleOpenAt(editor.view, $from.before($from.depth));
+                    return true;
+                }
+                return false;
+            },
+
+            'Enter': ({ editor }) => {
+                const { state, view } = editor;
+                const { $from, empty } = state.selection;
+                if (!empty) return false;
+
+                if ($from.parent.type.name === 'toggleSummary') {
+                    const toggle = findAncestorOfType($from, 'toggle');
+                    if (!toggle) return false;
+                    const group = findAncestorOfType($from, 'accordionGroup');
+                    const inGroup = group && group.depth === toggle.depth - 1;
+
+                    // (c) Summary of the LAST toggle of an accordion whose body
+                    // is empty: append a new closed toggle to the group (FR-A4).
+                    if (inGroup) {
+                        const toggleEnd = toggle.pos + toggle.node.nodeSize;
+                        const groupContentEnd = group.pos + group.node.nodeSize - 1;
+                        if (toggleEnd === groupContentEnd && isEmptyToggleBody(toggle.node)) {
+                            const newToggle = state.schema.nodes.toggle.createAndFill({ open: false });
+                            if (!newToggle) return false;
+                            const tr = state.tr.insert(groupContentEnd, newToggle);
+                            tr.setSelection(TextSelection.create(tr.doc, groupContentEnd + 2));
+                            view.dispatch(tr.scrollIntoView());
+                            return true;
+                        }
+                    }
+
+                    // (a) Move the cursor to the start of the body, opening the
+                    // toggle if it is closed.
+                    const tr = state.tr;
+                    if (!toggle.node.attrs.open) {
+                        tr.setNodeMarkup(toggle.pos, null, { ...toggle.node.attrs, open: true });
+                        tr.setMeta('addToHistory', false);
+                    }
+                    const bodyPos = toggle.pos + 1 + toggle.node.child(0).nodeSize;
+                    tr.setSelection(Selection.near(tr.doc.resolve(bodyPos + 1), 1));
+                    view.dispatch(tr.scrollIntoView());
+                    return true;
+                }
+
+                // (b) Trailing empty paragraph of a toggle body exits the toggle:
+                // the empty paragraph is lifted below the toggle (below the whole
+                // group when the toggle is an accordion item).
+                if ($from.parent.type.name === 'paragraph' && $from.parent.content.size === 0) {
+                    const bodyDepth = $from.depth - 1;
+                    if (bodyDepth < 1 || $from.node(bodyDepth).type.name !== 'toggleContent') return false;
+                    const body = $from.node(bodyDepth);
+                    const toggle = findAncestorOfType($from, 'toggle');
+                    if (!toggle) return false;
+                    const isLast = $from.after($from.depth) === $from.end(bodyDepth);
+                    if (!isLast) return false;
+
+                    const group = findAncestorOfType($from, 'accordionGroup');
+                    const container = group && group.depth === toggle.depth - 1 ? group : toggle;
+
+                    const tr = state.tr;
+                    if (body.childCount > 1) {
+                        tr.delete($from.before($from.depth), $from.after($from.depth));
+                    }
+                    const afterPos = tr.mapping.map(container.pos + container.node.nodeSize);
+                    tr.insert(afterPos, state.schema.nodes.paragraph.create());
+                    tr.setSelection(TextSelection.create(tr.doc, afterPos + 1));
+                    view.dispatch(tr.scrollIntoView());
+                    return true;
+                }
+
+                return false;
+            },
+
+            // At the start of an empty summary: unwrap the toggle — its body
+            // blocks are lifted to the toggle's level, the summary is dropped.
+            // Accordion items lift outside the group (toggle+ forbids plain
+            // blocks inside); a single-item group dissolves entirely.
+            'Backspace': ({ editor }) => {
+                const { state, view } = editor;
+                const { $from, empty } = state.selection;
+                if (!empty) return false;
+                if ($from.parent.type.name !== 'toggleSummary') return false;
+                if ($from.parent.content.size !== 0 || $from.parentOffset !== 0) return false;
+                const toggle = findAncestorOfType($from, 'toggle');
+                if (!toggle) return false;
+
+                const bodyChildren = toggle.node.child(1).content;
+                const group = findAncestorOfType($from, 'accordionGroup');
+                const inGroup = group && group.depth === toggle.depth - 1;
+
+                const tr = state.tr;
+                if (inGroup && group.node.childCount === 1) {
+                    // Last item: dissolve the group too (FR-A5).
+                    tr.replaceWith(group.pos, group.pos + group.node.nodeSize, bodyChildren);
+                    tr.setSelection(Selection.near(tr.doc.resolve(group.pos), 1));
+                } else if (inGroup) {
+                    const isFirst = group.pos + 1 === toggle.pos;
+                    tr.delete(toggle.pos, toggle.pos + toggle.node.nodeSize);
+                    const insertAt = isFirst ? group.pos : tr.mapping.map(group.pos + group.node.nodeSize);
+                    tr.insert(insertAt, bodyChildren);
+                    tr.setSelection(Selection.near(tr.doc.resolve(insertAt), 1));
+                } else {
+                    tr.replaceWith(toggle.pos, toggle.pos + toggle.node.nodeSize, bodyChildren);
+                    tr.setSelection(Selection.near(tr.doc.resolve(toggle.pos), 1));
+                }
+                view.dispatch(tr.scrollIntoView());
+                return true;
+            },
+        };
+    },
+});
+
 // ── Callout emoji picker ─────────────────────────────────────────────────────
 
 const CALLOUT_EMOJIS = ['💡', 'ℹ️', '⚠️', '🚨', '✅', '📝', '💬', '🔥', '📌', '🎯'];
@@ -1045,7 +1605,8 @@ window.tiptapInterop = {
         const editor = new Editor({
             element: el,
             extensions: [
-                StarterKit.configure({ codeBlock: false }),
+                StarterKit.configure({ codeBlock: false, heading: false }),
+                CollapsibleHeading.configure({ levels: [1, 2, 3, 4, 5, 6] }),
                 CodeBlock.configure({ lowlight, defaultLanguage: 'plaintext' }),
                 Markdown.configure({
                     html: true,
@@ -1056,7 +1617,16 @@ window.tiptapInterop = {
                     transformPastedText: true,
                     transformCopiedText: false,
                 }),
-                Placeholder.configure({ placeholder: 'Write something...' }),
+                Placeholder.configure({
+                    // includeChildren + showOnlyCurrent:false so empty toggle
+                    // summaries always show their hint; CSS only renders the
+                    // ::before for the first paragraph and toggle summaries,
+                    // so other empty nodes are visually unchanged.
+                    includeChildren: true,
+                    showOnlyCurrent: false,
+                    placeholder: ({ node }) =>
+                        node.type.name === 'toggleSummary' ? 'Toggle summary' : 'Write something...',
+                }),
                 Link.configure({
                     autolink: true,
                     openOnClick: false,
@@ -1078,6 +1648,11 @@ window.tiptapInterop = {
                 NoteMention,
                 Callout,
                 MermaidNode,
+                Toggle,
+                ToggleSummary,
+                ToggleContent,
+                AccordionGroup,
+                ToggleKeymap,
                 createSlashCommandsExtension(dotnetRef),
                 createMentionExtension(dotnetRef),
                 BubbleMenu.configure({
