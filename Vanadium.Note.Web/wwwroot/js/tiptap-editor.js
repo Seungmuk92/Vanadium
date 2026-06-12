@@ -211,6 +211,9 @@ function createSlashCommandsExtension(dotnetRef) {
                                 currentCommand = props.command;
                                 menu = document.createElement('div');
                                 menu.className = 'slash-menu';
+                                // No matches (e.g. caret re-enters "/sfdfdfd"):
+                                // keep the empty container hidden, same as onUpdate.
+                                menu.style.display = currentItems.length ? '' : 'none';
                                 document.body.appendChild(menu);
                                 renderItems();
                                 reposition(props.clientRect);
@@ -219,6 +222,7 @@ function createSlashCommandsExtension(dotnetRef) {
                                 selectedIndex = 0;
                                 currentItems = props.items;
                                 currentCommand = props.command;
+                                if (!menu) return; // onUpdate can fire after onExit
                                 menu.style.display = currentItems.length ? '' : 'none';
                                 renderItems();
                                 reposition(props.clientRect);
