@@ -31,6 +31,8 @@
     </CascadingValue>
 </CascadingValue>
 
+<QuickNavDialog @bind-Open="_quickNavOpen" />
+
 @if (_showShortcutsHelp)
 {
     <div class="shortcuts-overlay" @onclick="CloseShortcutsHelp">
@@ -57,11 +59,29 @@
 @code {
     private bool _isDarkMode = false;
     private bool _showShortcutsHelp = false;
+    private bool _quickNavOpen = false;
 
     protected override void OnInitialized()
     {
         ThemeService.OnChanged += OnThemeServiceChanged;
         AuthStateProvider.AuthenticationStateChanged += OnAuthStateChanged;
+        Nav.LocationChanged += OnLocationChanged;
+    }
+
+    // Never leave the palette overlay stuck across a route change (E10).
+    private void OnLocationChanged(object? sender, Microsoft.AspNetCore.Components.Routing.LocationChangedEventArgs e)
+    {
+        if (_quickNavOpen)
+        {
+            _quickNavOpen = false;
+            InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private void ToggleQuickNav()
+    {
+        _quickNavOpen = !_quickNavOpen;
+        StateHasChanged();
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
@@ -81,6 +101,7 @@
                 StateHasChanged();
                 return Task.CompletedTask;
             }));
+            await ShortcutService.RegisterAsync("ctrl+k", "Quick navigation", () => InvokeAsync(ToggleQuickNav));
         }
     }
 
@@ -146,6 +167,7 @@
     {
         ThemeService.OnChanged -= OnThemeServiceChanged;
         AuthStateProvider.AuthenticationStateChanged -= OnAuthStateChanged;
-        await ShortcutService.UnregisterManyAsync("ctrl+n", "ctrl+/");
+        Nav.LocationChanged -= OnLocationChanged;
+        await ShortcutService.UnregisterManyAsync("ctrl+n", "ctrl+/", "ctrl+k");
     }
 }
