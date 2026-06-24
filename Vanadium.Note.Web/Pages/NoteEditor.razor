@@ -293,7 +293,6 @@
         parentTitle = null;
         childCount = 0;
         noteLabels = [];
-        _contentJustLoaded = true;
         _hasConflict = false;
         _isSaving = false;
         _serverUpdatedAt = default;
@@ -337,6 +336,12 @@
             if (parentResult.IsSuccess)
                 parentTitle = parentResult.Value!.Title;
         }
+
+        // Mark content ready ONLY after it is loaded. Setting this before the awaited GET
+        // let the render that fires while awaiting push the reset-to-empty content into the
+        // editor and consume the flag, leaving the editor blank on component reuse
+        // (e.g. navigating editor→editor via the peek dialog's "Open in full page").
+        _contentJustLoaded = true;
 
         await LoadLabelsAsync();
     }
