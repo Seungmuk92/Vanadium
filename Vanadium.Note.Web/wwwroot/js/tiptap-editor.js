@@ -1639,10 +1639,18 @@ function runCommand(editor, cmd) {
 // The ProseMirror model is deliberately NOT touched — editor.getHTML() still
 // returns the canonical API URL, which is what gets persisted.
 //
-// blobUrls is a per-editor array; callers are responsible for revoking its
-// entries when the editor is destroyed or content is replaced.
+// ProseMirror's view layer re-renders <img> nodes whenever the document
+// changes (e.g., pressing Enter near an image), which patches the DOM src
+// back to the canonical API URL. To keep the image visible across those
+// re-renders we maintain a per-editor blobUrlCache (apiUrl → blobUrl) and
+// reapply the cached blob URL synchronously on cache hit, so the typical
+// keystroke path makes no network calls.
+//
+// blobUrls is a per-editor array used for revocation; callers are
+// responsible for revoking its entries (and clearing blobUrlCache) when the
+// editor is destroyed or content is replaced.
 
-async function resolveAuthenticatedImages(editorDom, apiBaseUrl, authToken, blobUrls) {
+async function resolveAuthenticatedImages(editorDom, apiBaseUrl, authToken, blobUrls, blobUrlCache) {
     const prefix = `${apiBaseUrl}/api/images/`;
     const headers = authToken ? { 'Authorization': `Bearer ${authToken}` } : {};
     const imgs = editorDom.querySelectorAll(`img[src^="${CSS.escape(prefix)}"], img[src^="${prefix}"]`);
@@ -1650,6 +1658,15 @@ async function resolveAuthenticatedImages(editorDom, apiBaseUrl, authToken, blob
     for (const img of imgs) {
         const src = img.getAttribute('src');
         if (!src || !src.startsWith(prefix)) continue;
+
+        // Cache hit — reapply the existing blob URL without a network fetch.
+        // This is the hot path when ProseMirror re-renders an image after an
+        // unrelated transaction (e.g., line break above the image).
+        const cached = blobUrlCache.get(src);
+        if (cached) {
+            img.src = cached;
+            continue;
+        }
 
         try {
             const response = await fetch(src, { headers });
@@ -1660,6 +1677,7 @@ async function resolveAuthenticatedImages(editorDom, apiBaseUrl, authToken, blob
             const blob = await response.blob();
             const blobUrl = URL.createObjectURL(blob);
             blobUrls.push(blobUrl);
+            blobUrlCache.set(src, blobUrl);
             img.src = blobUrl;
         } catch (err) {
             console.error('[tiptap] Image fetch error', { src, error: err.message });
@@ -1781,7 +1799,7 @@ window.tiptapInterop = {
                         // the newly inserted <img> to a Blob URL immediately after insertion.
                         const entry = _editors[elementId];
                         if (entry) {
-                            await resolveAuthenticatedImages(editor.view.dom, apiBaseUrl, authToken, entry.blobUrls);
+                            await resolveAuthenticatedImages(editor.view.dom, apiBaseUrl, authToken, entry.blobUrls, entry.blobUrlCache);
                         }
                     } catch (err) {
                         toast.error();
@@ -1878,7 +1896,7 @@ window.tiptapInterop = {
                         // Resolve the newly inserted <img> to a Blob URL immediately.
                         const entry = _editors[elementId];
                         if (entry) {
-                            await resolveAuthenticatedImages(editor.view.dom, apiBaseUrl, authToken, entry.blobUrls);
+                            await resolveAuthenticatedImages(editor.view.dom, apiBaseUrl, authToken, entry.blobUrls, entry.blobUrlCache);
                         }
                     } else {
                         // Other files are inserted as file attachment links
@@ -1901,12 +1919,23 @@ window.tiptapInterop = {
         });
 
         const blobUrls = [];
-        _editors[elementId] = { editor, bubbleMenuEl, linkPopover, apiBaseUrl, authToken, blobUrls };
+        const blobUrlCache = new Map();
+        _editors[elementId] = { editor, bubbleMenuEl, linkPopover, apiBaseUrl, authToken, blobUrls, blobUrlCache };
         console.log(`[tiptap] Editor initialized: ${elementId}`);
+
+        // Re-apply blob URLs after every doc-mutating transaction. ProseMirror's
+        // view layer patches <img src> back to the canonical /api/images/* URL
+        // whenever it re-renders the node (e.g., pressing Enter near the image),
+        // which makes the browser try to load the URL without a JWT and the
+        // image looks broken. The cache hit path is synchronous and fires no
+        // network calls, so this is cheap on the keystroke hot path.
+        editor.on('update', () => {
+            resolveAuthenticatedImages(editor.view.dom, apiBaseUrl, authToken, blobUrls, blobUrlCache);
+        });
 
         // Resolve any images that were injected with initialContent.
         if (initialContent) {
-            await resolveAuthenticatedImages(editor.view.dom, apiBaseUrl, authToken, blobUrls);
+            await resolveAuthenticatedImages(editor.view.dom, apiBaseUrl, authToken, blobUrls, blobUrlCache);
         }
     },
 
@@ -1922,11 +1951,13 @@ window.tiptapInterop = {
     async setContent(elementId, content) {
         const entry = _editors[elementId];
         if (!entry) return;
-        // Revoke previous blob URLs before the DOM is replaced with new content.
+        // Revoke previous blob URLs before the DOM is replaced with new content,
+        // and clear the cache so stale apiUrl → blobUrl entries don't linger.
         for (const url of entry.blobUrls) URL.revokeObjectURL(url);
         entry.blobUrls = [];
+        entry.blobUrlCache.clear();
         entry.editor.commands.setContent(content, false);
-        await resolveAuthenticatedImages(entry.editor.view.dom, entry.apiBaseUrl, entry.authToken, entry.blobUrls);
+        await resolveAuthenticatedImages(entry.editor.view.dom, entry.apiBaseUrl, entry.authToken, entry.blobUrls, entry.blobUrlCache);
     },
 
     setInputValue(elementId, value) {
@@ -2022,6 +2053,7 @@ window.tiptapInterop = {
         if (entry) {
             hideCalloutPicker();
             for (const url of entry.blobUrls) URL.revokeObjectURL(url);
+            entry.blobUrlCache.clear();
             entry.editor.destroy();
             entry.bubbleMenuEl.remove();
             entry.linkPopover.popover.remove();
