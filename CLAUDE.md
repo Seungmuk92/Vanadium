@@ -167,6 +167,14 @@ When adding new middleware, place it AFTER `CorrelationIdMiddleware` so logs car
 
 `NoteItem.Title` + `ContentText` are indexed with a PostgreSQL GIN **trigram** index (`gin_trgm_ops`, since migration `20260426140544_SwitchToTrigramSearch`). `NoteService.ApplyFilters()` applies `EF.Functions.ILike` per whitespace-separated term, which the trigram index accelerates. When adding searchable fields, extend both the index and the search query — never `ILIKE` a non-indexed column for performance reasons. Search results include archived notes (flagged `IsArchived`); the non-search Home list excludes them.
 
+### Quick Navigation (command palette)
+
+A keyboard-first note switcher opened by `Ctrl+K` (Windows/Linux) / `Cmd+K` (macOS) from any authenticated page. It is an ephemeral overlay (`Components/QuickNavDialog.razor`, hosted once in `MainLayout.razor`), NOT a route — empty input shows recent notes, typing runs live search. Full design: `docs/plannings/note-quick-navigation-feature.md`.
+
+- **Backend:** `GET /api/notes/quick-search?q=&limit=` → `NoteService.QuickSearch` → lean `QuickNavResult` (id, title, snippet, `IsArchived`). It **reuses the same trigram `EF.Functions.ILike` path** as `ApplyFilters` and deliberately **includes archived notes** (no `ArchivedAt == null` predicate) while the default `DeletedAt == null` global filter excludes Recycle Bin notes — so it uses the **default-filtered** `db.Notes` set with **no `IgnoreQueryFilters()`** (mirrors `GetPaged`'s search branch). Ordered by `UpdatedAt` desc, `limit` clamped `[1,50]`. `BuildSnippet` computes a ≤160-char plain-text preview in memory off the tag-stripped `ContentText`. No schema change, no migration.
+- **Recents** are stored **client-side only** in `localStorage` (key `vanadium.recents.v1`, via `wwwroot/js/quick-nav.js` + `QuickNavService`) — no `NoteVisit` table, no endpoint. A visit is recorded in `NoteEditor.razor` after a successful note load (covers every path that lands on `/editor/{id}`); stale entries that 404 on open are pruned lazily.
+- **Shortcut infra:** registers the `ctrl+k` chord through the existing `KeyboardShortcutService`; `keyboard-shortcuts.js` already maps `metaKey`→`ctrl` and fires while inputs are focused (modifier present), so no JS change was needed. `Esc`/arrows/`Enter` are handled inside the palette, not globally.
+
 ## Known limitations
 
 - **Tests:** `Vanadium.Note.REST.Tests` (xUnit + EF Core SQLite in-memory) covers `NoteService`-level logic. PostgreSQL-only behavior (trigram `ILike` search) is out of unit scope and must be verified manually. Run with `dotnet test Vanadium.slnx`. The Web project has no tests.

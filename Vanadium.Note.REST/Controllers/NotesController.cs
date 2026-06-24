@@ -56,6 +56,22 @@ public class NotesController(NoteService noteService, LabelService labelService,
         return Ok(await noteService.SearchForMention(await GetUserId(), q));
     }
 
+    [HttpGet("quick-search")]
+    public async Task<ActionResult<List<QuickNavResult>>> QuickSearch(
+        [FromQuery][MaxLength(200)] string q = "",
+        [FromQuery] int limit = 20)
+    {
+        var userId = await GetUserId();
+        var results = await noteService.QuickSearch(userId, q, limit);
+        // Avoid logging the raw query (note content privacy, NFR-6): term + result counts only.
+        var termCount = q.Trim()
+            .Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Length;
+        logger.LogInformation(
+            "Quick search executed: {TermCount} term(s), {ResultCount} result(s).",
+            termCount, results.Count);
+        return Ok(results);
+    }
+
     [HttpGet("summaries")]
     public async Task<ActionResult<List<NoteSummary>>> GetSummaries(
         [FromQuery] Guid[]? labelIds = null)
