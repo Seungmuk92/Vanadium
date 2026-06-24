@@ -246,27 +246,12 @@
     {
         await Close();
 
-        // While editing a note, open the picked note in a peek dialog so the current
-        // editor (and its unsaved work) stays in place; navigate fully from anywhere else.
-        if (IsEditorOpen())
-        {
-            var parameters = new DialogParameters<SubNoteDialog> { { x => x.NoteId, row.Id } };
-            var options = new DialogOptions { MaxWidth = MaxWidth.Large, FullWidth = true, CloseOnEscapeKey = true };
-            await DialogService.ShowAsync<SubNoteDialog>(string.Empty, parameters, options);
-        }
-        else
-        {
-            Nav.NavigateTo($"/editor/{row.Id}");
-        }
-    }
-
-    private bool IsEditorOpen()
-    {
-        var rel = Nav.ToBaseRelativePath(Nav.Uri);
-        // Matches "editor" and "editor/{id}" (with optional query string), not other routes.
-        return rel.Equals("editor", StringComparison.OrdinalIgnoreCase)
-            || rel.StartsWith("editor/", StringComparison.OrdinalIgnoreCase)
-            || rel.StartsWith("editor?", StringComparison.OrdinalIgnoreCase);
+        // Always open the picked note in a peek dialog so the current page (and any
+        // unsaved editor work) stays in place. Full navigation is available from the
+        // dialog's "Open in full page" button.
+        var parameters = new DialogParameters<SubNoteDialog> { { x => x.NoteId, row.Id } };
+        var options = new DialogOptions { MaxWidth = MaxWidth.Large, FullWidth = true, CloseOnEscapeKey = true };
+        await DialogService.ShowAsync<SubNoteDialog>(string.Empty, parameters, options);
     }
 
     private async Task Close()
