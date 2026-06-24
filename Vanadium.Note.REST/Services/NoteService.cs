@@ -357,6 +357,76 @@ public class NoteService(NoteDbContext db, FileCleanupService fileCleanup, ILogg
     }
 
     /// <summary>
+    /// Trigram-backed search for the Quick Navigation palette. Returns a lean projection
+    /// (id, title, snippet, archived flag) for the current user, ordered by recency.
+    /// Archived notes are INCLUDED (no <c>ArchivedAt == null</c> predicate); the default
+    /// <c>DeletedAt == null</c> global filter excludes Recycle Bin notes — no opt-out needed.
+    /// </summary>
+    public async Task<List<QuickNavResult>> QuickSearch(Guid userId, string query, int limit = 20)
+    {
+        var terms = (query ?? string.Empty).Trim()
+            .Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        if (terms.Length == 0) return [];
+
+        limit = Math.Clamp(limit, 1, 50);
+
+        // Global filter hides Recycle Bin notes. No n.ArchivedAt == null → archived INCLUDED (FR-4).
+        var q = db.Notes.Where(n => n.UserId == userId);
+        foreach (var term in terms)
+        {
+            var pattern = $"%{EscapeLikePattern(term)}%";
+            q = q.Where(n =>
+                EF.Functions.ILike(n.Title, pattern) ||
+                EF.Functions.ILike(n.ContentText, pattern));
+        }
+
+        var rows = await q
+            .OrderByDescending(n => n.UpdatedAt)
+            .Take(limit)
+            .Select(n => new { n.Id, n.Title, n.ContentText, ArchivedAt = n.ArchivedAt })
+            .ToListAsync();
+
+        return rows.Select(r => new QuickNavResult
+        {
+            Id = r.Id,
+            Title = r.Title,
+            Snippet = BuildSnippet(r.ContentText, terms),
+            IsArchived = r.ArchivedAt != null
+        }).ToList();
+    }
+
+    /// <summary>
+    /// Builds a short plain-text preview around the first matching term. Runs in memory on
+    /// the capped result set, never touches the DB. <c>ContentText</c> is already tag-stripped,
+    /// so the snippet is plain text with no markup-injection risk.
+    /// </summary>
+    internal static string BuildSnippet(string? contentText, string[] terms)
+    {
+        if (string.IsNullOrEmpty(contentText)) return string.Empty;
+
+        const int windowBefore = 30;
+        const int maxLength = 160;
+
+        var idx = -1;
+        foreach (var term in terms)
+        {
+            if (string.IsNullOrEmpty(term)) continue;
+            var found = contentText.IndexOf(term, StringComparison.OrdinalIgnoreCase);
+            if (found >= 0 && (idx < 0 || found < idx))
+                idx = found;
+        }
+
+        // Title-only match (no term in content): fall back to the leading slice.
+        var start = idx < 0 ? 0 : Math.Max(0, idx - windowBefore);
+        var length = Math.Min(maxLength, contentText.Length - start);
+        var slice = contentText.Substring(start, length);
+
+        var prefix = start > 0 ? "…" : string.Empty;
+        var suffix = start + length < contentText.Length ? "…" : string.Empty;
+        return prefix + slice + suffix;
+    }
+
+    /// <summary>
     /// Soft delete: moves the note and all its active descendants to the recycle bin.
     /// References in other notes and uploaded files are left untouched so a
     /// restore is lossless; cleanup is deferred to permanent deletion.

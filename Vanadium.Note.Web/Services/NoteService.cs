@@ -260,6 +260,28 @@ public class NoteService(HttpClient http, ILogger<NoteService> logger)
         }
     }
 
+    public async Task<ServiceResult<List<QuickNavResult>>> QuickSearchAsync(
+        string query,
+        int limit = 20,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var url = $"api/notes/quick-search?q={Uri.EscapeDataString(query)}&limit={limit}";
+            var result = await http.GetFromJsonAsync<List<QuickNavResult>>(url, cancellationToken);
+            return ServiceResult<List<QuickNavResult>>.Ok(result ?? []);
+        }
+        catch (OperationCanceledException)
+        {
+            throw; // superseded by the next keystroke
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Quick search failed.");
+            return ServiceResult<List<QuickNavResult>>.Fail("Search failed.");
+        }
+    }
+
     public async Task<ServiceResult<List<NoteSummary>>> GetChildrenAsync(Guid parentId)
     {
         try

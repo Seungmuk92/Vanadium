@@ -13,6 +13,7 @@
 @inject ISnackbar Snackbar
 @inject IDialogService DialogService
 @inject KeyboardShortcutService ShortcutService
+@inject QuickNavService QuickNav
 @implements IAsyncDisposable
 
 <PageTitle>@(isNew ? "New Note" : "Edit Note")</PageTitle>
@@ -310,10 +311,21 @@
                 parentTitle = result.Value!.ParentTitle;
                 childCount = result.Value!.ChildCount;
                 _serverUpdatedAt = result.Value!.UpdatedAt;
+
+                // Record the visit for Quick Navigation Recents (client-side only, FR-9/§6.6).
+                await QuickNav.PushRecentAsync(new RecentNote
+                {
+                    Id = result.Value!.Id,
+                    Title = result.Value!.Title,
+                    IsArchived = archivedAt is not null,
+                    VisitedAt = DateTime.UtcNow
+                });
             }
             else
             {
-                Snackbar.Add("Failed to load note.", Severity.Error);
+                // A stale Recents entry can point at a deleted note (E3/E4) — prune it.
+                await QuickNav.RemoveRecentAsync(Id.Value);
+                Snackbar.Add("That note no longer exists.", Severity.Error);
                 Nav.NavigateTo("/");
                 return;
             }

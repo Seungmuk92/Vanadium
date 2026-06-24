@@ -1,0 +1,301 @@
+@namespace Vanadium.Note.Web.Components
+@inject NoteService NoteService
+@inject QuickNavService QuickNav
+@inject NavigationManager Nav
+@inject IJSRuntime JS
+
+@if (Open)
+{
+    <div class="quicknav-backdrop" @onclick="Close">
+        <div class="quicknav-panel" @onclick:stopPropagation="true">
+            <input @ref="_input"
+                   class="quicknav-input"
+                   type="text"
+                   placeholder="Search notes…"
+                   autocomplete="off"
+                   spellcheck="false"
+                   value="@_query"
+                   @oninput="OnInput"
+                   @onkeydown="OnKeyDown" />
+
+            <div class="quicknav-body">
+                @switch (_mode)
+                {
+                    case QuickNavMode.NeedMoreChars:
+                        <div class="quicknav-hint">Type at least 2 characters.</div>
+                        break;
+
+                    case QuickNavMode.Searching:
+                        <div class="quicknav-hint">Searching…</div>
+                        break;
+
+                    case QuickNavMode.Error:
+                        <div class="quicknav-hint">Search failed. Try again.</div>
+                        break;
+
+                    case QuickNavMode.NoResults:
+                        <div class="quicknav-hint">No notes found.</div>
+                        break;
+
+                    case QuickNavMode.Recents when _rows.Count == 0:
+                        <div class="quicknav-hint">No recent notes yet — start typing to search.</div>
+                        break;
+
+                    default:
+                        @if (_mode == QuickNavMode.Recents)
+                        {
+                            <div class="quicknav-section-label">Recent</div>
+                        }
+                        <ul class="quicknav-results">
+                            @for (var i = 0; i < _rows.Count; i++)
+                            {
+                                var idx = i;
+                                var row = _rows[i];
+                                <li class="quicknav-item @(idx == _selected ? "is-selected" : "")"
+                                    @onmouseenter="() => _selected = idx"
+                                    @onclick="() => OpenRow(row)">
+                                    <div class="quicknav-item-head">
+                                        <span class="quicknav-title">
+                                            @foreach (var seg in Highlight(string.IsNullOrWhiteSpace(row.Title) ? "(Untitled)" : row.Title))
+                                            {
+                                                if (seg.Match) { <mark>@seg.Text</mark> }
+                                                else { @seg.Text }
+                                            }
+                                        </span>
+                                        @if (row.IsArchived)
+                                        {
+                                            <span class="quicknav-badge">Archived</span>
+                                        }
+                                    </div>
+                                    @if (!string.IsNullOrEmpty(row.Snippet))
+                                    {
+                                        <span class="quicknav-snippet">
+                                            @foreach (var seg in Highlight(row.Snippet))
+                                            {
+                                                if (seg.Match) { <mark>@seg.Text</mark> }
+                                                else { @seg.Text }
+                                            }
+                                        </span>
+                                    }
+                                </li>
+                            }
+                        </ul>
+                        break;
+                }
+            </div>
+
+            <div class="quicknav-footer">
+                <span><kbd>↑</kbd><kbd>↓</kbd> to navigate</span>
+                <span><kbd>Enter</kbd> to open</span>
+                <span><kbd>Esc</kbd> to close</span>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public bool Open { get; set; }
+    [Parameter] public EventCallback<bool> OpenChanged { get; set; }
+
+    private enum QuickNavMode { Recents, NeedMoreChars, Searching, Results, NoResults, Error }
+
+    private record QuickNavRow(Guid Id, string Title, string Snippet, bool IsArchived);
+    private record HighlightSegment(string Text, bool Match);
+
+    private ElementReference _input;
+    private string _query = string.Empty;
+    private int _selected;
+    private string[] _terms = [];
+    private List<QuickNavRow> _rows = [];
+    private QuickNavMode _mode = QuickNavMode.Recents;
+    private CancellationTokenSource? _searchCts;
+    private bool _wasOpen;
+    private bool _focusQueued;
+    private bool _scrollQueued;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (Open && !_wasOpen)
+            await OnOpened();
+        else if (!Open && _wasOpen)
+            _searchCts?.Cancel();
+        _wasOpen = Open;
+    }
+
+    private async Task OnOpened()
+    {
+        _query = string.Empty;
+        _selected = 0;
+        _terms = [];
+        _searchCts?.Cancel();
+        await LoadRecents();
+        _mode = QuickNavMode.Recents;
+        _focusQueued = true;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (_focusQueued)
+        {
+            _focusQueued = false;
+            try { await _input.FocusAsync(); } catch { /* element may be gone */ }
+        }
+        if (_scrollQueued)
+        {
+            _scrollQueued = false;
+            try { await JS.InvokeVoidAsync("quickNav.scrollSelectedIntoView"); } catch { }
+        }
+    }
+
+    private async Task LoadRecents()
+    {
+        var recents = await QuickNav.GetRecentsAsync();
+        _rows = recents
+            .Take(8)
+            .Select(r => new QuickNavRow(r.Id, r.Title, string.Empty, r.IsArchived))
+            .ToList();
+    }
+
+    private async Task OnInput(ChangeEventArgs e)
+    {
+        _query = e.Value?.ToString() ?? string.Empty;
+        var trimmed = _query.Trim();
+        _selected = 0;
+
+        _searchCts?.Cancel();
+        _searchCts?.Dispose();
+        _searchCts = new CancellationTokenSource();
+        var token = _searchCts.Token;
+
+        if (trimmed.Length == 0)
+        {
+            _terms = [];
+            await LoadRecents();
+            _mode = QuickNavMode.Recents;
+            return;
+        }
+
+        if (trimmed.Length < 2)
+        {
+            _terms = [];
+            _rows = [];
+            _mode = QuickNavMode.NeedMoreChars;
+            return;
+        }
+
+        try
+        {
+            await Task.Delay(250, token); // debounce (NFR-2)
+            _mode = QuickNavMode.Searching;
+            StateHasChanged();
+
+            var result = await NoteService.QuickSearchAsync(trimmed, 20, token);
+            if (token.IsCancellationRequested) return;
+
+            if (result.IsSuccess)
+            {
+                _terms = trimmed.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+                _rows = result.Value!
+                    .Select(r => new QuickNavRow(r.Id, r.Title, r.Snippet, r.IsArchived))
+                    .ToList();
+                _mode = _rows.Count == 0 ? QuickNavMode.NoResults : QuickNavMode.Results;
+            }
+            else
+            {
+                _rows = [];
+                _mode = QuickNavMode.Error;
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            /* superseded by the next keystroke — ignore */
+        }
+    }
+
+    private async Task OnKeyDown(KeyboardEventArgs e)
+    {
+        switch (e.Key)
+        {
+            case "ArrowDown":
+                if (_rows.Count > 0)
+                {
+                    _selected = (_selected + 1) % _rows.Count;
+                    _scrollQueued = true;
+                }
+                break;
+            case "ArrowUp":
+                if (_rows.Count > 0)
+                {
+                    _selected = (_selected - 1 + _rows.Count) % _rows.Count;
+                    _scrollQueued = true;
+                }
+                break;
+            case "Enter":
+                if (_rows.Count > 0 && _selected >= 0 && _selected < _rows.Count)
+                    await OpenRow(_rows[_selected]);
+                break;
+            case "Escape":
+                await Close();
+                break;
+        }
+    }
+
+    private async Task OpenRow(QuickNavRow row)
+    {
+        await Close();
+        Nav.NavigateTo($"/editor/{row.Id}");
+    }
+
+    private async Task Close()
+    {
+        _searchCts?.Cancel();
+        if (Open)
+            await OpenChanged.InvokeAsync(false);
+    }
+
+    /// <summary>Splits text into matched/unmatched segments for safe client-side highlighting.
+    /// Terms are matched as plain substrings (case-insensitive); Razor escapes each segment,
+    /// so no markup can be injected (E12).</summary>
+    private List<HighlightSegment> Highlight(string text)
+    {
+        if (string.IsNullOrEmpty(text) || _terms.Length == 0)
+            return [new HighlightSegment(text ?? string.Empty, false)];
+
+        var intervals = new List<(int Start, int End)>();
+        foreach (var term in _terms)
+        {
+            if (string.IsNullOrEmpty(term)) continue;
+            var from = 0;
+            while (from <= text.Length - term.Length)
+            {
+                var idx = text.IndexOf(term, from, StringComparison.OrdinalIgnoreCase);
+                if (idx < 0) break;
+                intervals.Add((idx, idx + term.Length));
+                from = idx + term.Length;
+            }
+        }
+        if (intervals.Count == 0)
+            return [new HighlightSegment(text, false)];
+
+        intervals.Sort((a, b) => a.Start.CompareTo(b.Start));
+        var merged = new List<(int Start, int End)>();
+        foreach (var iv in intervals)
+        {
+            if (merged.Count > 0 && iv.Start <= merged[^1].End)
+                merged[^1] = (merged[^1].Start, Math.Max(merged[^1].End, iv.End));
+            else
+                merged.Add(iv);
+        }
+
+        var segments = new List<HighlightSegment>();
+        var pos = 0;
+        foreach (var (start, end) in merged)
+        {
+            if (start > pos) segments.Add(new HighlightSegment(text[pos..start], false));
+            segments.Add(new HighlightSegment(text[start..end], true));
+            pos = end;
+        }
+        if (pos < text.Length) segments.Add(new HighlightSegment(text[pos..], false));
+        return segments;
+    }
+}
