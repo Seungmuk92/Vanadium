@@ -9,6 +9,13 @@
 
   <ItemGroup>
     <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="10.0.5" />
+    <!--
+      Override the transitive SQLitePCLRaw.bundle_e_sqlite3 2.1.11 pulled in by
+      Microsoft.EntityFrameworkCore.Sqlite 10.0.5, which bundles a SQLite build
+      affected by CVE-2025-6965 (SQLite < 3.50.2). The v3 line renamed
+      SQLitePCLRaw.lib.e_sqlite3 to SourceGear.sqlite3 and ships SQLite 3.50.4+.
+    -->
+    <PackageReference Include="SQLitePCLRaw.bundle_e_sqlite3" Version="3.0.3" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.12.0" />
     <PackageReference Include="xunit" Version="2.9.2" />
     <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2">
