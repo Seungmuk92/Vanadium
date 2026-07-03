@@ -6,6 +6,7 @@ using System.Security.Claims;
 using System.Security.Cryptography;
 using System.Text;
 using Vanadium.Note.REST.Models;
+using Vanadium.Note.REST.Security;
 
 namespace Vanadium.Note.REST.Controllers;
 
@@ -17,7 +18,11 @@ namespace Vanadium.Note.REST.Controllers;
 /// </summary>
 [ApiController]
 [Route("api/[controller]")]
-public class AuthController(IConfiguration config, IWebHostEnvironment env, ILogger<AuthController> logger) : ControllerBase
+public class AuthController(
+    IConfiguration config,
+    IWebHostEnvironment env,
+    IPasswordValidator passwordValidator,
+    ILogger<AuthController> logger) : ControllerBase
 {
     /// <summary>Fixed principal name for the single owner (used for logs/UI only).</summary>
     public const string OwnerName = "owner";
@@ -51,13 +56,27 @@ public class AuthController(IConfiguration config, IWebHostEnvironment env, ILog
     /// <summary>
     /// Development only: computes the storage hash for a given password so it can be
     /// pasted into <c>Auth:PasswordHash</c>. Nothing is persisted — this replaces the
-    /// old user-provisioning <c>setup</c> endpoint.
+    /// old user-provisioning <c>setup</c> endpoint. The password must satisfy the
+    /// configured password policy; weak passwords are rejected with 400 before any
+    /// hash is produced.
     /// </summary>
     [HttpPost("hash")]
-    public IActionResult Hash([FromBody] LoginRequest request)
+    public async Task<IActionResult> Hash([FromBody] LoginRequest request, CancellationToken cancellationToken)
     {
         if (!env.IsDevelopment())
             return NotFound();
+
+        var validation = await passwordValidator.ValidateAsync(request.Password, cancellationToken);
+        if (!validation.IsValid)
+        {
+            logger.LogInformation("Rejected a weak password submitted to /api/auth/hash.");
+            return ValidationProblem(new ValidationProblemDetails(
+                new Dictionary<string, string[]> { ["Password"] = [.. validation.Errors] })
+            {
+                Title = "Password does not meet the security policy.",
+                Status = StatusCodes.Status400BadRequest
+            });
+        }
 
         return Ok(new { hash = HashPassword(request.Password) });
     }
