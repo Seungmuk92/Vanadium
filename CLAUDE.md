@@ -73,10 +73,14 @@ Before reporting work as done:
 
 ### Authentication flow
 
-- `POST /api/auth/login` returns a JWT; no refresh tokens — JWT expiry defaults to 1440 min.
-- `POST /api/auth/setup` (dev-only) creates/updates users.
+Single-user, **password-only** (no user identity). There is no `User` entity and no `UserId`/`Username` ownership column on any table — the whole database belongs to one owner. Login verifies a password against a configured hash; a successful login mints a JWT carrying only a fixed `ClaimTypes.Name` = `AuthController.OwnerName` (`"owner"`) claim.
+
+- `POST /api/auth/login` (body `{ password }`) verifies against `Auth:PasswordHash` (PBKDF2-SHA256, `base64salt:base64hash`, same format as `Auth:JwtSecret` — supplied via config/env, never stored in the DB) and returns a JWT; no refresh tokens — JWT expiry defaults to 1440 min.
+- `POST /api/auth/hash` (dev-only, body `{ password }`) returns the storage hash for a password so it can be pasted into `Auth:PasswordHash`. It persists nothing (replaces the old user-provisioning `setup` endpoint).
+- Personal access tokens (`ApiToken`) still work; they no longer carry a `UserId`. `ApiTokenAuthHandler` matches the token hash and emits the same single `Name` claim.
 - Frontend stores JWT in `TokenStore` (scoped service wrapping `localStorage`), injects it via `AuthTokenHandler` (delegating `HttpMessageHandler`).
 - `JwtAuthenticationStateProvider` parses the JWT client-side to expose auth state to Blazor.
+- Because ownership scoping is gone, service methods take no `userId` and run no `.Where(x => x.UserId == …)` filter; `UserSettings` is a singleton row. Migration `20260702000000_RemoveUserConcept` drops the `Users` table, the `UserId` columns, and `UserSettings.Username`.
 
 ### Note content
 

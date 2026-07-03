@@ -23,11 +23,11 @@ public class ApiTokenService(NoteDbContext db, ILogger<ApiTokenService> logger)
     }
 
     /// <summary>
-    /// Creates a token for the user and returns the one-time plaintext value alongside
-    /// the persisted record. The plaintext is never stored and cannot be recovered later.
+    /// Creates a token and returns the one-time plaintext value alongside the persisted
+    /// record. The plaintext is never stored and cannot be recovered later.
     /// </summary>
     public async Task<(ApiToken Token, string Plaintext)> CreateAsync(
-        Guid userId, string name, int? expiresInDays, CancellationToken ct = default)
+        string name, int? expiresInDays, CancellationToken ct = default)
     {
         var randomPart = Convert.ToBase64String(RandomNumberGenerator.GetBytes(32))
             .Replace("+", "-")
@@ -38,7 +38,6 @@ public class ApiTokenService(NoteDbContext db, ILogger<ApiTokenService> logger)
         var token = new ApiToken
         {
             Id = Guid.NewGuid(),
-            UserId = userId,
             Name = name,
             TokenHash = HashToken(plaintext),
             TokenSuffix = plaintext[^4..],
@@ -49,32 +48,30 @@ public class ApiTokenService(NoteDbContext db, ILogger<ApiTokenService> logger)
         db.ApiTokens.Add(token);
         await db.SaveChangesAsync(ct);
 
-        logger.LogInformation("API token {TokenId} '{TokenName}' created for user {UserId}",
-            token.Id, token.Name, userId);
+        logger.LogInformation("API token {TokenId} '{TokenName}' created", token.Id, token.Name);
 
         return (token, plaintext);
     }
 
-    public async Task<List<ApiToken>> ListAsync(Guid userId, CancellationToken ct = default)
+    public async Task<List<ApiToken>> ListAsync(CancellationToken ct = default)
     {
         return await db.ApiTokens
-            .Where(t => t.UserId == userId)
             .OrderByDescending(t => t.CreatedAt)
             .ToListAsync(ct);
     }
 
-    /// <summary>Deletes a token owned by the user. Returns false if it does not exist.</summary>
-    public async Task<bool> DeleteAsync(Guid userId, Guid tokenId, CancellationToken ct = default)
+    /// <summary>Deletes a token. Returns false if it does not exist.</summary>
+    public async Task<bool> DeleteAsync(Guid tokenId, CancellationToken ct = default)
     {
         var token = await db.ApiTokens
-            .FirstOrDefaultAsync(t => t.Id == tokenId && t.UserId == userId, ct);
+            .FirstOrDefaultAsync(t => t.Id == tokenId, ct);
         if (token is null)
             return false;
 
         db.ApiTokens.Remove(token);
         await db.SaveChangesAsync(ct);
 
-        logger.LogInformation("API token {TokenId} revoked by user {UserId}", tokenId, userId);
+        logger.LogInformation("API token {TokenId} revoked", tokenId);
         return true;
     }
 }

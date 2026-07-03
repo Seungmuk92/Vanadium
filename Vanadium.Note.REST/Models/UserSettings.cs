@@ -6,9 +6,6 @@ public class UserSettings
 {
     public Guid Id { get; set; }
 
-    [MaxLength(256)]
-    public string Username { get; set; } = string.Empty;
-
     [MaxLength(20)]
     public string DefaultSortBy { get; set; } = "date";
 
