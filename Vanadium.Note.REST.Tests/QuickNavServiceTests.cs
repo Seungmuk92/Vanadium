@@ -18,11 +18,10 @@ public class QuickNavServiceTests
     public async Task QuickSearch_EmptyQuery_ReturnsEmpty()
     {
         using var h = new TestHost();
-        var user = await h.CreateUserAsync();
-        await h.CreateNoteAsync(user.Id, "Anything");
+        await h.CreateNoteAsync("Anything");
 
-        Assert.Empty(await h.Notes.QuickSearch(user.Id, "", 20));
-        Assert.Empty(await h.Notes.QuickSearch(user.Id, "   ", 20));
+        Assert.Empty(await h.Notes.QuickSearch("", 20));
+        Assert.Empty(await h.Notes.QuickSearch("   ", 20));
     }
 
     // ── T-8: snippet around a mid-content match ──────────────────────────────

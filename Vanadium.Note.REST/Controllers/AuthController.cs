@@ -1,71 +1,68 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
-using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Security.Cryptography;
 using System.Text;
-using Vanadium.Note.REST.Data;
 using Vanadium.Note.REST.Models;
 
 namespace Vanadium.Note.REST.Controllers;
 
+/// <summary>
+/// Single-user, password-only authentication. There is no user identity: the app
+/// belongs to one owner whose password hash lives in configuration
+/// (<c>Auth:PasswordHash</c>), mirroring how <c>Auth:JwtSecret</c> is supplied.
+/// A successful login mints a JWT carrying only a fixed display-name claim.
+/// </summary>
 [ApiController]
 [Route("api/[controller]")]
-public class AuthController(IConfiguration config, IWebHostEnvironment env, NoteDbContext db, ILogger<AuthController> logger) : ControllerBase
+public class AuthController(IConfiguration config, IWebHostEnvironment env, ILogger<AuthController> logger) : ControllerBase
 {
+    /// <summary>Fixed principal name for the single owner (used for logs/UI only).</summary>
+    public const string OwnerName = "owner";
+
     [HttpPost("login")]
     [EnableRateLimiting("login")]
-    public async Task<IActionResult> Login([FromBody] LoginRequest request)
+    public IActionResult Login([FromBody] LoginRequest request)
     {
-        logger.LogInformation("Login attempt for user '{Username}'", request.Username);
+        logger.LogInformation("Login attempt.");
 
-        var user = await db.Users
-            .FirstOrDefaultAsync(u => u.Username == request.Username);
-
-        if (user is null || !VerifyPassword(request.Password, user.PasswordHash))
+        var storedHash = config["Auth:PasswordHash"];
+        if (string.IsNullOrEmpty(storedHash))
         {
-            logger.LogWarning("Failed login attempt for user '{Username}'", request.Username);
-            return Unauthorized(new { message = "Invalid username or password." });
+            logger.LogError("Auth:PasswordHash is not configured — login is impossible until it is set.");
+            return Problem(
+                detail: "Server password is not configured.",
+                statusCode: StatusCodes.Status500InternalServerError);
         }
 
-        var token = GenerateJwtToken(user);
-        logger.LogInformation("User '{Username}' authenticated successfully", user.Username);
+        if (!VerifyPassword(request.Password, storedHash))
+        {
+            logger.LogWarning("Failed login attempt.");
+            return Unauthorized(new { message = "Invalid password." });
+        }
+
+        var token = GenerateJwtToken();
+        logger.LogInformation("Owner authenticated successfully.");
         return Ok(new { token });
     }
 
     /// <summary>
-    /// Development only: creates or updates a user in the database.
+    /// Development only: computes the storage hash for a given password so it can be
+    /// pasted into <c>Auth:PasswordHash</c>. Nothing is persisted — this replaces the
+    /// old user-provisioning <c>setup</c> endpoint.
     /// </summary>
-    [HttpPost("setup")]
-    public async Task<IActionResult> Setup([FromBody] SetupRequest request)
+    [HttpPost("hash")]
+    public IActionResult Hash([FromBody] LoginRequest request)
     {
         if (!env.IsDevelopment())
             return NotFound();
 
-        var existing = await db.Users
-            .FirstOrDefaultAsync(u => u.Username == request.Username);
-
-        if (existing is not null)
-        {
-            existing.PasswordHash = HashPassword(request.Password);
-        }
-        else
-        {
-            db.Users.Add(new User
-            {
-                Id = Guid.NewGuid(),
-                Username = request.Username,
-                PasswordHash = HashPassword(request.Password)
-            });
-        }
-
-        await db.SaveChangesAsync();
-        return Ok(new { message = $"User '{request.Username}' has been set up successfully." });
+        return Ok(new { hash = HashPassword(request.Password) });
     }
 
-    private string GenerateJwtToken(User user)
+    private string GenerateJwtToken()
     {
         var secret = config["Auth:JwtSecret"]
             ?? throw new InvalidOperationException("Auth:JwtSecret is not configured.");
@@ -75,11 +72,7 @@ public class AuthController(IConfiguration config, IWebHostEnvironment env, Note
         var credentials = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
 
         var token = new JwtSecurityToken(
-            claims:
-            [
-                new Claim(ClaimTypes.Name, user.Username),
-                new Claim(ClaimTypes.NameIdentifier, user.Id.ToString())
-            ],
+            claims: [new Claim(ClaimTypes.Name, OwnerName)],
             expires: DateTime.UtcNow.AddMinutes(expirationMinutes),
             signingCredentials: credentials
         );
