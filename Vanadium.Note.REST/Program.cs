@@ -10,6 +10,7 @@ using Microsoft.AspNetCore.Authentication;
 using Vanadium.Note.REST.Auth;
 using Vanadium.Note.REST.Data;
 using Vanadium.Note.REST.Middleware;
+using Vanadium.Note.REST.Security;
 using Vanadium.Note.REST.Services;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -114,6 +115,18 @@ builder.Services.AddScoped<SettingsService>();
 builder.Services.AddScoped<ApiTokenService>();
 builder.Services.AddScoped<FileCleanupService>();
 builder.Services.AddScoped<AccountService>();
+
+builder.Services.Configure<PasswordPolicyOptions>(
+    builder.Configuration.GetSection(PasswordPolicyOptions.SectionName));
+builder.Services.AddHttpClient<IPwnedPasswordsClient, PwnedPasswordsClient>(client =>
+{
+    client.BaseAddress = new Uri("https://api.pwnedpasswords.com/");
+    client.Timeout = TimeSpan.FromSeconds(5);
+    // HIBP requires a descriptive User-Agent; requests without one are rejected.
+    client.DefaultRequestHeaders.UserAgent.ParseAdd("Vanadium.Note.REST");
+});
+builder.Services.AddScoped<IPasswordValidator, PasswordValidator>();
+
 builder.Services.AddHostedService<OrphanFileCleanupJob>();
 builder.Services.AddHostedService<RecycleBinPurgeJob>();
 builder.Services.AddEndpointsApiExplorer();
