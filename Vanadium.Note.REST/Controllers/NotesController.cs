@@ -1,5 +1,4 @@
 using System.ComponentModel.DataAnnotations;
-using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -14,20 +13,6 @@ namespace Vanadium.Note.REST.Controllers;
 [Route("api/[controller]")]
 public class NotesController(NoteService noteService, LabelService labelService, NoteDbContext db, ILogger<NotesController> logger) : ControllerBase
 {
-    private async Task<Guid> GetUserId()
-    {
-        var idClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-        if (idClaim is not null && Guid.TryParse(idClaim, out var userId))
-            return userId;
-
-        // Fallback for tokens issued before user ID was added to claims
-        var username = User.FindFirst(ClaimTypes.Name)?.Value
-            ?? throw new InvalidOperationException("No identity claims in token.");
-        var user = await db.Users.FirstOrDefaultAsync(u => u.Username == username)
-            ?? throw new InvalidOperationException($"User '{username}' not found.");
-        return user.Id;
-    }
-
     [HttpGet]
     public async Task<ActionResult<PagedResult<NoteSummary>>> GetAll(
         [FromQuery] int page = 1,
@@ -42,10 +27,9 @@ public class NotesController(NoteService noteService, LabelService labelService,
         pageSize = Math.Clamp(pageSize, 1, 200);
         if (labelIds is { Length: > 50 })
             return BadRequest("Too many label IDs (maximum 50).");
-        var userId = await GetUserId();
-        var result = await noteService.GetPaged(userId, page, pageSize, search, sortBy, sortDir, labelIds);
+        var result = await noteService.GetPaged(page, pageSize, search, sortBy, sortDir, labelIds);
         if (includeLabels)
-            result.Labels = await labelService.GetAllLabelsAsync(userId);
+            result.Labels = await labelService.GetAllLabelsAsync();
         return Ok(result);
     }
 
@@ -53,7 +37,7 @@ public class NotesController(NoteService noteService, LabelService labelService,
     public async Task<ActionResult<List<MentionSuggestionDto>>> MentionSearch(
         [FromQuery][MaxLength(100)] string q = "")
     {
-        return Ok(await noteService.SearchForMention(await GetUserId(), q));
+        return Ok(await noteService.SearchForMention(q));
     }
 
     [HttpGet("quick-search")]
@@ -61,8 +45,7 @@ public class NotesController(NoteService noteService, LabelService labelService,
         [FromQuery][MaxLength(200)] string q = "",
         [FromQuery] int limit = 20)
     {
-        var userId = await GetUserId();
-        var results = await noteService.QuickSearch(userId, q, limit);
+        var results = await noteService.QuickSearch(q, limit);
         // Avoid logging the raw query (note content privacy, NFR-6): term + result counts only.
         var termCount = q.Trim()
             .Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Length;
@@ -78,19 +61,19 @@ public class NotesController(NoteService noteService, LabelService labelService,
     {
         if (labelIds is { Length: > 50 })
             return BadRequest("Too many label IDs (maximum 50).");
-        return Ok(await noteService.GetAllSummaries(await GetUserId(), labelIds));
+        return Ok(await noteService.GetAllSummaries(labelIds));
     }
 
     [HttpGet("{id:guid}/children")]
     public async Task<ActionResult<List<NoteSummary>>> GetChildren(Guid id)
     {
-        return Ok(await noteService.GetChildren(await GetUserId(), id));
+        return Ok(await noteService.GetChildren(id));
     }
 
     [HttpGet("{id:guid}")]
     public async Task<ActionResult<NoteItem>> Get(Guid id)
     {
-        var note = await noteService.Get(await GetUserId(), id);
+        var note = await noteService.Get(id);
         if (note is null)
         {
             logger.LogWarning("Note {NoteId} not found", id);
@@ -102,13 +85,12 @@ public class NotesController(NoteService noteService, LabelService labelService,
     [HttpPost]
     public async Task<ActionResult<NoteItem>> Create([FromBody] NoteItem note)
     {
-        var userId = await GetUserId();
-        if (note.ParentNoteId.HasValue && !await IsActiveNote(userId, note.ParentNoteId.Value))
+        if (note.ParentNoteId.HasValue && !await IsActiveNote(note.ParentNoteId.Value))
         {
             logger.LogWarning("Create rejected — parent note {ParentNoteId} not found, archived, or in recycle bin.", note.ParentNoteId);
             return BadRequest("Parent note does not exist, is archived, or is in the recycle bin.");
         }
-        var created = await noteService.Create(userId, note);
+        var created = await noteService.Create(note);
         logger.LogInformation("Note created: {NoteId}", created.Id);
         return CreatedAtAction(nameof(Get), new { id = created.Id }, created);
     }
@@ -116,7 +98,6 @@ public class NotesController(NoteService noteService, LabelService labelService,
     [HttpPut("{id:guid}")]
     public async Task<ActionResult<NoteItem>> Update(Guid id, [FromBody] NoteItem note)
     {
-        var userId = await GetUserId();
         if (note.ParentNoteId.HasValue)
         {
             if (note.ParentNoteId.Value == id)
@@ -129,14 +110,14 @@ public class NotesController(NoteService noteService, LabelService labelService,
                 logger.LogWarning("Update rejected — circular parent reference detected for note {NoteId}.", id);
                 return BadRequest("Setting this parent would create a circular reference.");
             }
-            if (!await IsActiveNote(userId, note.ParentNoteId.Value))
+            if (!await IsActiveNote(note.ParentNoteId.Value))
             {
                 logger.LogWarning("Update rejected — parent note {ParentNoteId} not found, archived, or in recycle bin.", note.ParentNoteId);
                 return BadRequest("Parent note does not exist, is archived, or is in the recycle bin.");
             }
         }
 
-        var (updated, conflict, archived) = await noteService.Update(userId, id, note);
+        var (updated, conflict, archived) = await noteService.Update(id, note);
         if (archived)
             return Problem(
                 detail: "Note is archived and read-only.",
@@ -155,7 +136,7 @@ public class NotesController(NoteService noteService, LabelService labelService,
     [HttpDelete("{id:guid}")]
     public async Task<IActionResult> Delete(Guid id)
     {
-        if (!await noteService.Delete(await GetUserId(), id))
+        if (!await noteService.Delete(id))
         {
             logger.LogWarning("Delete failed — note {NoteId} not found", id);
             return NotFound();
@@ -167,7 +148,7 @@ public class NotesController(NoteService noteService, LabelService labelService,
     [HttpPost("{id:guid}/archive")]
     public async Task<IActionResult> Archive(Guid id)
     {
-        if (!await noteService.Archive(await GetUserId(), id))
+        if (!await noteService.Archive(id))
         {
             logger.LogWarning("Archive failed — note {NoteId} not found", id);
             return NotFound();
@@ -179,7 +160,7 @@ public class NotesController(NoteService noteService, LabelService labelService,
     [HttpPost("{id:guid}/unarchive")]
     public async Task<IActionResult> Unarchive(Guid id)
     {
-        if (!await noteService.Unarchive(await GetUserId(), id))
+        if (!await noteService.Unarchive(id))
         {
             logger.LogWarning("Unarchive failed — note {NoteId} not found or not archived", id);
             return NotFound();
@@ -195,7 +176,7 @@ public class NotesController(NoteService noteService, LabelService labelService,
     {
         page = Math.Max(1, page);
         pageSize = Math.Clamp(pageSize, 1, 200);
-        return Ok(await noteService.GetArchive(await GetUserId(), page, pageSize));
+        return Ok(await noteService.GetArchive(page, pageSize));
     }
 
     [HttpGet("recycle-bin")]
@@ -205,13 +186,13 @@ public class NotesController(NoteService noteService, LabelService labelService,
     {
         page = Math.Max(1, page);
         pageSize = Math.Clamp(pageSize, 1, 200);
-        return Ok(await noteService.GetRecycleBin(await GetUserId(), page, pageSize));
+        return Ok(await noteService.GetRecycleBin(page, pageSize));
     }
 
     [HttpPost("{id:guid}/restore")]
     public async Task<IActionResult> Restore(Guid id)
     {
-        if (!await noteService.Restore(await GetUserId(), id))
+        if (!await noteService.Restore(id))
         {
             logger.LogWarning("Restore failed — note {NoteId} not found in recycle bin", id);
             return NotFound();
@@ -223,7 +204,7 @@ public class NotesController(NoteService noteService, LabelService labelService,
     [HttpDelete("{id:guid}/permanent")]
     public async Task<IActionResult> DeletePermanent(Guid id)
     {
-        var (found, wasInRecycleBin) = await noteService.DeletePermanent(await GetUserId(), id);
+        var (found, wasInRecycleBin) = await noteService.DeletePermanent(id);
         if (!found)
         {
             logger.LogWarning("Permanent delete failed — note {NoteId} not found", id);
@@ -241,13 +222,13 @@ public class NotesController(NoteService noteService, LabelService labelService,
     [HttpDelete("recycle-bin")]
     public async Task<IActionResult> EmptyRecycleBin()
     {
-        var count = await noteService.EmptyRecycleBin(await GetUserId());
+        var count = await noteService.EmptyRecycleBin();
         logger.LogInformation("Recycle Bin emptied: {Count} note(s) permanently deleted", count);
         return NoContent();
     }
 
     /// <summary>Active = not soft-deleted (global filter) and not archived.
     /// Archived parents are rejected: no active note may live under an archived one.</summary>
-    private async Task<bool> IsActiveNote(Guid userId, Guid noteId)
-        => await db.Notes.AnyAsync(n => n.Id == noteId && n.UserId == userId && n.ArchivedAt == null);
+    private async Task<bool> IsActiveNote(Guid noteId)
+        => await db.Notes.AnyAsync(n => n.Id == noteId && n.ArchivedAt == null);
 }

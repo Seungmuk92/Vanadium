@@ -5,7 +5,6 @@ namespace Vanadium.Note.REST.Data;
 
 public class NoteDbContext(DbContextOptions<NoteDbContext> options) : DbContext(options)
 {
-    public DbSet<User> Users => Set<User>();
     public DbSet<NoteItem> Notes => Set<NoteItem>();
     public DbSet<FileAttachment> FileAttachments => Set<FileAttachment>();
     public DbSet<LabelCategory> LabelCategories => Set<LabelCategory>();
@@ -31,29 +30,11 @@ public class NoteDbContext(DbContextOptions<NoteDbContext> options) : DbContext(
             .HasForeignKey(nl => nl.LabelId)
             .OnDelete(DeleteBehavior.Cascade);
 
-        modelBuilder.Entity<LabelCategory>()
-            .HasOne(c => c.User)
-            .WithMany()
-            .HasForeignKey(c => c.UserId)
-            .OnDelete(DeleteBehavior.Restrict);
-
-        modelBuilder.Entity<Label>()
-            .HasOne(l => l.User)
-            .WithMany()
-            .HasForeignKey(l => l.UserId)
-            .OnDelete(DeleteBehavior.Restrict);
-
         modelBuilder.Entity<Label>()
             .HasOne(l => l.Category)
             .WithMany(c => c.Labels)
             .HasForeignKey(l => l.CategoryId)
             .OnDelete(DeleteBehavior.Cascade);
-
-        modelBuilder.Entity<NoteItem>()
-            .HasOne(n => n.User)
-            .WithMany()
-            .HasForeignKey(n => n.UserId)
-            .OnDelete(DeleteBehavior.Restrict);
 
         modelBuilder.Entity<NoteItem>()
             .HasOne(n => n.ParentNote)
@@ -91,16 +72,6 @@ public class NoteDbContext(DbContextOptions<NoteDbContext> options) : DbContext(
         modelBuilder.Entity<NoteItem>()
             .HasIndex(n => n.ArchivedAt)
             .HasFilter("\"ArchivedAt\" IS NOT NULL");
-
-        modelBuilder.Entity<UserSettings>()
-            .HasIndex(s => s.Username)
-            .IsUnique();
-
-        modelBuilder.Entity<ApiToken>()
-            .HasOne<User>()
-            .WithMany()
-            .HasForeignKey(t => t.UserId)
-            .OnDelete(DeleteBehavior.Cascade);
 
         modelBuilder.Entity<ApiToken>()
             .HasIndex(t => t.TokenHash)

@@ -8,10 +8,9 @@ public class LabelService(NoteDbContext db, ILogger<LabelService> logger)
 {
     // ── Categories ────────────────────────────────────────────────────────────
 
-    public async Task<List<LabelCategoryDto>> GetAllCategoriesAsync(Guid userId)
+    public async Task<List<LabelCategoryDto>> GetAllCategoriesAsync()
     {
         var categories = await db.LabelCategories
-            .Where(c => c.UserId == userId)
             .Include(c => c.Labels)
             .OrderBy(c => c.Name)
             .ToListAsync();
@@ -27,22 +26,22 @@ public class LabelService(NoteDbContext db, ILogger<LabelService> logger)
         }).ToList();
     }
 
-    public async Task<LabelCategoryDto> CreateCategoryAsync(Guid userId, string name)
+    public async Task<LabelCategoryDto> CreateCategoryAsync(string name)
     {
         var duplicate = await db.LabelCategories
-            .AnyAsync(c => c.UserId == userId && c.Name.ToLower() == name.ToLower());
+            .AnyAsync(c => c.Name.ToLower() == name.ToLower());
         if (duplicate)
             throw new InvalidOperationException($"Category '{name}' already exists.");
 
-        var category = new LabelCategory { Name = name, UserId = userId };
+        var category = new LabelCategory { Name = name };
         db.LabelCategories.Add(category);
         await db.SaveChangesAsync();
         return new LabelCategoryDto { Id = category.Id, Name = category.Name };
     }
 
-    public async Task<bool> DeleteCategoryAsync(Guid userId, Guid id)
+    public async Task<bool> DeleteCategoryAsync(Guid id)
     {
-        var category = await db.LabelCategories.FirstOrDefaultAsync(c => c.Id == id && c.UserId == userId);
+        var category = await db.LabelCategories.FirstOrDefaultAsync(c => c.Id == id);
         if (category is null) return false;
         db.LabelCategories.Remove(category);
         await db.SaveChangesAsync();
@@ -51,9 +50,8 @@ public class LabelService(NoteDbContext db, ILogger<LabelService> logger)
 
     // ── Labels ────────────────────────────────────────────────────────────────
 
-    public async Task<List<LabelSummary>> GetAllLabelsAsync(Guid userId) =>
+    public async Task<List<LabelSummary>> GetAllLabelsAsync() =>
         await db.Labels
-            .Where(l => l.UserId == userId)
             .Include(l => l.Category)
             .OrderBy(l => l.Name)
             .Select(l => new LabelSummary
@@ -65,14 +63,14 @@ public class LabelService(NoteDbContext db, ILogger<LabelService> logger)
             })
             .ToListAsync();
 
-    public async Task<LabelSummary> CreateLabelAsync(Guid userId, string name, Guid? categoryId)
+    public async Task<LabelSummary> CreateLabelAsync(string name, Guid? categoryId)
     {
         var duplicate = await db.Labels
-            .AnyAsync(l => l.UserId == userId && l.Name.ToLower() == name.ToLower());
+            .AnyAsync(l => l.Name.ToLower() == name.ToLower());
         if (duplicate)
             throw new InvalidOperationException($"Label '{name}' already exists.");
 
-        var label = new Label { Name = name, CategoryId = categoryId, UserId = userId };
+        var label = new Label { Name = name, CategoryId = categoryId };
         db.Labels.Add(label);
         await db.SaveChangesAsync();
 
@@ -83,9 +81,9 @@ public class LabelService(NoteDbContext db, ILogger<LabelService> logger)
         return new LabelSummary { Id = label.Id, Name = label.Name, CategoryId = categoryId, CategoryName = categoryName };
     }
 
-    public async Task<bool> DeleteLabelAsync(Guid userId, Guid id)
+    public async Task<bool> DeleteLabelAsync(Guid id)
     {
-        var label = await db.Labels.FirstOrDefaultAsync(l => l.Id == id && l.UserId == userId);
+        var label = await db.Labels.FirstOrDefaultAsync(l => l.Id == id);
         if (label is null) return false;
         db.Labels.Remove(label);
         await db.SaveChangesAsync();
@@ -97,10 +95,10 @@ public class LabelService(NoteDbContext db, ILogger<LabelService> logger)
     /// <summary>Thrown when a label mutation targets an archived (read-only) note.</summary>
     public class NoteArchivedException() : InvalidOperationException("Note is archived and read-only.");
 
-    public async Task AddLabelToNoteAsync(Guid userId, Guid noteId, Guid labelId)
+    public async Task AddLabelToNoteAsync(Guid noteId, Guid labelId)
     {
         var note = await db.Notes
-            .Where(n => n.Id == noteId && n.UserId == userId)
+            .Where(n => n.Id == noteId)
             .Select(n => new { n.ArchivedAt })
             .FirstOrDefaultAsync();
         if (note is null)
@@ -142,10 +140,10 @@ public class LabelService(NoteDbContext db, ILogger<LabelService> logger)
         await db.SaveChangesAsync();
     }
 
-    public async Task<bool> RemoveLabelFromNoteAsync(Guid userId, Guid noteId, Guid labelId)
+    public async Task<bool> RemoveLabelFromNoteAsync(Guid noteId, Guid labelId)
     {
         var note = await db.Notes
-            .Where(n => n.Id == noteId && n.UserId == userId)
+            .Where(n => n.Id == noteId)
             .Select(n => new { n.ArchivedAt })
             .FirstOrDefaultAsync();
         if (note is null)

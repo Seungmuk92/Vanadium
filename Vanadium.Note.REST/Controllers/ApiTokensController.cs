@@ -1,4 +1,3 @@
-using System.Security.Claims;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -17,12 +16,10 @@ namespace Vanadium.Note.REST.Controllers;
 [Route("api/[controller]")]
 public class ApiTokensController(ApiTokenService tokenService) : ControllerBase
 {
-    private Guid UserId => Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
-
     [HttpGet]
     public async Task<ActionResult<IEnumerable<ApiTokenSummary>>> GetAll(CancellationToken ct)
     {
-        var tokens = await tokenService.ListAsync(UserId, ct);
+        var tokens = await tokenService.ListAsync(ct);
         return Ok(tokens.Select(t => new ApiTokenSummary
         {
             Id = t.Id,
@@ -39,7 +36,7 @@ public class ApiTokensController(ApiTokenService tokenService) : ControllerBase
         [FromBody] CreateApiTokenRequest request, CancellationToken ct)
     {
         var (token, plaintext) = await tokenService.CreateAsync(
-            UserId, request.Name, request.ExpiresInDays, ct);
+            request.Name, request.ExpiresInDays, ct);
 
         return Ok(new CreateApiTokenResponse
         {
@@ -54,7 +51,7 @@ public class ApiTokensController(ApiTokenService tokenService) : ControllerBase
     [HttpDelete("{id:guid}")]
     public async Task<IActionResult> Delete(Guid id, CancellationToken ct)
     {
-        var deleted = await tokenService.DeleteAsync(UserId, id, ct);
+        var deleted = await tokenService.DeleteAsync(id, ct);
         return deleted ? NoContent() : NotFound();
     }
 }

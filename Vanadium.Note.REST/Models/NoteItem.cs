@@ -33,11 +33,6 @@ public class NoteItem
     [JsonIgnore]
     public bool IsArchiveRoot { get; set; }
 
-    public Guid UserId { get; set; }
-
-    [JsonIgnore]
-    public User? User { get; set; }
-
     public Guid? ParentNoteId { get; set; }
 
     [JsonIgnore]

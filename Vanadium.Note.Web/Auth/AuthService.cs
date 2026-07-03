@@ -8,34 +8,33 @@ public class AuthService(
     JwtAuthenticationStateProvider authProvider,
     ILogger<AuthService> logger)
 {
-    public async Task<bool> LoginAsync(string username, string password)
+    public async Task<bool> LoginAsync(string password)
     {
-        logger.LogInformation("Login attempt for user '{Username}'.", username);
+        logger.LogInformation("Login attempt.");
         try
         {
-            var response = await http.PostAsJsonAsync("api/auth/login", new { username, password });
+            var response = await http.PostAsJsonAsync("api/auth/login", new { password });
             if (!response.IsSuccessStatusCode)
             {
-                logger.LogWarning("Login failed for '{Username}': HTTP {StatusCode}.",
-                    username, (int)response.StatusCode);
+                logger.LogWarning("Login failed: HTTP {StatusCode}.", (int)response.StatusCode);
                 return false;
             }
 
             var result = await response.Content.ReadFromJsonAsync<LoginResult>();
             if (result?.Token is null)
             {
-                logger.LogWarning("Login failed for '{Username}': response contained no token.", username);
+                logger.LogWarning("Login failed: response contained no token.");
                 return false;
             }
 
             await tokenStore.SetAsync(result.Token);
             authProvider.NotifyAuthStateChanged();
-            logger.LogInformation("User '{Username}' logged in successfully.", username);
+            logger.LogInformation("Logged in successfully.");
             return true;
         }
         catch (Exception ex)
         {
-            logger.LogError(ex, "Login request failed for user '{Username}'.", username);
+            logger.LogError(ex, "Login request failed.");
             return false;
         }
     }
