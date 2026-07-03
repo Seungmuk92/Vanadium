@@ -14,23 +14,25 @@ namespace Vanadium.Note.REST.Tests;
 /// </summary>
 public class ArchiveControllerTests
 {
-    private static NotesController CreateNotesController(TestHost h, Guid userId)
+    private static NotesController CreateNotesController(TestHost h)
     {
         var controller = new NotesController(
             h.Notes, h.Labels, h.Db, NullLogger<NotesController>.Instance);
-        controller.ControllerContext = CreateContext(userId);
+        controller.ControllerContext = CreateContext();
         return controller;
     }
 
-    private static LabelsController CreateLabelsController(TestHost h, Guid userId)
+    private static LabelsController CreateLabelsController(TestHost h)
     {
         var controller = new LabelsController(
-            h.Labels, h.Db, NullLogger<LabelsController>.Instance);
-        controller.ControllerContext = CreateContext(userId);
+            h.Labels, NullLogger<LabelsController>.Instance);
+        controller.ControllerContext = CreateContext();
         return controller;
     }
 
-    private static ControllerContext CreateContext(Guid userId)
+    // A minimal context with RequestServices so ControllerBase.Problem() can resolve
+    // ProblemDetailsFactory. There is no user identity in the single-user model.
+    private static ControllerContext CreateContext()
     {
         var services = new ServiceCollection();
         services.AddLogging();
@@ -38,7 +40,7 @@ public class ArchiveControllerTests
         var httpContext = new DefaultHttpContext
         {
             User = new ClaimsPrincipal(new ClaimsIdentity(
-                [new Claim(ClaimTypes.NameIdentifier, userId.ToString())], "Test")),
+                [new Claim(ClaimTypes.Name, AuthController.OwnerName)], "Test")),
             RequestServices = services.BuildServiceProvider()
         };
         return new ControllerContext { HttpContext = httpContext };
@@ -48,10 +50,9 @@ public class ArchiveControllerTests
     public async Task Put_OnArchivedNote_Returns403()
     {
         using var h = new TestHost();
-        var user = await h.CreateUserAsync();
-        var note = await h.CreateNoteAsync(user.Id, "Read-only");
-        await h.Notes.Archive(user.Id, note.Id);
-        var controller = CreateNotesController(h, user.Id);
+        var note = await h.CreateNoteAsync("Read-only");
+        await h.Notes.Archive(note.Id);
+        var controller = CreateNotesController(h);
 
         var result = await controller.Update(note.Id,
             new NoteItem { Title = "Changed", Content = "", UpdatedAt = default });
@@ -64,12 +65,11 @@ public class ArchiveControllerTests
     public async Task AddAndRemoveLabel_OnArchivedNote_Return403()
     {
         using var h = new TestHost();
-        var user = await h.CreateUserAsync();
-        var note = await h.CreateNoteAsync(user.Id, "Read-only");
-        var label = await h.Labels.CreateLabelAsync(user.Id, "todo", null);
-        await h.Labels.AddLabelToNoteAsync(user.Id, note.Id, label.Id);
-        await h.Notes.Archive(user.Id, note.Id);
-        var controller = CreateLabelsController(h, user.Id);
+        var note = await h.CreateNoteAsync("Read-only");
+        var label = await h.Labels.CreateLabelAsync("todo", null);
+        await h.Labels.AddLabelToNoteAsync(note.Id, label.Id);
+        await h.Notes.Archive(note.Id);
+        var controller = CreateLabelsController(h);
 
         var addResult = await controller.AddLabel(note.Id, new AddLabelRequest(label.Id));
         var addObject = Assert.IsType<ObjectResult>(addResult);
@@ -84,10 +84,9 @@ public class ArchiveControllerTests
     public async Task Create_UnderArchivedParent_Returns400()
     {
         using var h = new TestHost();
-        var user = await h.CreateUserAsync();
-        var parent = await h.CreateNoteAsync(user.Id, "Archived parent");
-        await h.Notes.Archive(user.Id, parent.Id);
-        var controller = CreateNotesController(h, user.Id);
+        var parent = await h.CreateNoteAsync("Archived parent");
+        await h.Notes.Archive(parent.Id);
+        var controller = CreateNotesController(h);
 
         var result = await controller.Create(
             new NoteItem { Title = "Orphan", Content = "", ParentNoteId = parent.Id });
@@ -99,11 +98,10 @@ public class ArchiveControllerTests
     public async Task Reparent_OntoArchivedNote_Returns400()
     {
         using var h = new TestHost();
-        var user = await h.CreateUserAsync();
-        var archivedParent = await h.CreateNoteAsync(user.Id, "Archived parent");
-        var note = await h.CreateNoteAsync(user.Id, "Movable");
-        await h.Notes.Archive(user.Id, archivedParent.Id);
-        var controller = CreateNotesController(h, user.Id);
+        var archivedParent = await h.CreateNoteAsync("Archived parent");
+        var note = await h.CreateNoteAsync("Movable");
+        await h.Notes.Archive(archivedParent.Id);
+        var controller = CreateNotesController(h);
 
         var result = await controller.Update(note.Id, new NoteItem
         {
@@ -120,10 +118,9 @@ public class ArchiveControllerTests
     public async Task Archive_OnMissingOrBinnedNote_Returns404()
     {
         using var h = new TestHost();
-        var user = await h.CreateUserAsync();
-        var binned = await h.CreateNoteAsync(user.Id, "Binned");
-        await h.Notes.Delete(user.Id, binned.Id);
-        var controller = CreateNotesController(h, user.Id);
+        var binned = await h.CreateNoteAsync("Binned");
+        await h.Notes.Delete(binned.Id);
+        var controller = CreateNotesController(h);
 
         Assert.IsType<NotFoundResult>(await controller.Archive(Guid.NewGuid()));
         Assert.IsType<NotFoundResult>(await controller.Archive(binned.Id));
@@ -133,9 +130,8 @@ public class ArchiveControllerTests
     public async Task Unarchive_OnActiveNote_Returns404()
     {
         using var h = new TestHost();
-        var user = await h.CreateUserAsync();
-        var note = await h.CreateNoteAsync(user.Id, "Active");
-        var controller = CreateNotesController(h, user.Id);
+        var note = await h.CreateNoteAsync("Active");
+        var controller = CreateNotesController(h);
 
         Assert.IsType<NotFoundResult>(await controller.Unarchive(note.Id));
     }
@@ -144,10 +140,9 @@ public class ArchiveControllerTests
     public async Task DeletePermanent_OnArchivedNotDeletedNote_Returns409()
     {
         using var h = new TestHost();
-        var user = await h.CreateUserAsync();
-        var note = await h.CreateNoteAsync(user.Id, "Archived");
-        await h.Notes.Archive(user.Id, note.Id);
-        var controller = CreateNotesController(h, user.Id);
+        var note = await h.CreateNoteAsync("Archived");
+        await h.Notes.Archive(note.Id);
+        var controller = CreateNotesController(h);
 
         var result = await controller.DeletePermanent(note.Id);
 
@@ -158,10 +153,9 @@ public class ArchiveControllerTests
     public async Task GetArchive_ReturnsPagedRoots()
     {
         using var h = new TestHost();
-        var user = await h.CreateUserAsync();
-        var note = await h.CreateNoteAsync(user.Id, "Stored away");
-        await h.Notes.Archive(user.Id, note.Id);
-        var controller = CreateNotesController(h, user.Id);
+        var note = await h.CreateNoteAsync("Stored away");
+        await h.Notes.Archive(note.Id);
+        var controller = CreateNotesController(h);
 
         var result = await controller.GetArchive();
 

@@ -10,14 +10,6 @@
         <EditForm Model="@_model" OnValidSubmit="HandleLogin">
             <DataAnnotationsValidator />
             <div class="login-field">
-                <input type="text"
-                       class="login-input"
-                       placeholder="Username"
-                       @bind="_model.Username"
-                       @bind:event="oninput"
-                       disabled="@_isLoading" />
-            </div>
-            <div class="login-field">
                 <input type="password"
                        class="login-input"
                        placeholder="Password"
@@ -50,7 +42,7 @@
         _isLoading = true;
         _errorMessage = null;
 
-        var success = await AuthService.LoginAsync(_model.Username, _model.Password);
+        var success = await AuthService.LoginAsync(_model.Password);
 
         if (success)
         {
@@ -59,14 +51,13 @@
         }
         else
         {
-            _errorMessage = "Invalid username or password.";
+            _errorMessage = "Invalid password.";
             _isLoading = false;
         }
     }
 
     private class LoginModel
     {
-        public string Username { get; set; } = string.Empty;
         public string Password { get; set; } = string.Empty;
     }
 }

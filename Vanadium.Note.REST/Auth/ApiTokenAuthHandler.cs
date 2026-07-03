@@ -3,6 +3,7 @@ using System.Text.Encodings.Web;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
+using Vanadium.Note.REST.Controllers;
 using Vanadium.Note.REST.Data;
 using Vanadium.Note.REST.Services;
 
@@ -11,7 +12,7 @@ namespace Vanadium.Note.REST.Auth;
 /// <summary>
 /// Authenticates requests bearing a personal access token (PAT). The plaintext is
 /// hashed and matched against <c>ApiTokens.TokenHash</c>; on success a principal
-/// identical in shape to a JWT principal (Name + NameIdentifier) is produced, so
+/// identical in shape to a JWT principal (a single Name claim) is produced, so
 /// downstream controllers need no PAT-specific logic.
 /// </summary>
 public class ApiTokenAuthHandler(
@@ -51,10 +52,6 @@ public class ApiTokenAuthHandler(
             return AuthenticateResult.Fail("API token has expired.");
         }
 
-        var user = await db.Users.FirstOrDefaultAsync(u => u.Id == record.UserId);
-        if (user is null)
-            return AuthenticateResult.Fail("Token owner no longer exists.");
-
         // Record usage, but avoid a write on every single request.
         var now = DateTime.UtcNow;
         if (record.LastUsedAt is null || now - record.LastUsedAt.Value > TimeSpan.FromMinutes(1))
@@ -63,11 +60,7 @@ public class ApiTokenAuthHandler(
             await db.SaveChangesAsync();
         }
 
-        var claims = new[]
-        {
-            new Claim(ClaimTypes.Name, user.Username),
-            new Claim(ClaimTypes.NameIdentifier, user.Id.ToString())
-        };
+        var claims = new[] { new Claim(ClaimTypes.Name, AuthController.OwnerName) };
         var identity = new ClaimsIdentity(claims, SchemeName);
         var ticket = new AuthenticationTicket(new ClaimsPrincipal(identity), SchemeName);
 
