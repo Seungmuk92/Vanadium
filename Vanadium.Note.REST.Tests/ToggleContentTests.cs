@@ -45,9 +45,8 @@ public class ToggleContentTests
     public async Task ContentText_ToggleFixture_ExtractsSummaryAndHiddenBody_NoAttributeFragments()
     {
         using var h = new TestHost();
-        var user = await h.CreateUserAsync();
 
-        var note = await h.CreateNoteAsync(user.Id, "Toggle note", content: ToggleHtml);
+        var note = await h.CreateNoteAsync("Toggle note", content: ToggleHtml);
         var saved = await h.FindAsync(note.Id);
 
         Assert.Contains("Deployment log 2026-06-11", saved!.ContentText);
@@ -65,9 +64,8 @@ public class ToggleContentTests
     public async Task ContentText_AccordionFixture_ExtractsAllItems()
     {
         using var h = new TestHost();
-        var user = await h.CreateUserAsync();
 
-        var note = await h.CreateNoteAsync(user.Id, "FAQ", content: AccordionHtml);
+        var note = await h.CreateNoteAsync("FAQ", content: AccordionHtml);
         var saved = await h.FindAsync(note.Id);
 
         Assert.Contains("How to rotate JWT secret", saved!.ContentText);
@@ -82,9 +80,8 @@ public class ToggleContentTests
     public async Task ContentText_CollapsibleHeadingFixture_ExtractsFoldedSection()
     {
         using var h = new TestHost();
-        var user = await h.CreateUserAsync();
 
-        var note = await h.CreateNoteAsync(user.Id, "Folded heading", content: CollapsibleHeadingHtml);
+        var note = await h.CreateNoteAsync("Folded heading", content: CollapsibleHeadingHtml);
         var saved = await h.FindAsync(note.Id);
 
         Assert.Contains("Research notes", saved!.ContentText);
@@ -99,11 +96,10 @@ public class ToggleContentTests
     public async Task ContentText_UpdatePath_RecomputedForToggleContent()
     {
         using var h = new TestHost();
-        var user = await h.CreateUserAsync();
-        var note = await h.CreateNoteAsync(user.Id, "Note", content: "<p>plain</p>");
+        var note = await h.CreateNoteAsync("Note", content: "<p>plain</p>");
 
         note.Content = ToggleHtml;
-        var (updated, conflict, archived) = await h.Notes.Update(user.Id, note.Id, note);
+        var (updated, conflict, archived) = await h.Notes.Update(note.Id, note);
 
         Assert.NotNull(updated);
         Assert.False(conflict);
@@ -123,9 +119,8 @@ public class ToggleContentTests
     public async Task Search_TermOnlyInsideCollapsedToggle_IsPresentInContentText()
     {
         using var h = new TestHost();
-        var user = await h.CreateUserAsync();
 
-        var note = await h.CreateNoteAsync(user.Id, "Untitled", content: ToggleHtml);
+        var note = await h.CreateNoteAsync("Untitled", content: ToggleHtml);
         var saved = await h.FindAsync(note.Id);
 
         // "stampede" exists only inside the collapsed (data-open="false") body.
@@ -142,7 +137,6 @@ public class ToggleContentTests
     public async Task OrphanCleanup_FileReferencedOnlyInsideCollapsedToggle_IsKept()
     {
         using var h = new TestHost();
-        var user = await h.CreateUserAsync();
 
         var attachment = new FileAttachment { OriginalName = "full-log.txt", ContentType = "text/plain" };
         h.Db.FileAttachments.Add(attachment);
@@ -157,7 +151,7 @@ public class ToggleContentTests
             "<div data-type=\"toggle-content\" class=\"toggle-content\">" +
             $"<p><a class=\"file-attachment\" data-filename=\"full-log.txt\" href=\"https://localhost/api/files/{attachment.Id}\">📎 full-log.txt</a></p>" +
             "</div></div>";
-        await h.CreateNoteAsync(user.Id, "Note with hidden attachment", content: content);
+        await h.CreateNoteAsync("Note with hidden attachment", content: content);
 
         await h.FileCleanup.DeleteAllOrphansAsync();
 
@@ -169,7 +163,6 @@ public class ToggleContentTests
     public async Task OrphanCleanup_UnreferencedFile_StillRemoved_SanityCheck()
     {
         using var h = new TestHost();
-        var user = await h.CreateUserAsync();
 
         var orphan = new FileAttachment { OriginalName = "orphan.txt", ContentType = "text/plain" };
         h.Db.FileAttachments.Add(orphan);
@@ -177,7 +170,7 @@ public class ToggleContentTests
         var orphanPath = Path.Combine(h.ContentRoot, "uploads", $"file_{orphan.Id}");
         await File.WriteAllTextAsync(orphanPath, "orphan");
 
-        await h.CreateNoteAsync(user.Id, "Unrelated", content: "<p>no references here</p>");
+        await h.CreateNoteAsync("Unrelated", content: "<p>no references here</p>");
 
         await h.FileCleanup.DeleteAllOrphansAsync();
 

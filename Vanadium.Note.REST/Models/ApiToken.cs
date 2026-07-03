@@ -11,8 +11,6 @@ public class ApiToken
 {
     public Guid Id { get; set; }
 
-    public Guid UserId { get; set; }
-
     /// <summary>User-supplied label, e.g. "CI deploy".</summary>
     [MaxLength(100)]
     public string Name { get; set; } = string.Empty;
