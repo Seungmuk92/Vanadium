@@ -50,18 +50,10 @@ public sealed class TestHost : IDisposable
         Account = new AccountService(Db, NullLogger<AccountService>.Instance);
     }
 
-    public async Task<User> CreateUserAsync(string username = "tester")
-    {
-        var user = new User { Id = Guid.NewGuid(), Username = username, PasswordHash = "x" };
-        Db.Users.Add(user);
-        await Db.SaveChangesAsync();
-        return user;
-    }
-
     public async Task<NoteItem> CreateNoteAsync(
-        Guid userId, string title = "Note", Guid? parentId = null, string content = "")
+        string title = "Note", Guid? parentId = null, string content = "")
     {
-        var note = await Notes.Create(userId, new NoteItem
+        var note = await Notes.Create(new NoteItem
         {
             Title = title,
             Content = content,

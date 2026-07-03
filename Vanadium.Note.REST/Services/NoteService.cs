@@ -9,7 +9,6 @@ namespace Vanadium.Note.REST.Services;
 public class NoteService(NoteDbContext db, FileCleanupService fileCleanup, ILogger<NoteService> logger)
 {
     public async Task<PagedResult<NoteSummary>> GetPaged(
-        Guid userId,
         int page,
         int pageSize,
         string? search,
@@ -21,10 +20,10 @@ public class NoteService(NoteDbContext db, FileCleanupService fileCleanup, ILogg
         // When searching, archived notes are included (flagged IsArchived for the badge).
         bool rootOnly = string.IsNullOrWhiteSpace(search);
 
-        var userNotes = db.Notes.Where(n => n.UserId == userId);
+        IQueryable<NoteItem> allNotes = db.Notes;
         var baseNotes = rootOnly
-            ? userNotes.Where(n => n.ParentNoteId == null && n.ArchivedAt == null)
-            : userNotes;
+            ? allNotes.Where(n => n.ParentNoteId == null && n.ArchivedAt == null)
+            : allNotes;
 
         // Lean query for COUNT — no joins to label/category tables
         var countQuery = ApplyFilters(baseNotes, search, labelIds);
@@ -101,10 +100,10 @@ public class NoteService(NoteDbContext db, FileCleanupService fileCleanup, ILogg
         };
     }
 
-    public async Task<List<NoteSummary>> GetAllSummaries(Guid userId, Guid[]? labelIds = null)
+    public async Task<List<NoteSummary>> GetAllSummaries(Guid[]? labelIds = null)
     {
         // The board never shows archived notes.
-        var query = db.Notes.Where(n => n.UserId == userId && n.ArchivedAt == null);
+        var query = db.Notes.Where(n => n.ArchivedAt == null);
 
         // OR logic: notes that have ANY of the specified labels
         if (labelIds is { Length: > 0 })
@@ -142,10 +141,10 @@ public class NoteService(NoteDbContext db, FileCleanupService fileCleanup, ILogg
         }).ToList();
     }
 
-    public async Task<List<NoteSummary>> GetChildren(Guid userId, Guid parentId)
+    public async Task<List<NoteSummary>> GetChildren(Guid parentId)
     {
         var summaries = await db.Notes
-            .Where(n => n.UserId == userId && n.ParentNoteId == parentId && n.ArchivedAt == null)
+            .Where(n => n.ParentNoteId == parentId && n.ArchivedAt == null)
             .OrderByDescending(n => n.UpdatedAt)
             .Select(n => new
             {
@@ -177,13 +176,13 @@ public class NoteService(NoteDbContext db, FileCleanupService fileCleanup, ILogg
         }).ToList();
     }
 
-    public async Task<NoteItem?> Get(Guid userId, Guid id)
+    public async Task<NoteItem?> Get(Guid id)
     {
         var note = await db.Notes
             .Include(n => n.NoteLabels)
             .ThenInclude(nl => nl.Label)
             .ThenInclude(l => l.Category)
-            .FirstOrDefaultAsync(n => n.Id == id && n.UserId == userId);
+            .FirstOrDefaultAsync(n => n.Id == id);
 
         if (note is null) return null;
 
@@ -201,10 +200,9 @@ public class NoteService(NoteDbContext db, FileCleanupService fileCleanup, ILogg
         return note;
     }
 
-    public async Task<NoteItem> Create(Guid userId, NoteItem note)
+    public async Task<NoteItem> Create(NoteItem note)
     {
         note.Id = Guid.NewGuid();
-        note.UserId = userId;
         note.UpdatedAt = UtcNowMicroseconds();
         note.ContentText = StripHtml(note.Content);
         db.Notes.Add(note);
@@ -212,9 +210,9 @@ public class NoteService(NoteDbContext db, FileCleanupService fileCleanup, ILogg
         return note;
     }
 
-    public async Task<(NoteItem? Note, bool Conflict, bool Archived)> Update(Guid userId, Guid id, NoteItem note)
+    public async Task<(NoteItem? Note, bool Conflict, bool Archived)> Update(Guid id, NoteItem note)
     {
-        var existing = await db.Notes.FirstOrDefaultAsync(n => n.Id == id && n.UserId == userId);
+        var existing = await db.Notes.FirstOrDefaultAsync(n => n.Id == id);
         if (existing is null) return (null, false, false);
 
         // Archived notes are read-only. Checked before the concurrency check so a
@@ -340,10 +338,10 @@ public class NoteService(NoteDbContext db, FileCleanupService fileCleanup, ILogg
         return false;
     }
 
-    public async Task<List<MentionSuggestionDto>> SearchForMention(Guid userId, string query, int limit = 10)
+    public async Task<List<MentionSuggestionDto>> SearchForMention(string query, int limit = 10)
     {
         // Mentions target active work — archived notes are excluded.
-        var q = db.Notes.Where(n => n.UserId == userId && n.ArchivedAt == null);
+        var q = db.Notes.Where(n => n.ArchivedAt == null);
         if (!string.IsNullOrWhiteSpace(query))
         {
             var pattern = $"%{EscapeLikePattern(query.Trim())}%";
@@ -362,7 +360,7 @@ public class NoteService(NoteDbContext db, FileCleanupService fileCleanup, ILogg
     /// Archived notes are INCLUDED (no <c>ArchivedAt == null</c> predicate); the default
     /// <c>DeletedAt == null</c> global filter excludes Recycle Bin notes — no opt-out needed.
     /// </summary>
-    public async Task<List<QuickNavResult>> QuickSearch(Guid userId, string query, int limit = 20)
+    public async Task<List<QuickNavResult>> QuickSearch(string query, int limit = 20)
     {
         var terms = (query ?? string.Empty).Trim()
             .Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
@@ -371,7 +369,7 @@ public class NoteService(NoteDbContext db, FileCleanupService fileCleanup, ILogg
         limit = Math.Clamp(limit, 1, 50);
 
         // Global filter hides Recycle Bin notes. No n.ArchivedAt == null → archived INCLUDED (FR-4).
-        var q = db.Notes.Where(n => n.UserId == userId);
+        IQueryable<NoteItem> q = db.Notes;
         foreach (var term in terms)
         {
             var pattern = $"%{EscapeLikePattern(term)}%";
@@ -431,9 +429,9 @@ public class NoteService(NoteDbContext db, FileCleanupService fileCleanup, ILogg
     /// References in other notes and uploaded files are left untouched so a
     /// restore is lossless; cleanup is deferred to permanent deletion.
     /// </summary>
-    public async Task<bool> Delete(Guid userId, Guid id)
+    public async Task<bool> Delete(Guid id)
     {
-        var note = await db.Notes.FirstOrDefaultAsync(n => n.Id == id && n.UserId == userId);
+        var note = await db.Notes.FirstOrDefaultAsync(n => n.Id == id);
         if (note is null) return false;
 
         var deletedAt = UtcNowMicroseconds();
@@ -456,10 +454,10 @@ public class NoteService(NoteDbContext db, FileCleanupService fileCleanup, ILogg
         return true;
     }
 
-    public async Task<PagedResult<RecycleBinNoteSummary>> GetRecycleBin(Guid userId, int page, int pageSize)
+    public async Task<PagedResult<RecycleBinNoteSummary>> GetRecycleBin(int page, int pageSize)
     {
         var query = db.Notes.IgnoreQueryFilters()
-            .Where(n => n.UserId == userId && n.DeletedAt != null && n.IsDeletionRoot);
+            .Where(n => n.DeletedAt != null && n.IsDeletionRoot);
 
         var totalCount = await query.CountAsync();
 
@@ -505,11 +503,11 @@ public class NoteService(NoteDbContext db, FileCleanupService fileCleanup, ILogg
     /// with it (same DeletedAt). If the original parent is missing or itself
     /// soft-deleted, the note is reattached as a root note.
     /// </summary>
-    public async Task<bool> Restore(Guid userId, Guid id)
+    public async Task<bool> Restore(Guid id)
     {
         var note = await db.Notes.IgnoreQueryFilters()
             .FirstOrDefaultAsync(n =>
-                n.Id == id && n.UserId == userId && n.DeletedAt != null && n.IsDeletionRoot);
+                n.Id == id && n.DeletedAt != null && n.IsDeletionRoot);
         if (note is null) return false;
 
         var groupDeletedAt = note.DeletedAt!.Value;
@@ -549,9 +547,9 @@ public class NoteService(NoteDbContext db, FileCleanupService fileCleanup, ILogg
     /// note is a no-op. Returns false when the note is not found (or is in the
     /// recycle bin, which the global filter hides from this lookup).
     /// </summary>
-    public async Task<bool> Archive(Guid userId, Guid id)
+    public async Task<bool> Archive(Guid id)
     {
-        var note = await db.Notes.FirstOrDefaultAsync(n => n.Id == id && n.UserId == userId);
+        var note = await db.Notes.FirstOrDefaultAsync(n => n.Id == id);
         if (note is null) return false;
         if (note.ArchivedAt is not null) return true; // idempotent no-op
 
@@ -585,10 +583,10 @@ public class NoteService(NoteDbContext db, FileCleanupService fileCleanup, ILogg
     /// reattached as a root note. Returns false when the note is not found or
     /// not archived.
     /// </summary>
-    public async Task<bool> Unarchive(Guid userId, Guid id)
+    public async Task<bool> Unarchive(Guid id)
     {
         var note = await db.Notes.FirstOrDefaultAsync(n =>
-            n.Id == id && n.UserId == userId && n.ArchivedAt != null);
+            n.Id == id && n.ArchivedAt != null);
         if (note is null) return false;
 
         var groupArchivedAt = note.ArchivedAt!.Value;
@@ -623,10 +621,10 @@ public class NoteService(NoteDbContext db, FileCleanupService fileCleanup, ILogg
     /// Paged list of archive roots, newest first. The global filter automatically
     /// excludes archived notes that are currently in the recycle bin.
     /// </summary>
-    public async Task<PagedResult<ArchivedNoteSummary>> GetArchive(Guid userId, int page, int pageSize)
+    public async Task<PagedResult<ArchivedNoteSummary>> GetArchive(int page, int pageSize)
     {
         var query = db.Notes
-            .Where(n => n.UserId == userId && n.ArchivedAt != null && n.IsArchiveRoot);
+            .Where(n => n.ArchivedAt != null && n.IsArchiveRoot);
 
         var totalCount = await query.CountAsync();
 
@@ -671,10 +669,10 @@ public class NoteService(NoteDbContext db, FileCleanupService fileCleanup, ILogg
     /// Permanently deletes a soft-deleted note. Returns (Found, WasInRecycleBin):
     /// active notes are refused so the recycle bin cannot be bypassed.
     /// </summary>
-    public async Task<(bool Found, bool WasInRecycleBin)> DeletePermanent(Guid userId, Guid id)
+    public async Task<(bool Found, bool WasInRecycleBin)> DeletePermanent(Guid id)
     {
         var note = await db.Notes.IgnoreQueryFilters()
-            .FirstOrDefaultAsync(n => n.Id == id && n.UserId == userId);
+            .FirstOrDefaultAsync(n => n.Id == id);
         if (note is null) return (false, false);
         if (note.DeletedAt is null) return (true, false);
 
@@ -683,10 +681,10 @@ public class NoteService(NoteDbContext db, FileCleanupService fileCleanup, ILogg
     }
 
     /// <summary>Permanently deletes every soft-deleted note of the user. Returns the root count.</summary>
-    public async Task<int> EmptyRecycleBin(Guid userId)
+    public async Task<int> EmptyRecycleBin()
     {
         var rootIds = await db.Notes.IgnoreQueryFilters()
-            .Where(n => n.UserId == userId && n.DeletedAt != null && n.IsDeletionRoot)
+            .Where(n => n.DeletedAt != null && n.IsDeletionRoot)
             .Select(n => n.Id)
             .ToListAsync();
 
@@ -702,7 +700,7 @@ public class NoteService(NoteDbContext db, FileCleanupService fileCleanup, ILogg
             purged++;
         }
 
-        logger.LogInformation("Recycle Bin emptied for user {UserId}: {Count} note(s) purged.", userId, purged);
+        logger.LogInformation("Recycle Bin emptied: {Count} note(s) purged.", purged);
         return purged;
     }
 

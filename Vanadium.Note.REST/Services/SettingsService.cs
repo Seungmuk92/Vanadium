@@ -11,23 +11,24 @@ public class SettingsService(NoteDbContext db)
     private static readonly int[] AllowedPageSizes = [10, 20, 30, 50];
     private static readonly string[] AllowedThemes = ["system", "light", "dark"];
 
-    public async Task<UserSettings> GetAsync(string username)
+    // Single-user app: settings are a singleton — the one and only row (if any).
+    public async Task<UserSettings> GetAsync()
     {
-        return await db.UserSettings.FirstOrDefaultAsync(s => s.Username == username)
-            ?? new UserSettings { Username = username };
+        return await db.UserSettings.FirstOrDefaultAsync()
+            ?? new UserSettings();
     }
 
-    public async Task<UserSettings> UpsertAsync(string username, UserSettings incoming)
+    public async Task<UserSettings> UpsertAsync(UserSettings incoming)
     {
         var sortBy = AllowedSortBy.Contains(incoming.DefaultSortBy) ? incoming.DefaultSortBy : "date";
         var sortDir = AllowedSortDir.Contains(incoming.DefaultSortDir) ? incoming.DefaultSortDir : "desc";
         var pageSize = AllowedPageSizes.Contains(incoming.DefaultPageSize) ? incoming.DefaultPageSize : 30;
         var theme = AllowedThemes.Contains(incoming.Theme) ? incoming.Theme : "system";
 
-        var existing = await db.UserSettings.FirstOrDefaultAsync(s => s.Username == username);
+        var existing = await db.UserSettings.FirstOrDefaultAsync();
         if (existing is null)
         {
-            existing = new UserSettings { Id = Guid.NewGuid(), Username = username };
+            existing = new UserSettings { Id = Guid.NewGuid() };
             db.UserSettings.Add(existing);
         }
 
