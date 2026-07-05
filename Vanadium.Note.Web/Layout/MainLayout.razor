@@ -156,8 +156,27 @@
     private async Task ToggleDarkMode()
     {
         var isDark = !_isDarkMode;
+        var theme = isDark ? "dark" : "light";
         await JS.InvokeVoidAsync("setDarkMode", isDark);
+        await JS.InvokeVoidAsync("storeTheme", theme);
         ThemeService.SetDarkMode(isDark);
+
+        // When logged in, persist the toggle to the saved settings so it
+        // survives a reload (LoadThemeAsync re-reads the server value).
+        var state = await AuthStateProvider.GetAuthenticationStateAsync();
+        if (state.User.Identity?.IsAuthenticated == true)
+        {
+            var result = await SettingsService.GetAsync();
+            if (result.IsSuccess)
+            {
+                var settings = result.Value!;
+                if (settings.Theme != theme)
+                {
+                    settings.Theme = theme;
+                    await SettingsService.SaveAsync(settings);
+                }
+            }
+        }
     }
 
     public async ValueTask DisposeAsync()
