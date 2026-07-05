@@ -44,12 +44,9 @@
     </div>
 
     <div class="user-footer">
+        <span class="app-version">v@(AppVersion)</span>
         @if (_username is not null)
         {
-            <MudAvatar Color="Color.Primary" Size="Size.Small">
-                @char.ToUpper(_username[0]).ToString()
-            </MudAvatar>
-            <span class="user-name">@_username</span>
             <MudTooltip Text="Settings" Placement="Placement.Right">
                 <MudIconButton Icon="@Icons.Material.Filled.Settings"
                                Color="Color.Inherit"
@@ -63,22 +60,15 @@
                                OnClick="Logout" />
             </MudTooltip>
         }
-        else
-        {
-            <MudButton Href="/login"
-                       StartIcon="@Icons.Material.Filled.Login"
-                       Color="Color.Inherit"
-                       FullWidth="true"
-                       Class="justify-start">
-                Login
-            </MudButton>
-        }
     </div>
 </div>
 
 @code {
     [CascadingParameter(Name = "IsDarkMode")] public bool IsDarkMode { get; set; }
     [CascadingParameter(Name = "ToggleDarkMode")] public EventCallback ToggleDarkMode { get; set; }
+
+    private static readonly string AppVersion =
+        typeof(NavMenu).Assembly.GetName().Version?.ToString(3) ?? "dev";
 
     private bool collapseNavMenu = true;
     private string? _username;
