@@ -177,7 +177,7 @@
     border: 1px solid var(--mud-palette-divider);
     border-radius: 999px;
     opacity: 0.6;
-    margin-left: 0.25rem;
+    margin-left: auto;
 }
 
 .row-archive-btn {
@@ -185,7 +185,7 @@
     visibility: hidden;
     height: 22px;
     padding: 0 7px;
-    margin-left: 0.4rem;
+    margin-left: auto;
     border: 1px solid var(--mud-palette-divider);
     background: transparent;
     border-radius: 4px;
@@ -295,6 +295,8 @@
 /* ── Note label chips (in list rows) ────────────────────────────────────── */
 
 .note-title-text {
+    flex: 1 1 auto;
+    min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
