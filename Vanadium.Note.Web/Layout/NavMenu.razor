@@ -7,11 +7,7 @@
 <div class="top-row ps-3 navbar navbar-dark">
     <div class="container-fluid">
         <a class="navbar-brand" href="">Vanadium Note</a>
-        <MudIconButton Icon="@(IsDarkMode ? Icons.Material.Filled.LightMode : Icons.Material.Filled.DarkMode)"
-                       Color="Color.Inherit"
-                       OnClick="@(() => ToggleDarkMode.InvokeAsync())"
-                       Class="ms-auto me-1" />
-        <button title="Navigation menu" class="navbar-toggler" @onclick="ToggleNavMenu">
+        <button title="Navigation menu" class="navbar-toggler ms-auto" @onclick="ToggleNavMenu">
             <span class="navbar-toggler-icon"></span>
         </button>
     </div>
@@ -45,6 +41,12 @@
 
     <div class="user-footer">
         <span class="app-version">v@(AppVersion)</span>
+        <MudTooltip Text="@(IsDarkMode ? "Light mode" : "Dark mode")" Placement="Placement.Right">
+            <MudIconButton Icon="@(IsDarkMode ? Icons.Material.Filled.LightMode : Icons.Material.Filled.DarkMode)"
+                           Color="Color.Inherit"
+                           Size="Size.Small"
+                           OnClick="@(() => ToggleDarkMode.InvokeAsync())" />
+        </MudTooltip>
         @if (_username is not null)
         {
             <MudTooltip Text="Settings" Placement="Placement.Right">
