@@ -90,6 +90,13 @@
     color: var(--mud-palette-drawer-text);
 }
 
+.app-version {
+    flex: 1;
+    font-size: 0.7rem;
+    color: var(--mud-palette-text-disabled);
+    text-align: left;
+}
+
 @media (min-width: 641px) {
     .navbar-toggler {
         display: none;
