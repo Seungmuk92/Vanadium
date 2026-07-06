@@ -1,0 +1,57 @@
+name: 버그 리포트
+description: 잘못된 동작을 신고합니다. Claude가 /fix-issue 워크플로우로 수정합니다.
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: textarea
+    id: current
+    attributes:
+      label: 현재 동작
+      description: 무엇이 잘못되는지. 에러 메시지/로그가 있으면 그대로 붙여주세요.
+      placeholder: 예) 아카이브된 노트가 mention 검색 결과에 나타남
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: 재현 절차
+      value: |
+        1.
+        2.
+        3.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: 기대 동작
+      description: 어떻게 되어야 하는지.
+    validations:
+      required: true
+  - type: textarea
+    id: location
+    attributes:
+      label: 관련 위치 (아는 만큼)
+      description: 파일·메서드·문서 경로를 지목해주면 수정 정확도가 올라갑니다.
+      placeholder: |
+        - 파일/메서드: Vanadium.Note.REST/Services/NoteService.cs → SearchForMention
+        - 참고 문서: docs/plannings/note-archive-feature.md
+    validations:
+      required: false
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: 완료 조건 (Acceptance Criteria)
+      description: 참/거짓으로 판정 가능한 문장으로 작성해주세요.
+      value: |
+        - [ ]
+        - [ ]
+    validations:
+      required: true
+  - type: textarea
+    id: out-of-scope
+    attributes:
+      label: 범위 밖 (건드리지 말 것)
+      placeholder: "예) 리프레시 토큰 도입 금지, appsettings.Development.json 이동 금지"
+    validations:
+      required: false

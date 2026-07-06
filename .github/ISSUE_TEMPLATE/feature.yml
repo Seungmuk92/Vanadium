@@ -1,0 +1,50 @@
+name: 기능 / 개선
+description: 새 기능이나 개선 사항을 제안합니다. Claude가 /fix-issue 워크플로우로 구현합니다.
+title: "[Feat] "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: purpose
+    attributes:
+      label: 목적 / 배경
+      description: 왜 필요한지, 어떤 사용자 흐름인지.
+    validations:
+      required: true
+  - type: textarea
+    id: requirements
+    attributes:
+      label: 요구사항
+      value: |
+        - [ ]
+        - [ ]
+    validations:
+      required: true
+  - type: textarea
+    id: location
+    attributes:
+      label: 관련 위치 (아는 만큼)
+      description: 프론트·백엔드 진입점이나 참고 문서를 지목해주세요.
+      placeholder: |
+        - 프론트: Vanadium.Note.Web/Pages/Archive.razor
+        - 백엔드: NotesController + NoteService
+        - 참고 문서: docs/plannings/...
+    validations:
+      required: false
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: 완료 조건 (Acceptance Criteria)
+      value: |
+        - [ ] 빌드 클린 (dotnet build Vanadium.slnx)
+        - [ ] (스키마 변경 시) EF Core 마이그레이션 추가
+        - [ ]
+    validations:
+      required: true
+  - type: textarea
+    id: constraints
+    attributes:
+      label: 범위 밖 / 제약
+      description: CLAUDE.md의 제약을 함께 명시하면 과도한 수정을 막습니다.
+      placeholder: "예) Vanadium.Note.Shared 프로젝트 신설 금지, JWT issuer/audience 검증 추가 금지"
+    validations:
+      required: false
