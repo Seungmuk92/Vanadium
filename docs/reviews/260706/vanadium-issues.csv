@@ -1,0 +1,201 @@
+﻿Create(Y),Label,Milestone,Title,Body
+Y,bug,1.0.0 배포 준비,노트 생성 시 오버포스팅으로 보이지 않는 purge 대상 노트 생성,"**문제 (Problem)**
+NotesController.Create가 NoteItem을 직접 바인딩. body에 deletedAt/archivedAt을 넣으면 IsDeletionRoot=false로 soft-delete된 노트 생성 — 휴지통에도 안 보이고 복원 불가, RecycleBinPurgeJob이 조용히 영구 삭제.
+
+**수정 (Fix)**
+NoteService.Create에서 상태 필드 강제 초기화: DeletedAt=null; IsDeletionRoot=false; ArchivedAt=null; IsArchiveRoot=false. 서버 소유 필드도 null 처리."
+Y,bug,1.0.0 배포 준비,서버 사이드 HTML 새니타이징 부재 → PAT-세션 권한 상승,"**문제 (Problem)**
+노트 HTML이 그대로 저장. 유출된 API 토큰이 <script>를 심으면 소유자 브라우저에서 실행 → localStorage JWT 탈취 → DELETE /api/settings/all-data 도달.
+
+**수정 (Fix)**
+Ganss.Xss(HtmlSanitizer) 추가. 중앙 IHtmlSanitizerService. Create/Update에서 새니타이즈. 허용목록은 Tiptap 스키마 미러링 — data-type/data-* 절대 제거 금지."
+Y,bug,1.0.0 배포 준비,tiptap-editor.js의 innerHTML XSS 싱크,"**문제 (Problem)**
+멘션 메뉴(line 480, 노트 제목 보간), 업로드 토스트(line 1453, 파일명), Mermaid 에러(line ~700)에서 innerHTML 사용. 제목이 <img src=x onerror=...>면 실행.
+
+**수정 (Fix)**
+사용자 유래 문자열을 textContent/createElement로 교체(~15줄)."
+Y,bug,1.0.0 배포 준비,SubNoteDialog가 마지막 1.5초 편집분을 조용히 폐기,"**문제 (Problem)**
+Close()/Dispose()가 debounce CTS를 flush 없이 취소. 버튼/Esc/백드롭으로 닫으면 대기 내용 유실되는데 상태는 Unsaved changes로 남음.
+
+**수정 (Fix)**
+저장 대기 시 Close()에서 await DoAutoSave() 후 CTS 취소. flush 완료 후에만 상태 해제."
+Y,bug,1.0.0 배포 준비,Ctrl+K 이중 바인딩 — 링크 팝오버와 퀵내브 동시 발동,"**문제 (Problem)**
+tiptap-editor.js:1768이 Ctrl/Cmd+K에서 preventDefault만 하고 stopPropagation 없이 링크 팝오버 오픈 → 전역 핸들러로 버블 → 퀵내브 밑에 링크 팝오버.
+
+**수정 (Fix)**
+에디터 리스너에 e.stopPropagation() 추가. 링크를 Ctrl+Shift+K로 이동 검토."
+Y,bug,1.0.0 배포 준비,오펀 파일 정리가 방금 업로드한 파일을 삭제,"**문제 (Problem)**
+DeleteAllOrphansAsync가 유예 기간 없이 미참조 파일을 오펀 처리. 아직 저장 안 된 파일(자동 저장 1500ms, 작성 중)이 스캔되면 삭제. UploadedAt 미참조.
+
+**수정 (Fix)**
+~1h 유예 창 도입. UploadedAt/CreationTimeUtc가 창 내인 파일 스킵. 설정 가능(FileCleanup:GraceMinutes, 기본 60)."
+Y,bug,1.0.0 배포 준비,컨테이너 재생성 시 업로드 파일 유실,"**문제 (Problem)**
+UploadsPath가 컨테이너 파일시스템에 있고 rest 서비스에 볼륨 정의 없음. 이미지 업데이트마다 업로드 파일 파괴, FileAttachments 행은 생존(404).
+
+**수정 (Fix)**
+/app/uploads 네임드 볼륨 추가. Dockerfile 비루트 USER, 베이스 이미지 태그 고정, :latest 제거."
+Y,bug,1.0.0 배포 준비,탭 닫기 시 미저장 변경 보호 부재,"**문제 (Problem)**
+앱 JS에 beforeunload 핸들러 없음. NoteEditor.DisposeAsync는 앱 내 내비게이션만 커버, debounce 창에서 탭 닫으면 데이터 유실.
+
+**수정 (Fix)**
+_hasPendingChanges가 true인 동안 beforeunload 등록/해제."
+Y,enhancement,1.0.0 배포 준비,JwtSecret 시작 시 미검증,"**문제 (Problem)**
+빈 문자열 기본값이 null 체크를 통과하고 나중에 불투명 에러로 실패. 짧은 시크릿은 HS256 약화.
+
+**수정 (Fix)**
+시작 시 Length>=32 검증, 빈 값/짧은 값 fail-fast."
+Y,enhancement,1.0.0 배포 준비,PBKDF2 100k 반복은 OWASP 권고(600k) 미달,"**문제 (Problem)**
+반복 상향은 재해싱 필요.
+
+**수정 (Fix)**
+저장 포맷에 반복 횟수 인코딩(salt:hash:iterations)하여 향후 상향 가능하게."
+Y,enhancement,1.0.0 배포 준비,로그인 rate limiter가 단일 전역 버킷,"**문제 (Problem)**
+누구나 10 junk req/min으로 소유자 락아웃 가능.
+
+**수정 (Fix)**
+클라이언트 IP로 파티션(ForwardedHeaders 필요, M4)."
+Y,enhancement,1.0.0 배포 준비,HTTPS 리다이렉트/HSTS/ForwardedHeaders/보안 헤더 부재,"**문제 (Problem)**
+TLS 프록시 가정 시 IP/scheme 부정확.
+
+**수정 (Fix)**
+UseForwardedHeaders 추가, 최소 X-Content-Type-Options: nosniff. HSTS/HTTPS 리다이렉트 검토."
+Y,bug,1.0.0 배포 준비,ImagesController.Get이 인증 엔드포인트에 Cache-Control: public,"**문제 (Problem)**
+공유 프록시가 비공개 이미지를 캐시할 수 있음.
+
+**수정 (Fix)**
+ResponseCacheLocation.Client 사용."
+Y,bug,1.0.0 배포 준비,멘션 스트리핑이 휴지통 노트를 누락,"**문제 (Problem)**
+StripMentionReferencesAsync/UpdatePageLinkReferences가 DeletedAt==null 필터로 조회 — IgnoreQueryFilters() 규칙 위반. 복원된 노트가 죽은 멘션/오래된 page-link 제목 보유.
+
+**수정 (Fix)**
+IgnoreQueryFilters() 추가로 휴지통 노트 포함."
+Y,bug,1.0.0 배포 준비,HardDeleteAsync 다중 저장이 트랜잭션 없이 실행,"**문제 (Problem)**
+실패 시 부분 완료 가능.
+
+**수정 (Fix)**
+AccountService처럼 execution strategy + 트랜잭션으로 래핑."
+Y,bug,1.0.0 배포 준비,세션 중 401이 작업과 컨텍스트를 유실,"**문제 (Problem)**
+AuthTokenHandler가 returnUrl 없이 /login 리다이렉트. NoteEditor dispose, flush 저장이 토큰 없이 재전송되어 실패.
+
+**수정 (Fix)**
+returnUrl 추가, 대기 내용을 sessionStorage에 보관 후 재로그인 시 복원."
+Y,bug,1.0.0 배포 준비,로그인이 401/429/네트워크를 'Invalid password'로 뭉뚱그림,"**문제 (Problem)**
+rate-limited/오프라인 사용자가 비밀번호 틀렸다고 안내받음.
+
+**수정 (Fix)**
+판별 가능한 결과(discriminated result) 반환."
+Y,bug,1.0.0 배포 준비,모든 노트 로드 실패를 404로 취급,"**문제 (Problem)**
+NoteEditor가 일시적 500/네트워크 blip에도 recents 정리 후 홈 리다이렉트.
+
+**수정 (Fix)**
+GetAsync를 상태 인식하게, 실제 404에서만 정리."
+Y,bug,1.0.0 배포 준비,수동 저장이 자동 저장과 경합,"**문제 (Problem)**
+SaveNote()가 _isSaving 가드 우회 → 자동 저장 중 Ctrl+S 시 잘못된 409 배너. 2s Saved 지연이 다음 저장 블록.
+
+**수정 (Fix)**
+저장 경로 단일 가드로 통합, 코스메틱 지연이 락 잡지 않게."
+Y,enhancement,1.0.0 배포 준비,"에디터 스택을 런타임에 CDN에서 로드, 일부 버전 미고정","**문제 (Problem)**
+prosemirror-state, prosemirror-view, lowlight, tiptap-markdown 버전 미고정. 오프라인/CDN 장애 시 사용 불가, 업스트림 배포로 깨질 수 있음, init 실패는 콘솔뿐(죽은 div).
+
+**수정 (Fix)**
+미고정 import 정확한 버전 고정. init 실패 시 'Editor failed to load — Retry' 배너. (백로그: 로컬 번들링)"
+Y,enhancement,1.0.0 배포 준비,키보드 접근성 갭,"**문제 (Problem)**
+Home 행/정렬 헤더/확장 버튼이 click-only div. QuickNavDialog role/aria-modal 없음. Board 다이얼로그 focus trap 없음.
+
+**수정 (Fix)**
+제목은 anchor, 헤더는 button, 팔레트에 aria, 다이얼로그 focus trap."
+Y,enhancement,1.0.0 배포 준비,확인 UX 불일치,"**문제 (Problem)**
+네이티브 confirm() vs 스타일드 ConfirmDialog 혼재. NoteEditor.DeleteNote는 자식 없을 때 확인 없음.
+
+**수정 (Fix)**
+공유 confirm 서비스로 추출."
+Y,enhancement,1.0.0 배포 준비,컴포넌트 중복,"**문제 (Problem)**
+페이지네이션 ×3, ConfirmAsync ×2, ~55줄 라벨 피커 중복, 자동 저장 배관 중복(SubNoteDialog는 재진입 가드 없음).
+
+**수정 (Fix)**
+Pagination/LabelPicker/confirm helper 추출, 자동 저장 공유 헬퍼로 통합."
+Y,enhancement,1.0.0 배포 준비,모바일/반응형 미지원,"**문제 (Problem)**
+페이지 레벨 미디어쿼리 없음. 좁은 화면에서 테이블/보드/에디터 헤더 오버플로.
+
+**수정 (Fix)**
+데스크톱 전용이 의도면 CLAUDE.md에 명시, 아니면 반응형 추가."
+Y,bug,1.0.0 배포 준비,에디터 클로저가 오래된 토큰 캡처,"**문제 (Problem)**
+토큰이 tiptapInterop.init에서 1회 페치. 만료+재로그인 후 열린 에디터가 이미지 로드/업로드 조용히 실패.
+
+**수정 (Fix)**
+dotnetRef로 작업마다 토큰 페치."
+Y,enhancement,1.0.0 배포 준비,에러 계약 불일치,"**문제 (Problem)**
+ProblemDetails, {message}, {error}, bare-string BadRequest 혼재.
+
+**수정 (Fix)**
+ProblemDetails로 표준화."
+Y,enhancement,1.0.0 배포 준비,로드 실패/로딩 상태 부재,"**문제 (Problem)**
+Home이 로드 실패 후 'No notes yet' 표시, Board 로딩 상태 없음.
+
+**수정 (Fix)**
+실패/로딩 상태 추가."
+Y,bug,1.0.0 배포 준비,검색 placeholder가 실제 범위와 불일치,"**문제 (Problem)**
+'Search by title...'이나 검색은 제목+내용 커버.
+
+**수정 (Fix)**
+문구 수정."
+Y,enhancement,1.0.0 배포 준비,동시성 체크가 인메모리 read-then-write,"**문제 (Problem)**
+-
+
+**수정 (Fix)**
+UpdatedAt에 [ConcurrencyCheck] 추가."
+Y,enhancement,1.0.0 배포 준비,MainLayout/NavMenu의 async void 인증 핸들러,"**문제 (Problem)**
+-
+
+**수정 (Fix)**
+async void auth-state 핸들러를 try/catch로 래핑."
+Y,enhancement,1.0.0 배포 준비,tiptap-editor.js 2064줄 모놀리스,"**문제 (Problem)**
+이미 ES 모듈.
+
+**수정 (Fix)**
+빌드 스텝 없이 nodes/*.js, upload.js, interop.js로 분할."
+Y,enhancement,1.0.0 배포 준비,멘션 제안이 매 키스트로크마다 API 호출,"**문제 (Problem)**
+-
+
+**수정 (Fix)**
+~150ms 디바운스 추가."
+Y,enhancement,1.0.0 배포 준비,TokenStore 캐시가 탭 간 재조회 안 함,"**문제 (Problem)**
+-
+
+**수정 (Fix)**
+storage 리스너로 탭 간 로그아웃 동기화."
+Y,enhancement,1.0.0 배포 준비,무제한 문자열 컬럼,"**문제 (Problem)**
+FileAttachment.OriginalName/ContentType, ApiToken.TokenHash.
+
+**수정 (Fix)**
+[MaxLength] 추가."
+Y,enhancement,1.0.0 배포 준비,FileCleanupService가 전체 노트 내용을 단일 문자열로 로드,"**문제 (Problem)**
+현재는 무방.
+
+**수정 (Fix)**
+per-GUID AnyAsync(Contains)가 확장성 좋음."
+Y,enhancement,1.0.0 배포 준비,데드 코드 — FilesController.Upload의 도달 불가 content-type 폴백,"**문제 (Problem)**
+~line 74의 도달 불가 폴백.
+
+**수정 (Fix)**
+제거."
+Y,enhancement,1.0.0 배포 준비,프로덕션 JS 경로의 콘솔 노이즈,"**문제 (Problem)**
+-
+
+**수정 (Fix)**
+console.log → console.debug."
+Y,enhancement,1.0.0 배포 준비,CLAUDE.md 문서 불일치,"**문제 (Problem)**
+미들웨어 순서 표기 오류, 필수 docker 환경변수에 AUTH_PASSWORD_HASH 누락, 이미지 저장 포맷 미문서화.
+
+**수정 (Fix)**
+전부 수정."
+Y,enhancement,1.0.0 배포 준비,CancellationToken 배관 불일치,"**문제 (Problem)**
+ApiToken/cleanup 경로엔 있으나 대부분 NoteService/컨트롤러엔 없음.
+
+**수정 (Fix)**
+일관되게 배관."
+Y,enhancement,1.0.0 배포 준비,백링크 패널 (what links here),"**문제 (Problem)**
+멘션 데이터 존재하나 UI/엔드포인트 없음.
+
+**수정 (Fix)**
+-"
