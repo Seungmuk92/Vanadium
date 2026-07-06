@@ -508,5 +508,9 @@ $RECYCLE.BIN/
 # Uncomment if you do not want to share launch settings across the team:
 #**/Properties/launchSettings.json
 
-# Claude Code memory (if .claude/ is ever created inside the repo)
-.claude/
+# Claude Code — ignore local state, but track shared config/skills
+.claude/*
+!.claude/skills/
+!.claude/commands/
+!.claude/settings.json
+.claude/settings.local.json
