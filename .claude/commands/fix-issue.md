@@ -7,7 +7,15 @@ You are fixing GitHub issue **#$ARGUMENTS** in this repository. Follow this work
 
 ## 1. Read the issue
 
-Fetch issue #$ARGUMENTS (`gh issue view $ARGUMENTS`). Understand the type (bug / feature / enhancement), the reported problem, and expected behavior. Summarize your understanding before touching code.
+Fetch issue #$ARGUMENTS with `gh issue view $ARGUMENTS`. Issues follow the repo's issue-form templates (`.github/ISSUE_TEMPLATE/`), so map their sections directly:
+
+- **Type** — take it from the title prefix `[Bug]` / `[Feat]` (or the `bug` / `enhancement` label). This determines the branch prefix in step 2. Do not re-guess from prose.
+- **현재 동작 / 재현 절차 / 기대 동작** (bug) or **목적 / 배경 / 요구사항** (feat) — the problem to solve.
+- **관련 위치 (아는 만큼)** — starting points for your search. If it is empty or shows `_No response_`, locate the relevant code yourself.
+- **완료 조건 (Acceptance Criteria)** — the checklist your fix MUST satisfy. Carry it into the Verification step and confirm each item.
+- **범위 밖 (건드리지 말 것) / 제약** — hard boundaries. Do NOT modify anything listed here even if it looks related.
+
+Restate your understanding (type, root-cause hypothesis, acceptance criteria, out-of-scope) before touching code. If a required section is missing or self-contradictory, ask before proceeding rather than guessing.
 
 ## 2. Create a branch
 
@@ -43,5 +51,7 @@ Create a pull request (`gh pr create`) targeting the default branch. Title and b
 
 ## Verification (before pushing)
 
+- Every item under **완료 조건 (Acceptance Criteria)** is satisfied — verify each explicitly.
+- No file listed under **범위 밖 / 제약** was modified.
 - Each commit was built with `dotnet build Vanadium.slnx` before being made (see step 4) — so a final full build should already be clean.
 - If schema changed: add an EF Core migration and run `dotnet ef database update`.
