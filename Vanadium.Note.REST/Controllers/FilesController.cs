@@ -71,9 +71,7 @@ public class FilesController(IWebHostEnvironment env, NoteDbContext db, ILogger<
         {
             Id = id,
             OriginalName = originalName,
-            ContentType = string.IsNullOrWhiteSpace(request.File.ContentType)
-                ? "application/octet-stream"
-                : request.File.ContentType,
+            ContentType = request.File.ContentType,
         };
         db.FileAttachments.Add(attachment);
         await db.SaveChangesAsync();
