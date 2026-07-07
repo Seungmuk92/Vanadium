@@ -205,6 +205,13 @@ public class NoteService(NoteDbContext db, FileCleanupService fileCleanup, ILogg
         note.Id = Guid.NewGuid();
         note.UpdatedAt = UtcNowMicroseconds();
         note.ContentText = StripHtml(note.Content);
+        // Server-owned lifecycle fields: force to the active state so a client
+        // cannot over-post DeletedAt/ArchivedAt and create a note that is hidden
+        // by the soft-delete filter (and silently purged) or born archived.
+        note.DeletedAt = null;
+        note.IsDeletionRoot = false;
+        note.ArchivedAt = null;
+        note.IsArchiveRoot = false;
         db.Notes.Add(note);
         await db.SaveChangesAsync();
         return note;
