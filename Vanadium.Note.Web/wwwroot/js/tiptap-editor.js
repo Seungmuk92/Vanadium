@@ -477,7 +477,15 @@ function createMentionExtension(dotnetRef) {
                             currentItems.forEach((item, i) => {
                                 const row = document.createElement('div');
                                 row.className = 'mention-menu-item' + (i === selectedIndex ? ' mention-menu-item-active' : '');
-                                row.innerHTML = `<span class="mention-menu-icon">📄</span><span class="mention-menu-title">${item.title || '(Untitled)'}</span>`;
+                                // Build via textContent so a note title like
+                                // `<img src=x onerror=...>` is rendered as text, not HTML.
+                                const icon = document.createElement('span');
+                                icon.className = 'mention-menu-icon';
+                                icon.textContent = '📄';
+                                const title = document.createElement('span');
+                                title.className = 'mention-menu-title';
+                                title.textContent = item.title || '(Untitled)';
+                                row.append(icon, title);
                                 row.addEventListener('mousedown', e => {
                                     e.preventDefault();
                                     currentCommand?.(item);
@@ -697,7 +705,11 @@ const MermaidNode = Node.create({
                 try {
                     preview.innerHTML = await renderMermaidSvg(code);
                 } catch (err) {
-                    preview.innerHTML = `<div class="mermaid-error">⚠ ${err.message || 'Syntax error'}</div>`;
+                    // Mermaid error messages can echo user input; insert as text.
+                    const errDiv = document.createElement('div');
+                    errDiv.className = 'mermaid-error';
+                    errDiv.textContent = `⚠ ${err.message || 'Syntax error'}`;
+                    preview.replaceChildren(errDiv);
                 }
             }
 
@@ -1450,11 +1462,24 @@ function uploadWithProgress(url, formData, headers, onProgress) {
 function createProgressToast(filename) {
     const toast = document.createElement('div');
     toast.className = 'upload-toast';
-    toast.innerHTML = `
-        <span class="upload-toast-name">${filename}</span>
-        <div class="upload-toast-bar-wrap"><div class="upload-toast-bar"></div></div>
-        <span class="upload-toast-pct">0%</span>
-    `;
+
+    // Only the filename is user-derived; insert it via textContent so it is
+    // never interpreted as HTML. The rest is fixed structure.
+    const nameEl = document.createElement('span');
+    nameEl.className = 'upload-toast-name';
+    nameEl.textContent = filename;
+
+    const barWrap = document.createElement('div');
+    barWrap.className = 'upload-toast-bar-wrap';
+    const bar = document.createElement('div');
+    bar.className = 'upload-toast-bar';
+    barWrap.appendChild(bar);
+
+    const pct = document.createElement('span');
+    pct.className = 'upload-toast-pct';
+    pct.textContent = '0%';
+
+    toast.append(nameEl, barWrap, pct);
     document.body.appendChild(toast);
 
     return {
