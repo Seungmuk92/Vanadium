@@ -6,7 +6,11 @@ using Vanadium.Note.REST.Models;
 
 namespace Vanadium.Note.REST.Services;
 
-public class NoteService(NoteDbContext db, FileCleanupService fileCleanup, ILogger<NoteService> logger)
+public class NoteService(
+    NoteDbContext db,
+    FileCleanupService fileCleanup,
+    IHtmlSanitizerService htmlSanitizer,
+    ILogger<NoteService> logger)
 {
     public async Task<PagedResult<NoteSummary>> GetPaged(
         int page,
@@ -204,6 +208,10 @@ public class NoteService(NoteDbContext db, FileCleanupService fileCleanup, ILogg
     {
         note.Id = Guid.NewGuid();
         note.UpdatedAt = UtcNowMicroseconds();
+        // Sanitize before persisting so stored HTML can never carry active
+        // content (script/event handlers), then derive the search text from the
+        // sanitized markup.
+        note.Content = htmlSanitizer.Sanitize(note.Content);
         note.ContentText = StripHtml(note.Content);
         // Server-owned lifecycle fields: force to the active state so a client
         // cannot over-post DeletedAt/ArchivedAt and create a note that is hidden
@@ -243,6 +251,9 @@ public class NoteService(NoteDbContext db, FileCleanupService fileCleanup, ILogg
         var titleChanged = existing.Title != note.Title;
 
         existing.Title = note.Title;
+        // Sanitize on the update path too — a leaked PAT could otherwise store a
+        // payload via PUT just as easily as via POST.
+        note.Content = htmlSanitizer.Sanitize(note.Content);
         existing.Content = note.Content;
         existing.ContentText = StripHtml(note.Content);
         existing.ParentNoteId = note.ParentNoteId;
