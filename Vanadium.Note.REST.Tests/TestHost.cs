@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.Logging.Abstractions;
 using Vanadium.Note.REST.Data;
@@ -43,8 +44,9 @@ public sealed class TestHost : IDisposable
         ContentRoot = Path.Combine(Path.GetTempPath(), $"vanadium-tests-{Guid.NewGuid():N}");
         Directory.CreateDirectory(Path.Combine(ContentRoot, "uploads"));
 
+        var configuration = new ConfigurationBuilder().Build();
         FileCleanup = new FileCleanupService(
-            Db, new TestWebHostEnvironment(ContentRoot), NullLogger<FileCleanupService>.Instance);
+            Db, new TestWebHostEnvironment(ContentRoot), configuration, NullLogger<FileCleanupService>.Instance);
         Notes = new NoteService(Db, FileCleanup, NullLogger<NoteService>.Instance);
         Labels = new LabelService(Db, NullLogger<LabelService>.Instance);
         Account = new AccountService(Db, NullLogger<AccountService>.Instance);

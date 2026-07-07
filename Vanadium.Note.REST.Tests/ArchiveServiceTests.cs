@@ -296,7 +296,13 @@ public class ArchiveServiceTests
     {
         using var h = new TestHost();
 
-        var attachment = new FileAttachment { OriginalName = "spec.pdf", ContentType = "application/pdf" };
+        // Uploaded well before the grace window so grace never shields it.
+        var attachment = new FileAttachment
+        {
+            OriginalName = "spec.pdf",
+            ContentType = "application/pdf",
+            UploadedAt = DateTime.UtcNow.AddHours(-2),
+        };
         h.Db.FileAttachments.Add(attachment);
         await h.Db.SaveChangesAsync();
         var physicalPath = Path.Combine(h.ContentRoot, "uploads", $"file_{attachment.Id}");
