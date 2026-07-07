@@ -9,6 +9,16 @@ You are addressing the code review on pull request **#$ARGUMENTS** in this repos
 
 **Shell-state warning:** shell variables may not persist between separate command invocations. Treat every code block below as stand-alone — re-derive `BRANCH`, `HEAD_SHA`, `OWNER_REPO`, etc. inside the block that uses them rather than relying on earlier shell state.
 
+**Terminal status marker (ALWAYS emit last).** Whatever the outcome, the LAST line of your final report MUST be a machine-readable marker so the `/fix-and-review` orchestrator can decide whether to loop again:
+
+- Success — new commits pushed in step 7: `<!-- address-review: status=changes-pushed; pr=<NNN> -->`
+- No-actionable-items exit (step 1): `<!-- address-review: status=no-actionable-items; pr=<NNN> -->`
+- Already approved at current head (step 1): `<!-- address-review: status=already-approved; pr=<NNN> -->`
+- Stale review — review's `commit_id` ≠ HEAD (step 1): `<!-- address-review: status=stale-review; pr=<NNN> -->`
+- Any other STOP — PR closed/merged, 범위 밖 conflict, non-fast-forward divergence: `<!-- address-review: status=stopped; pr=<NNN>; reason=<short> -->`
+
+The four non-`changes-pushed` statuses all mean "no new commit was pushed"; an orchestrator must treat them as loop-terminating (do NOT re-review), not as a reason to retry.
+
 ## 0. Verify starting state
 
 - Run `git status`. The working tree MUST be clean. If there are uncommitted changes, STOP and ask the user how to handle them — never let pre-existing changes leak into your commits.

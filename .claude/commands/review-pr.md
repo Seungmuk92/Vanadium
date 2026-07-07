@@ -111,6 +111,13 @@ Write the review body in **Korean** (matching the repo's issue/PR language), str
 - **제안 (Non-blocking)** — nits and improvements. Omit if none.
 - **검증** — what you built/ran and the result (or why verification was skipped).
 - End the body with the marker line `<!-- generated-by: review-pr -->` (an HTML comment — invisible when rendered on GitHub). Step 0 of this command and `/address-review` both rely on this marker to reliably identify reviews produced by this workflow, instead of guessing from body structure that a human review might coincidentally match.
+- On the **very last line**, after `<!-- generated-by: review-pr -->`, ALWAYS emit a machine-readable status marker — regardless of verdict and regardless of the self-review fallback below:
+
+  `<!-- review-pr: verdict=approve|request-changes|comment; loop=done|continue -->`
+
+  - `verdict` is the TRUE decided verdict from step 4. Set it even when the self-review fallback forced a `--comment` submission — so a review posted with `--comment` may still carry `verdict=approve` or `verdict=request-changes`.
+  - `loop=done` means the fix→review→address loop should STOP: either `verdict=approve`, OR the step-4 **Loop-exit rule** applies (a Comment whose only remaining items are 수동 확인 필요). `loop=continue` means there is something `/address-review` can act on: `verdict=request-changes`, or a Comment with any not-met / plain-unverifiable / blocking item.
+  - This marker is the **single source of truth** for the `/fix-and-review` orchestrator, because in this single-owner repo the GitHub review *state* is always `COMMENT` (self-review) and must not be trusted for branching.
 
 **Do not use separate inline comments.** All line-specific points go in the review body as `file:line` references, so the verdict and every remark land in one atomic review. (`gh pr review --body` cannot attach inline comments to the same review; splitting them across multiple submissions fragments the review.)
 
@@ -129,5 +136,6 @@ EOF
 ## 6. Report back & restore state
 
 - Print the chosen verdict, a one-line summary, and the URL of the posted review (`gh pr view $ARGUMENTS --json url`).
+- Print the `<!-- review-pr: verdict=…; loop=… -->` marker values (verdict and loop) as the final line of your report, so a caller (`/fix-and-review`) can branch on them without re-parsing the Korean body.
 - Confirm the repository is back on the branch recorded in step 0 with a clean working tree (`git branch --show-current`, `git status --short`). If not, restore it now.
 - Do NOT merge, push, or edit code — the review ends here.

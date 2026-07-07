@@ -5,6 +5,17 @@ argument-hint: <issue-number>
 
 You are fixing GitHub issue **#$ARGUMENTS** in this repository. Follow this workflow strictly and in order. Do not skip steps.
 
+**Terminal status marker (ALWAYS emit last).** Whatever the outcome, the LAST line of your final report MUST be a machine-readable marker so the `/fix-and-review` orchestrator can branch on it without parsing prose:
+
+- On success (PR opened in step 7): `<!-- fix-issue: status=pr-created; issue=<NNN>; pr=<PR_NUMBER> -->`
+- On any STOP before a PR exists: `<!-- fix-issue: status=stopped; issue=<NNN>; reason=<code> -->`, where `<code>` is one of the fixed machine-readable values below (so an orchestrator can branch on the code, not on free text):
+  - `existing-pr` — an open PR already references this issue (a normal resume point, NOT a failure)
+  - `issue-closed` — the issue is already CLOSED
+  - `dirty-tree` — the working tree had uncommitted changes
+  - `scope-conflict` — the fix is impossible without touching an out-of-scope file
+  - `bad-issue` — a required issue section is missing or self-contradictory
+  - `other` — anything else; append a short human note after the code, e.g. `reason=other (…)`
+
 ## 0. Verify starting state
 
 - **Normalize the argument.** `$ARGUMENTS` may arrive as `#102` or `102`. Strip any leading `#` and use the bare number `NNN` in every `gh` command below — `gh issue view` / `gh pr list` do not accept a leading `#`.
@@ -16,7 +27,7 @@ You are fixing GitHub issue **#$ARGUMENTS** in this repository. Follow this work
   gh pr list --state open --search "Closes #<NNN> in:body" --json number,title,headRefName
   ```
 
-  If the issue is closed, or an open PR already references it, STOP and report that instead of creating a duplicate branch/PR — suggest `/review-pr` or `/address-review` on the existing PR as the next step.
+  If the issue is closed, STOP with `reason=issue-closed`. If an open PR already references it, STOP with `reason=existing-pr` (and suggest `/review-pr` or `/address-review` on the existing PR as the next step) — do not create a duplicate branch/PR.
 - Run `git status`. The working tree MUST be clean. If there are uncommitted changes, STOP and ask the user how to handle them — never let pre-existing changes leak into your commits.
 - Check out the default branch and update it. Derive the default branch explicitly instead of guessing:
 
@@ -93,3 +104,5 @@ Once verification passes, push the branch: `git push -u origin <branch>`.
 ## 7. Open a PR
 
 Create a pull request (`gh pr create`) targeting the default branch. Title and body in Korean, referencing the issue (e.g. `Closes #$ARGUMENTS`). Summarize what changed and why, and include how each acceptance criterion was verified.
+
+Then, as the final line of your report, emit the success marker with the new PR number: `<!-- fix-issue: status=pr-created; issue=$ARGUMENTS; pr=<PR_NUMBER> -->` (get `<PR_NUMBER>` from the `gh pr create` output URL, or `gh pr list --state open --search "Closes #$ARGUMENTS in:body" --json number --jq '.[0].number'`).
