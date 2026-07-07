@@ -9,8 +9,14 @@ namespace Vanadium.Note.REST.Services;
 /// referenced by any note. Used both at note-deletion time and by the
 /// periodic background GC job.
 /// </summary>
-public class FileCleanupService(NoteDbContext db, IWebHostEnvironment env, ILogger<FileCleanupService> logger)
+public class FileCleanupService(
+    NoteDbContext db,
+    IWebHostEnvironment env,
+    IConfiguration config,
+    ILogger<FileCleanupService> logger)
 {
+    private const int DefaultGraceMinutes = 60;
+
     private string UploadsPath => Path.Combine(env.ContentRootPath, "uploads");
 
     // Matches /api/files/{guid} — file attachments stored in DB
@@ -65,6 +71,12 @@ public class FileCleanupService(NoteDbContext db, IWebHostEnvironment env, ILogg
     /// </summary>
     public async Task DeleteAllOrphansAsync(CancellationToken ct = default)
     {
+        // Files uploaded within the grace window are skipped: a freshly uploaded
+        // file may not yet be referenced in any note's HTML because the editor
+        // auto-save is debounced (~1500ms) and the note may still be in progress.
+        var graceMinutes = config.GetValue("FileCleanup:GraceMinutes", DefaultGraceMinutes);
+        var graceCutoff = DateTime.UtcNow.AddMinutes(-graceMinutes);
+
         // IgnoreQueryFilters: content of soft-deleted notes still counts as a live
         // file reference until the recycle bin purge actually deletes the note.
         var allContent = string.Join(' ',
@@ -73,7 +85,9 @@ public class FileCleanupService(NoteDbContext db, IWebHostEnvironment env, ILogg
         // --- File attachments (have DB records) ---
         var attachments = await db.FileAttachments.ToListAsync(ct);
 
-        logger.LogDebug("Periodic orphan scan: checking {AttachmentCount} file attachment record(s).", attachments.Count);
+        logger.LogDebug(
+            "Periodic orphan scan: checking {AttachmentCount} file attachment record(s) (grace: {GraceMinutes}m).",
+            attachments.Count, graceMinutes);
 
         int filesRemoved = 0;
 
@@ -81,6 +95,15 @@ public class FileCleanupService(NoteDbContext db, IWebHostEnvironment env, ILogg
         {
             if (allContent.Contains(attachment.Id.ToString(), StringComparison.OrdinalIgnoreCase))
                 continue;
+
+            // Skip recently uploaded attachments still within the grace window.
+            if (attachment.UploadedAt > graceCutoff)
+            {
+                logger.LogDebug(
+                    "Periodic scan: skipping recently uploaded attachment {FileId} (within grace window).",
+                    attachment.Id);
+                continue;
+            }
 
             db.FileAttachments.Remove(attachment);
             DeletePhysicalFile(Path.Combine(UploadsPath, $"file_{attachment.Id}"));
@@ -114,6 +137,16 @@ public class FileCleanupService(NoteDbContext db, IWebHostEnvironment env, ILogg
 
             if (allContent.Contains(guidStr, StringComparison.OrdinalIgnoreCase))
                 continue;
+
+            // Disk-only images have no DB record, so fall back to the file's
+            // creation time to honor the same grace window.
+            if (file.CreationTimeUtc > graceCutoff)
+            {
+                logger.LogDebug(
+                    "Periodic scan: skipping recently created image {ImageFile} (within grace window).",
+                    file.Name);
+                continue;
+            }
 
             DeletePhysicalFile(file.FullName);
             logger.LogDebug("Periodic scan: removed orphaned image {ImageFile}.", file.Name);
