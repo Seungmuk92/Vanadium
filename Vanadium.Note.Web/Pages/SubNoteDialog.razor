@@ -1,4 +1,4 @@
-@implements IDisposable
+@implements IAsyncDisposable
 @using System.Text.Json.Serialization
 @inject NoteService NoteService
 @inject LabelService LabelService
@@ -116,6 +116,7 @@
     private readonly string _editorId = "tiptap-" + Guid.NewGuid().ToString("N")[..8];
     private DotNetObjectReference<SubNoteDialog>? _objRef;
     private CancellationTokenSource? _debounceCts;
+    private bool _hasPendingChanges = false;
     private bool _editorMounted = false;
     private bool _contentJustLoaded = false;
 
@@ -219,6 +220,7 @@
     private void ScheduleAutoSave()
     {
         if (_isArchived) return; // archived notes are read-only
+        _hasPendingChanges = true;
         _debounceCts?.Cancel();
         _debounceCts = new CancellationTokenSource();
         var token = _debounceCts.Token;
@@ -233,14 +235,10 @@
         }, TaskScheduler.Default);
     }
 
-    private async Task DoAutoSave()
+    // UI-free save used by both the debounced path and the close/dispose flush. It never touches
+    // StateHasChanged so it is safe to await while the component is being torn down (Esc/backdrop).
+    private async Task<ServiceResult<NoteItem>> SaveCoreAsync()
     {
-        if (_isArchived) return;
-
-        saveStatusText = "Saving…";
-        saveStatusCss = "status-saving";
-        StateHasChanged();
-
         // Send the tracked server timestamp so optimistic concurrency passes; without it the
         // Web NoteItem's UpdatedAt default (DateTime.UtcNow) never matches and every save 409s.
         var result = await NoteService.SaveAsync(new NoteItem
@@ -255,6 +253,23 @@
         if (result.IsSuccess)
         {
             _serverUpdatedAt = result.Value!.UpdatedAt;
+            _hasPendingChanges = false;
+        }
+        return result;
+    }
+
+    private async Task DoAutoSave()
+    {
+        if (_isArchived) return;
+
+        saveStatusText = "Saving…";
+        saveStatusCss = "status-saving";
+        StateHasChanged();
+
+        var result = await SaveCoreAsync();
+
+        if (result.IsSuccess)
+        {
             saveStatusText = "Saved";
             saveStatusCss = "status-saved";
         }
@@ -287,9 +302,13 @@
         Nav.NavigateTo($"/editor/{NoteId}");
     }
 
-    private void Close()
+    private async Task Close()
     {
+        // Cancel the pending debounce, then flush any unsaved edit before the dialog goes away so
+        // the last <1.5s of typing is not silently discarded.
         _debounceCts?.Cancel();
+        if (_hasPendingChanges && !_isArchived)
+            await DoAutoSave();
         MudDialog.Close(DialogResult.Ok(title));
     }
 
@@ -337,11 +356,17 @@
         noteLabels.RemoveAll(l => l.Id == labelId);
     }
 
-    public void Dispose()
+    public async ValueTask DisposeAsync()
     {
+        // Esc/backdrop closes bypass Close() and only reach here, so flush pending edits on this
+        // path too. Use SaveCoreAsync (no StateHasChanged) since the component is being disposed.
         _debounceCts?.Cancel();
+        if (_hasPendingChanges && !_isArchived)
+            await SaveCoreAsync();
+
         _objRef?.Dispose();
-        _ = JS.InvokeVoidAsync("tiptapInterop.destroy", _editorId);
+        if (_editorMounted)
+            await JS.InvokeVoidAsync("tiptapInterop.destroy", _editorId);
     }
 
     public record JsMentionItem(
