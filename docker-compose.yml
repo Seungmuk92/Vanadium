@@ -1,6 +1,6 @@
 services:
   rest:
-    image: smoh92/vanadium-rest:latest
+    image: smoh92/vanadium-rest:0.1.0
     restart: unless-stopped
     ports:
       - "5000:8080"
@@ -12,6 +12,9 @@ services:
       Seq__ServerUrl: ${SEQ_URL:-}
       Seq__ApiKey: ${SEQ_API_KEY:-}
       RecycleBin__RetentionDays: ${RECYCLE_BIN_RETENTION_DAYS:-30}
+    volumes:
+      # Persist uploaded files across container recreation/redeploys.
+      - vanadium_uploads:/app/uploads
 
   web:
     image: smoh92/vanadium-web:latest
@@ -19,4 +22,6 @@ services:
     ports:
       - "80:80"
     environment:
-   
+
+volumes:
+  vanadium_uploads:
