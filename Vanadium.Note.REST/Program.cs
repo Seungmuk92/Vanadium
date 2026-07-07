@@ -109,6 +109,7 @@ builder.Services.AddRateLimiter(options =>
 });
 
 builder.Services.AddControllers();
+builder.Services.AddSingleton<IHtmlSanitizerService, HtmlSanitizerService>();
 builder.Services.AddScoped<NoteService>();
 builder.Services.AddScoped<LabelService>();
 builder.Services.AddScoped<SettingsService>();
