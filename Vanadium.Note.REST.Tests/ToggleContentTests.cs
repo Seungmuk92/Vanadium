@@ -164,7 +164,13 @@ public class ToggleContentTests
     {
         using var h = new TestHost();
 
-        var orphan = new FileAttachment { OriginalName = "orphan.txt", ContentType = "text/plain" };
+        // Uploaded well before the grace window so it counts as a real orphan.
+        var orphan = new FileAttachment
+        {
+            OriginalName = "orphan.txt",
+            ContentType = "text/plain",
+            UploadedAt = DateTime.UtcNow.AddHours(-2),
+        };
         h.Db.FileAttachments.Add(orphan);
         await h.Db.SaveChangesAsync();
         var orphanPath = Path.Combine(h.ContentRoot, "uploads", $"file_{orphan.Id}");
