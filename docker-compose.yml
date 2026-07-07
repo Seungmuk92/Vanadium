@@ -1,6 +1,6 @@
 services:
   rest:
-    image: smoh92/vanadium-rest:latest
+    image: smoh92/vanadium-rest:0.1.0
     restart: unless-stopped
     ports:
       - "5000:8080"
@@ -12,6 +12,9 @@ services:
       Seq__ServerUrl: ${SEQ_URL:-}
       Seq__ApiKey: ${SEQ_API_KEY:-}
       RecycleBin__RetentionDays: ${RECYCLE_BIN_RETENTION_DAYS:-30}
+    volumes:
+      # Persist uploaded files across container recreation/redeploys.
+      - vanadium_uploads:/app/uploads
 
   web:
     image: smoh92/vanadium-web:latest
@@ -19,4 +22,10 @@ services:
     ports:
       - "80:80"
     environment:
-   
+      # Injected into the Blazor WASM appsettings at container startup by
+      # entrypoint.sh (envsubst). Must be a non-empty mapping or the whole
+      # compose file fails validation ("services.web.environment must be a mapping").
+      API_BASE_URL: ${API_BASE_URL:-http://localhost:5000}
+
+volumes:
+  vanadium_uploads:
