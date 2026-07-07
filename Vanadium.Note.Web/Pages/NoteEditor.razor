@@ -258,6 +258,35 @@
     private DotNetObjectReference<NoteEditor>? _objRef;
     private CancellationTokenSource? _debounceCts;
     private bool _hasPendingChanges = false;
+
+    /// <summary>
+    /// Whether the editor holds edits not yet persisted to the server. Setting
+    /// it also arms/disarms a browser <c>beforeunload</c> guard so that closing
+    /// or reloading the tab during the auto-save debounce window warns the user
+    /// instead of silently dropping the change (issue #109).
+    /// </summary>
+    private bool HasPendingChanges
+    {
+        get => _hasPendingChanges;
+        set
+        {
+            if (_hasPendingChanges == value) return;
+            _hasPendingChanges = value;
+            _ = SyncUnsavedChangesGuardAsync(value);
+        }
+    }
+
+    private async Task SyncUnsavedChangesGuardAsync(bool armed)
+    {
+        try
+        {
+            await JS.InvokeVoidAsync(
+                armed ? "unsavedChangesInterop.enable" : "unsavedChangesInterop.disable");
+        }
+        catch (JSException) { }
+        catch (InvalidOperationException) { }
+    }
+
     private bool _isSaving = false;
     private bool _isDisposing = false;
     private bool _hasConflict = false;
@@ -407,7 +436,7 @@
     private void ScheduleAutoSave()
     {
         if (_hasConflict || IsArchived) return;
-        _hasPendingChanges = true;
+        HasPendingChanges = true;
         SetStatus("Writing...", "status-pending");
         _debounceCts?.Cancel();
         _debounceCts?.Dispose();
@@ -453,7 +482,7 @@
             return null;
         }
         _serverUpdatedAt = result.Value!.UpdatedAt;
-        _hasPendingChanges = false;
+        HasPendingChanges = false;
         return result.Value;
     }
 
@@ -500,7 +529,7 @@
         }
 
         // Save any changes that arrived while this save was in flight
-        if (_hasPendingChanges && !_hasConflict && !_isDisposing)
+        if (HasPendingChanges && !_hasConflict && !_isDisposing)
             ScheduleAutoSave();
     }
 
@@ -537,7 +566,7 @@
     {
         _serverUpdatedAt = default;
         _hasConflict = false;
-        _hasPendingChanges = true;
+        HasPendingChanges = true;
         await DoAutoSave();
     }
 
@@ -551,7 +580,7 @@
         noteLabels = result.Value!.Labels ?? [];
         _serverUpdatedAt = result.Value!.UpdatedAt;
         _hasConflict = false;
-        _hasPendingChanges = false;
+        HasPendingChanges = false;
         SetStatus(string.Empty, string.Empty);
         await JS.InvokeVoidAsync("tiptapInterop.setContent", _editorId, content);
         StateHasChanged();
@@ -601,7 +630,7 @@
     {
         if (IsArchived) return;
         archivedAt = DateTime.UtcNow; // marker only; the server holds the real value
-        _hasPendingChanges = false;
+        HasPendingChanges = false;
         _debounceCts?.Cancel();
         Snackbar.Add("This note has been archived and is now read-only.", Severity.Warning);
         if (_editorMounted)
@@ -619,7 +648,7 @@
 
         // Flush any pending edits before the note becomes read-only.
         _debounceCts?.Cancel();
-        if (_hasPendingChanges)
+        if (HasPendingChanges)
             await SaveCoreAsync();
 
         var noteId = Id.Value;
@@ -630,7 +659,7 @@
             return;
         }
 
-        _hasPendingChanges = false;
+        HasPendingChanges = false;
         Snackbar.Add("Note archived.", Severity.Normal, config =>
         {
             config.Action = "Undo";
@@ -883,8 +912,12 @@
         _debounceCts?.Cancel();
         _debounceCts?.Dispose();
 
-        if (_hasPendingChanges && !_hasConflict && !IsArchived)
+        if (HasPendingChanges && !_hasConflict && !IsArchived)
             await SaveCoreAsync();
+
+        // Tear down the beforeunload guard so it can never outlive this editor
+        // instance (e.g. when an unresolved conflict left changes unsaved above).
+        await SyncUnsavedChangesGuardAsync(false);
 
         _objRef?.Dispose();
         await ShortcutService.UnregisterAsync("ctrl+s");
