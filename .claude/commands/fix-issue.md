@@ -7,8 +7,25 @@ You are fixing GitHub issue **#$ARGUMENTS** in this repository. Follow this work
 
 ## 0. Verify starting state
 
+- **Normalize the argument.** `$ARGUMENTS` may arrive as `#102` or `102`. Strip any leading `#` and use the bare number `NNN` in every `gh` command below — `gh issue view` / `gh pr list` do not accept a leading `#`.
+- **Shell-state warning.** Shell variables may not persist between separate command invocations. Treat every code block in this file as stand-alone: re-derive any variable (e.g. `DEFAULT_BRANCH`) inside the block that uses it rather than relying on earlier shell state.
+- **Idempotency check.** This command is NOT safe to blindly re-run on the same issue, so verify it has not already been handled:
+
+  ```bash
+  gh issue view <NNN> --json state --jq .state    # must be OPEN — if CLOSED, STOP and report
+  gh pr list --state open --search "Closes #<NNN> in:body" --json number,title,headRefName
+  ```
+
+  If the issue is closed, or an open PR already references it, STOP and report that instead of creating a duplicate branch/PR — suggest `/review-pr` or `/address-review` on the existing PR as the next step.
 - Run `git status`. The working tree MUST be clean. If there are uncommitted changes, STOP and ask the user how to handle them — never let pre-existing changes leak into your commits.
-- Check out the default branch and update it: `git checkout <default-branch> && git pull`. All work starts from the up-to-date default branch.
+- Check out the default branch and update it. Derive the default branch explicitly instead of guessing:
+
+  ```bash
+  DEFAULT_BRANCH=$(gh repo view --json defaultBranchRef --jq .defaultBranchRef.name)
+  git checkout "$DEFAULT_BRANCH" && git pull
+  ```
+
+  All work starts from the up-to-date default branch.
 - Run `dotnet build Vanadium.slnx` once now to establish a warning baseline. "No new warnings" in later steps means: no warnings beyond this baseline.
 
 ## 1. Read the issue
@@ -27,12 +44,12 @@ Restate your understanding (type, root-cause hypothesis, acceptance criteria, ou
 
 Create a branch named by this rule:
 
-- Format: `{bug|feat}/#NNN-<2-4 word english summary>`
+- Format: `{bug|feat}/NNN-<2-4 word english summary>` — the issue number WITHOUT a `#`. A `#` in a branch name is valid to git but is a recurring footgun (shell-quoting mistakes, `%23` URL-encoding, noise in some CI tooling); the issue link lives in commit messages (`#NNN <요약>`) and the PR body (`Closes #NNN`) instead.
 - `bug/` for defects, `feat/` for features/enhancements.
 - All lowercase, words joined with `-`.
 - Examples:
-  - "Bug, 노트 생성 시 오버포스팅... #102" → `bug/#102-invisible-purge-note`
-  - "enhancement, SHARE 기능을 추가한다. #94" → `feat/#94-add-share`
+  - "Bug, 노트 생성 시 오버포스팅... #102" → `bug/102-invisible-purge-note`
+  - "enhancement, SHARE 기능을 추가한다. #94" → `feat/94-add-share`
 
 ## 3. Checkout and implement
 
@@ -57,7 +74,14 @@ Do NOT push until every item below passes:
 
 - Run `dotnet test Vanadium.slnx` — all tests pass, including the new regression/feature tests from step 3.
 - Every item under **완료 조건 (Acceptance Criteria)** is satisfied. Verify each item explicitly and state HOW it was verified (which test, command, or observed behavior) — do not simply assert it.
-- Run `git diff <default-branch>...HEAD --name-only` and confirm no file listed under **범위 밖 / 제약** was modified, and no unrelated file changed.
+- Confirm scope with a stand-alone block (re-derive the default branch — do not assume shell state from step 0):
+
+  ```bash
+  DEFAULT_BRANCH=$(gh repo view --json defaultBranchRef --jq .defaultBranchRef.name)
+  git diff "$DEFAULT_BRANCH"...HEAD --name-only
+  ```
+
+  No file listed under **범위 밖 / 제약** was modified, and no unrelated file changed.
 - Each commit was built with `dotnet build Vanadium.slnx` before being made (see step 4) — so a final full build should already be clean.
 
 If any item fails, go back to step 3, fix it, and re-verify.
