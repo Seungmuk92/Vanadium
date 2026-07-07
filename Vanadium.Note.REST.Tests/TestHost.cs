@@ -45,7 +45,8 @@ public sealed class TestHost : IDisposable
 
         FileCleanup = new FileCleanupService(
             Db, new TestWebHostEnvironment(ContentRoot), NullLogger<FileCleanupService>.Instance);
-        Notes = new NoteService(Db, FileCleanup, NullLogger<NoteService>.Instance);
+        Notes = new NoteService(
+            Db, FileCleanup, new HtmlSanitizerService(), NullLogger<NoteService>.Instance);
         Labels = new LabelService(Db, NullLogger<LabelService>.Instance);
         Account = new AccountService(Db, NullLogger<AccountService>.Instance);
     }
