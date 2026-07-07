@@ -1793,6 +1793,10 @@ window.tiptapInterop = {
         editor.view.dom.addEventListener('keydown', (e) => {
             if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
                 e.preventDefault();
+                // Stop propagation so the event does not bubble to the global
+                // ctrl+k handler (Quick Navigation); otherwise both the link
+                // popover and the Quick Nav dialog would open at once.
+                e.stopPropagation();
                 showLinkPopover(elementId);
             }
         });
