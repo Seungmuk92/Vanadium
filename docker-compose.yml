@@ -22,6 +22,10 @@ services:
     ports:
       - "80:80"
     environment:
+      # Injected into the Blazor WASM appsettings at container startup by
+      # entrypoint.sh (envsubst). Must be a non-empty mapping or the whole
+      # compose file fails validation ("services.web.environment must be a mapping").
+      API_BASE_URL: ${API_BASE_URL:-http://localhost:5000}
 
 volumes:
   vanadium_uploads:
