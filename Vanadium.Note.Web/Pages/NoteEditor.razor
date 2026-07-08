@@ -433,10 +433,11 @@
         {
             _objRef = DotNetObjectReference.Create(this);
             var apiBase = Http.BaseAddress?.ToString().TrimEnd('/') ?? string.Empty;
-            var token = await TokenStore.GetAsync() ?? string.Empty;
+            // The editor pulls the current token on demand via GetAuthTokenAsync
+            // rather than being seeded with a captured token here (issue #126).
             try
             {
-                await JS.InvokeVoidAsync("tiptapInterop.init", _editorId, _objRef, content, apiBase, token, !IsArchived && !_loadFailed);
+                await JS.InvokeVoidAsync("tiptapInterop.init", _editorId, _objRef, content, apiBase, !IsArchived && !_loadFailed);
                 _editorMounted = true;
                 await ShortcutService.RegisterAsync("ctrl+s", "Save note", () => InvokeAsync(SaveNote));
             }
@@ -459,6 +460,15 @@
         content = html;
         ScheduleAutoSave();
     }
+
+    // The editor captures no token in its JS closure; instead it calls back here
+    // for the current token at every authenticated image load/upload, so a
+    // re-login after JWT expiry immediately takes effect in an already-open
+    // editor (issue #126). TokenStore.SetAsync refreshes its cache on login,
+    // so this always returns the latest token for the current SPA session.
+    [JSInvokable]
+    public async Task<string> GetAuthTokenAsync()
+        => await TokenStore.GetAsync() ?? string.Empty;
 
     private void OnTitleInput(ChangeEventArgs e)
     {
