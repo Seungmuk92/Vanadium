@@ -298,7 +298,7 @@
         catch (InvalidOperationException) { }
     }
 
-    private bool _isSaving = false;
+    private Task<NoteItem?>? _saveInFlight;
     private bool _isDisposing = false;
     private bool _hasConflict = false;
     private bool _loadFailed = false;
@@ -336,7 +336,7 @@
         noteLabels = [];
         _hasConflict = false;
         _loadFailed = false;
-        _isSaving = false;
+        _saveInFlight = null;
         _serverUpdatedAt = default;
 
         if (Id is not null)
@@ -493,7 +493,19 @@
         catch (TaskCanceledException) { }
     }
 
-    private async Task<NoteItem?> SaveCoreAsync()
+    // Single save entry point. Auto-save and manual save (Ctrl+S) both funnel
+    // through here so two saves never overlap on the same _serverUpdatedAt — a
+    // concurrent PUT would surface a false 409. A caller arriving while a save is
+    // already in flight joins that save instead of issuing its own request (#120).
+    private Task<NoteItem?> SaveCoreAsync()
+    {
+        if (_saveInFlight is { IsCompleted: false })
+            return _saveInFlight;
+        _saveInFlight = SaveOnceAsync();
+        return _saveInFlight;
+    }
+
+    private async Task<NoteItem?> SaveOnceAsync()
     {
         var note = new NoteItem
         {
@@ -531,49 +543,52 @@
 
     private async Task DoAutoSave()
     {
-        if (_isSaving) return;
-        _isSaving = true;
+        // A save is already running; its tail re-schedules for any pending edits,
+        // so skip to avoid redundant status churn (SaveCoreAsync would coalesce anyway).
+        if (_saveInFlight is { IsCompleted: false }) return;
 
-        try
+        SetStatus("Saving...", "status-saving");
+        StateHasChanged();
+
+        var saved = await SaveCoreAsync();
+        if (saved is null)
         {
-            SetStatus("Saving...", "status-saving");
+            SetStatus(_hasConflict ? "Conflict" : IsArchived ? "Archived" : "Save failed", "status-error");
             StateHasChanged();
+            return;
+        }
 
-            var saved = await SaveCoreAsync();
-            if (saved is null)
-            {
-                SetStatus(_hasConflict ? "Conflict" : IsArchived ? "Archived" : "Save failed", "status-error");
-                StateHasChanged();
-                return;
-            }
+        if (isNew && !_isDisposing)
+        {
+            foreach (var label in noteLabels.ToList())
+                await LabelService.AddLabelToNoteAsync(saved.Id, label.Id);
+            // Set _currentId/_currentParentId before navigating so OnParametersSetAsync
+            // treats this as a same-note transition and skips the full state reset,
+            // preserving any content the user typed during the network round-trip.
+            _currentId = saved.Id;
+            _currentParentId = null;
+            Nav.NavigateTo($"/editor/{saved.Id}", replace: true);
+        }
 
-            if (isNew && !_isDisposing)
-            {
-                foreach (var label in noteLabels.ToList())
-                    await LabelService.AddLabelToNoteAsync(saved.Id, label.Id);
-                // Set _currentId/_currentParentId before navigating so OnParametersSetAsync
-                // treats this as a same-note transition and skips the full state reset,
-                // preserving any content the user typed during the network round-trip.
-                _currentId = saved.Id;
-                _currentParentId = null;
-                Nav.NavigateTo($"/editor/{saved.Id}", replace: true);
-            }
+        SetStatus("Saved", "status-saved");
+        StateHasChanged();
 
-            SetStatus("Saved", "status-saved");
-            StateHasChanged();
+        // Save any changes that arrived while this save was in flight — BEFORE the
+        // cosmetic delay, so the "Saved" badge never holds up the next save (#120).
+        if (HasPendingChanges && !_hasConflict && !_isDisposing)
+        {
+            ScheduleAutoSave();
+            return;
+        }
 
-            await Task.Delay(2000);
+        // Cosmetic only: clear the "Saved" badge after a short delay. This runs
+        // outside the save guard, so it cannot block a subsequent save.
+        await Task.Delay(2000);
+        if (saveStatusText == "Saved")
+        {
             SetStatus(string.Empty, string.Empty);
             StateHasChanged();
         }
-        finally
-        {
-            _isSaving = false;
-        }
-
-        // Save any changes that arrived while this save was in flight
-        if (HasPendingChanges && !_hasConflict && !_isDisposing)
-            ScheduleAutoSave();
     }
 
     private void SetStatus(string text, string css)
@@ -588,6 +603,9 @@
         _debounceCts?.Dispose();
         _debounceCts = null;
 
+        // If an auto-save is already in flight, join it rather than racing it — a
+        // second concurrent PUT on the same UpdatedAt is what caused false 409s (#120).
+        var joinedInFlight = _saveInFlight is { IsCompleted: false };
         var saved = await SaveCoreAsync();
         if (saved is null)
         {
@@ -597,7 +615,17 @@
                 StateHasChanged();
             return;
         }
-        if (isNew)
+        // A joined save persisted the snapshot from when the in-flight save STARTED,
+        // and cancelling the debounce above dropped the pending re-save. Flush any edits
+        // made since before leaving, so trailing keystrokes are not silently lost (#120).
+        // Skip for isNew: after the auto-save's create+navigate, Id isn't rebound yet, so
+        // a second save here would create a duplicate note (creation is the auto-save's job).
+        if (joinedInFlight && !isNew && HasPendingChanges && !_hasConflict)
+            saved = await SaveCoreAsync() ?? saved;
+
+        // When we joined an in-flight save, the originating auto-save already added
+        // the new note's labels and navigated — don't repeat that work here.
+        if (isNew && !joinedInFlight)
         {
             foreach (var label in noteLabels.ToList())
                 await LabelService.AddLabelToNoteAsync(saved.Id, label.Id);
