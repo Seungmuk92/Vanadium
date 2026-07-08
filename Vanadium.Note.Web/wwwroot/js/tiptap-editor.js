@@ -1675,10 +1675,15 @@ function runCommand(editor, cmd) {
 // responsible for revoking its entries (and clearing blobUrlCache) when the
 // editor is destroyed or content is replaced.
 
-async function resolveAuthenticatedImages(editorDom, apiBaseUrl, authToken, blobUrls, blobUrlCache) {
+// getAuthToken is an async callback that returns the CURRENT token at call
+// time (not a value captured when the editor was created), so a re-login after
+// JWT expiry is picked up here without re-initializing the editor (issue #126).
+// It is invoked lazily, only on a cache miss that actually needs the network,
+// so the cache-hit hot path stays free of Blazor interop round-trips.
+async function resolveAuthenticatedImages(editorDom, apiBaseUrl, getAuthToken, blobUrls, blobUrlCache) {
     const prefix = `${apiBaseUrl}/api/images/`;
-    const headers = authToken ? { 'Authorization': `Bearer ${authToken}` } : {};
     const imgs = editorDom.querySelectorAll(`img[src^="${CSS.escape(prefix)}"], img[src^="${prefix}"]`);
+    let headers = null;
 
     for (const img of imgs) {
         const src = img.getAttribute('src');
@@ -1691,6 +1696,13 @@ async function resolveAuthenticatedImages(editorDom, apiBaseUrl, authToken, blob
         if (cached) {
             img.src = cached;
             continue;
+        }
+
+        // First real fetch this pass — resolve the current token once and reuse
+        // its headers for the remaining images.
+        if (headers === null) {
+            const authToken = await getAuthToken();
+            headers = authToken ? { 'Authorization': `Bearer ${authToken}` } : {};
         }
 
         try {
@@ -1713,12 +1725,17 @@ async function resolveAuthenticatedImages(editorDom, apiBaseUrl, authToken, blob
 // ── Public API ───────────────────────────────────────────────────────────────
 
 window.tiptapInterop = {
-    async init(elementId, dotnetRef, initialContent, apiBaseUrl, authToken, editable = true) {
+    async init(elementId, dotnetRef, initialContent, apiBaseUrl, editable = true) {
         const el = document.getElementById(elementId);
         if (!el) {
             console.error(`[tiptap] Element not found: '${elementId}'`);
             return;
         }
+
+        // Resolve the current auth token on demand rather than capturing it once,
+        // so image load/upload after a JWT expiry + re-login uses the fresh token
+        // (issue #126). Blazor's TokenStore returns the latest token for the session.
+        const getAuthToken = () => dotnetRef.invokeMethodAsync('GetAuthTokenAsync');
 
         const bubbleMenuEl = createBubbleMenu(elementId);
         const linkPopover  = createLinkPopover(elementId);
@@ -1813,6 +1830,7 @@ window.tiptapInterop = {
 
                     const formData = new FormData();
                     formData.append('file', file);
+                    const authToken = await getAuthToken();
                     const headers = authToken ? { 'Authorization': `Bearer ${authToken}` } : {};
                     const toast = createProgressToast(file.name || 'image');
 
@@ -1828,7 +1846,7 @@ window.tiptapInterop = {
                         // the newly inserted <img> to a Blob URL immediately after insertion.
                         const entry = _editors[elementId];
                         if (entry) {
-                            await resolveAuthenticatedImages(editor.view.dom, apiBaseUrl, authToken, entry.blobUrls, entry.blobUrlCache);
+                            await resolveAuthenticatedImages(editor.view.dom, apiBaseUrl, getAuthToken, entry.blobUrls, entry.blobUrlCache);
                         }
                     } catch (err) {
                         toast.error();
@@ -1902,6 +1920,7 @@ window.tiptapInterop = {
             const pos = editor.view.posAtCoords({ left: e.clientX, top: e.clientY });
             const insertPos = pos ? pos.pos : editor.state.doc.content.size;
 
+            const authToken = await getAuthToken();
             const headers = authToken ? { 'Authorization': `Bearer ${authToken}` } : {};
 
             for (const file of files) {
@@ -1925,7 +1944,7 @@ window.tiptapInterop = {
                         // Resolve the newly inserted <img> to a Blob URL immediately.
                         const entry = _editors[elementId];
                         if (entry) {
-                            await resolveAuthenticatedImages(editor.view.dom, apiBaseUrl, authToken, entry.blobUrls, entry.blobUrlCache);
+                            await resolveAuthenticatedImages(editor.view.dom, apiBaseUrl, getAuthToken, entry.blobUrls, entry.blobUrlCache);
                         }
                     } else {
                         // Other files are inserted as file attachment links
@@ -1949,7 +1968,7 @@ window.tiptapInterop = {
 
         const blobUrls = [];
         const blobUrlCache = new Map();
-        _editors[elementId] = { editor, bubbleMenuEl, linkPopover, apiBaseUrl, authToken, blobUrls, blobUrlCache };
+        _editors[elementId] = { editor, bubbleMenuEl, linkPopover, apiBaseUrl, getAuthToken, blobUrls, blobUrlCache };
         console.log(`[tiptap] Editor initialized: ${elementId}`);
 
         // Re-apply blob URLs after every doc-mutating transaction. ProseMirror's
@@ -1959,12 +1978,12 @@ window.tiptapInterop = {
         // image looks broken. The cache hit path is synchronous and fires no
         // network calls, so this is cheap on the keystroke hot path.
         editor.on('update', () => {
-            resolveAuthenticatedImages(editor.view.dom, apiBaseUrl, authToken, blobUrls, blobUrlCache);
+            resolveAuthenticatedImages(editor.view.dom, apiBaseUrl, getAuthToken, blobUrls, blobUrlCache);
         });
 
         // Resolve any images that were injected with initialContent.
         if (initialContent) {
-            await resolveAuthenticatedImages(editor.view.dom, apiBaseUrl, authToken, blobUrls, blobUrlCache);
+            await resolveAuthenticatedImages(editor.view.dom, apiBaseUrl, getAuthToken, blobUrls, blobUrlCache);
         }
     },
 
@@ -1986,7 +2005,7 @@ window.tiptapInterop = {
         entry.blobUrls = [];
         entry.blobUrlCache.clear();
         entry.editor.commands.setContent(content, false);
-        await resolveAuthenticatedImages(entry.editor.view.dom, entry.apiBaseUrl, entry.authToken, entry.blobUrls, entry.blobUrlCache);
+        await resolveAuthenticatedImages(entry.editor.view.dom, entry.apiBaseUrl, entry.getAuthToken, entry.blobUrls, entry.blobUrlCache);
     },
 
     setInputValue(elementId, value) {
