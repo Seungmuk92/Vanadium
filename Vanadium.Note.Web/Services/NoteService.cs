@@ -72,13 +72,27 @@ public class NoteService(HttpClient http, ILogger<NoteService> logger)
     {
         try
         {
-            var result = await http.GetFromJsonAsync<NoteItem>($"api/notes/{id}");
+            var response = await http.GetAsync($"api/notes/{id}");
+
+            // A genuine 404 means the note no longer exists — callers may safely
+            // prune stale references. Any other non-success (5xx, network handled
+            // below) is transient and must NOT be treated as a deletion.
+            if (response.StatusCode == HttpStatusCode.NotFound)
+                return ServiceResult<NoteItem>.NotFound("Note not found.");
+            if (!response.IsSuccessStatusCode)
+            {
+                logger.LogError("Failed to load note {NoteId}: {StatusCode}.", id, (int)response.StatusCode);
+                return ServiceResult<NoteItem>.Fail("Failed to load note.");
+            }
+
+            var result = await response.Content.ReadFromJsonAsync<NoteItem>();
             return result is not null
                 ? ServiceResult<NoteItem>.Ok(result)
-                : ServiceResult<NoteItem>.Fail("Note not found.");
+                : ServiceResult<NoteItem>.Fail("Failed to load note.");
         }
         catch (Exception ex)
         {
+            // Network failure / timeout — transient, not a 404.
             logger.LogError(ex, "Failed to load note {NoteId}.", id);
             return ServiceResult<NoteItem>.Fail("Failed to load note.");
         }
