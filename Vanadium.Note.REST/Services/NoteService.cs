@@ -759,32 +759,51 @@ public class NoteService(
     {
         var subtree = await CollectDescendantsUnfilteredAsync(note.Id);
 
-        // Remove any page-link blocks referencing this note from the parent's content
-        if (note.ParentNoteId.HasValue)
-        {
-            var parent = await db.Notes.IgnoreQueryFilters()
-                .FirstOrDefaultAsync(n => n.Id == note.ParentNoteId.Value);
-            if (parent is not null)
-            {
-                var cleaned = RemovePageLinkFromContent(parent.Content, note.Id);
-                if (cleaned != parent.Content)
-                {
-                    parent.Content = cleaned;
-                    parent.ContentText = StripHtml(cleaned);
-                }
-            }
-        }
-
-        // Strip mention links referencing any note in the subtree from active notes
-        await StripMentionReferencesAsync(note.Id);
-        foreach (var descendant in subtree)
-            await StripMentionReferencesAsync(descendant.Id);
-
         var combinedContent = string.Join(' ',
             subtree.Select(n => n.Content).Prepend(note.Content));
 
-        db.Notes.Remove(note);
-        await db.SaveChangesAsync();
+        // Wrap the multi-save sequence (parent page-link strip, mention stripping,
+        // and the note removal) in a single transaction so a mid-sequence failure
+        // rolls the whole unit back instead of leaving a partial commit. The DB is
+        // configured with a retrying execution strategy (EnableRetryOnFailure),
+        // which forbids user-initiated transactions unless the whole unit runs
+        // through the strategy so it can be retried atomically — mirrors
+        // AccountService.PurgeAllDataAsync.
+        var strategy = db.Database.CreateExecutionStrategy();
+        await strategy.ExecuteAsync(async () =>
+        {
+            await using var tx = await db.Database.BeginTransactionAsync();
+
+            // Remove any page-link blocks referencing this note from the parent's content
+            if (note.ParentNoteId.HasValue)
+            {
+                var parent = await db.Notes.IgnoreQueryFilters()
+                    .FirstOrDefaultAsync(n => n.Id == note.ParentNoteId.Value);
+                if (parent is not null)
+                {
+                    var cleaned = RemovePageLinkFromContent(parent.Content, note.Id);
+                    if (cleaned != parent.Content)
+                    {
+                        parent.Content = cleaned;
+                        parent.ContentText = StripHtml(cleaned);
+                    }
+                }
+            }
+
+            // Strip mention links referencing any note in the subtree from active notes
+            await StripMentionReferencesAsync(note.Id);
+            foreach (var descendant in subtree)
+                await StripMentionReferencesAsync(descendant.Id);
+
+            db.Notes.Remove(note);
+            await db.SaveChangesAsync();
+
+            await tx.CommitAsync();
+        });
+
+        // File cleanup runs AFTER the transaction commits: deleting files is an
+        // irreversible filesystem side effect and must not sit inside the DB
+        // transaction (a rollback cannot un-delete files).
         await fileCleanup.DeleteOrphanedFromContentAsync(combinedContent);
         logger.LogInformation(
             "Note {NoteId} permanently deleted with {DescendantCount} descendant(s).",
