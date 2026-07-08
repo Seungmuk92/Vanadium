@@ -14,6 +14,7 @@
 @inject IDialogService DialogService
 @inject KeyboardShortcutService ShortcutService
 @inject QuickNavService QuickNav
+@inject DraftStore DraftStore
 @implements IAsyncDisposable
 
 <PageTitle>@(isNew ? "New Note" : "Edit Note")</PageTitle>
@@ -366,6 +367,22 @@
                 parentTitle = parentResult.Value!.Title;
         }
 
+        // Restore any unsaved draft stashed when a save failed mid-session (e.g. an
+        // auth-expiry 401 that redirected to login). The draft is keyed by note id, so
+        // this only fires for the note the user was actually editing (issue #117).
+        // Skip archived notes — they are read-only and cannot hold pending edits.
+        if (!IsArchived)
+        {
+            var draft = await DraftStore.GetAsync(Id);
+            if (draft is not null)
+            {
+                title = draft.Title;
+                content = draft.Content;
+                HasPendingChanges = true;
+                Snackbar.Add("Restored your unsaved changes.", Severity.Info);
+            }
+        }
+
         // Mark content ready ONLY after it is loaded. Setting this before the awaited GET
         // let the render that fires while awaiting push the reset-to-empty content into the
         // editor and consume the flag, leaving the editor blank on component reuse
@@ -479,10 +496,14 @@
         if (!result.IsSuccess)
         {
             Logger.LogError("Save failed for note {NoteId}.", note.Id);
+            // The session may have expired (401 → redirect to login). Stash the draft
+            // so the in-progress edit survives re-login and is restored on return (#117).
+            await DraftStore.SaveAsync(Id, title, content);
             return null;
         }
         _serverUpdatedAt = result.Value!.UpdatedAt;
         HasPendingChanges = false;
+        await DraftStore.ClearAsync();
         return result.Value;
     }
 
