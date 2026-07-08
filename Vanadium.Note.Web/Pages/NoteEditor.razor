@@ -72,6 +72,16 @@
     </div>
 }
 
+@if (_loadFailed)
+{
+    <div class="load-error-banner">
+        <span>⚠ Couldn't load this note — it may be a temporary problem. The note has not been deleted.</span>
+        <div class="load-error-banner-actions">
+            <button class="btn btn-sm btn-primary" @onclick="RetryLoad">Retry</button>
+        </div>
+    </div>
+}
+
 <div class="editor-body">
     <input class="editor-title"
            type="text"
@@ -291,6 +301,7 @@
     private bool _isSaving = false;
     private bool _isDisposing = false;
     private bool _hasConflict = false;
+    private bool _loadFailed = false;
     private DateTime _serverUpdatedAt;
     private string saveStatusText = string.Empty;
     private string saveStatusCss = string.Empty;
@@ -324,6 +335,7 @@
         childCount = 0;
         noteLabels = [];
         _hasConflict = false;
+        _loadFailed = false;
         _isSaving = false;
         _serverUpdatedAt = default;
 
@@ -350,12 +362,22 @@
                     VisitedAt = DateTime.UtcNow
                 });
             }
-            else
+            else if (result.IsNotFound)
             {
                 // A stale Recents entry can point at a deleted note (E3/E4) — prune it.
+                // Only a genuine 404 gets here; transient errors fall through below (#119).
                 await QuickNav.RemoveRecentAsync(Id.Value);
                 Snackbar.Add("That note no longer exists.", Severity.Error);
                 Nav.NavigateTo("/");
+                return;
+            }
+            else
+            {
+                // Transient failure (5xx / network). The note may still exist, so do NOT
+                // prune the Recents entry or bounce to Home — show a retry affordance and
+                // keep the user in place (#119).
+                _loadFailed = true;
+                Snackbar.Add("Couldn't load the note. Please try again.", Severity.Error);
                 return;
             }
         }
@@ -414,7 +436,7 @@
             var token = await TokenStore.GetAsync() ?? string.Empty;
             try
             {
-                await JS.InvokeVoidAsync("tiptapInterop.init", _editorId, _objRef, content, apiBase, token, !IsArchived);
+                await JS.InvokeVoidAsync("tiptapInterop.init", _editorId, _objRef, content, apiBase, token, !IsArchived && !_loadFailed);
                 _editorMounted = true;
                 await ShortcutService.RegisterAsync("ctrl+s", "Save note", () => InvokeAsync(SaveNote));
             }
@@ -452,7 +474,7 @@
 
     private void ScheduleAutoSave()
     {
-        if (_hasConflict || IsArchived) return;
+        if (_hasConflict || IsArchived || _loadFailed) return;
         HasPendingChanges = true;
         SetStatus("Writing...", "status-pending");
         _debounceCts?.Cancel();
@@ -589,6 +611,18 @@
         _hasConflict = false;
         HasPendingChanges = true;
         await DoAutoSave();
+    }
+
+    /// <summary>Re-runs the note load after a transient failure (#119). Clears the
+    /// cached id so <see cref="OnParametersSetAsync"/> re-fetches instead of short-circuiting;
+    /// on success it sets <c>_contentJustLoaded</c>, so the post-render hook re-applies the
+    /// content and re-enables the editor.</summary>
+    private async Task RetryLoad()
+    {
+        _loadFailed = false;
+        _currentId = null;
+        _currentParentId = null;
+        await OnParametersSetAsync();
     }
 
     private async Task ReloadNote()
