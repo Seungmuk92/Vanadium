@@ -50,7 +50,7 @@ public class ImagesController(IWebHostEnvironment env, ILogger<ImagesController>
 
     [Authorize]
     [HttpGet("{id:guid}")]
-    [ResponseCache(Duration = 31536000, Location = ResponseCacheLocation.Any)]
+    [ResponseCache(Duration = 31536000, Location = ResponseCacheLocation.Client)]
     public IActionResult Get(Guid id)
     {
         logger.LogDebug("Image requested: {ImageId}", id);
