@@ -42,16 +42,22 @@
         _isLoading = true;
         _errorMessage = null;
 
-        var success = await AuthService.LoginAsync(_model.Password);
+        var outcome = await AuthService.LoginAsync(_model.Password);
 
-        if (success)
+        if (outcome == LoginOutcome.Success)
         {
             var target = string.IsNullOrEmpty(ReturnUrl) ? "/" : Uri.UnescapeDataString(ReturnUrl);
             Nav.NavigateTo(target);
         }
         else
         {
-            _errorMessage = "Invalid password.";
+            _errorMessage = outcome switch
+            {
+                LoginOutcome.InvalidPassword => "Invalid password.",
+                LoginOutcome.RateLimited => "Too many attempts. Please wait a moment and try again.",
+                LoginOutcome.NetworkError => "Cannot reach the server. Check your connection and try again.",
+                _ => "Something went wrong on the server. Please try again later.",
+            };
             _isLoading = false;
         }
     }
