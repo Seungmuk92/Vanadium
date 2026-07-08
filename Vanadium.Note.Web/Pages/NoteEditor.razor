@@ -615,6 +615,14 @@
                 StateHasChanged();
             return;
         }
+        // A joined save persisted the snapshot from when the in-flight save STARTED,
+        // and cancelling the debounce above dropped the pending re-save. Flush any edits
+        // made since before leaving, so trailing keystrokes are not silently lost (#120).
+        // Skip for isNew: after the auto-save's create+navigate, Id isn't rebound yet, so
+        // a second save here would create a duplicate note (creation is the auto-save's job).
+        if (joinedInFlight && !isNew && HasPendingChanges && !_hasConflict)
+            saved = await SaveCoreAsync() ?? saved;
+
         // When we joined an in-flight save, the originating auto-save already added
         // the new note's labels and navigated — don't repeat that work here.
         if (isNew && !joinedInFlight)
