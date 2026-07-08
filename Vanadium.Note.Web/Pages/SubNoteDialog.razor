@@ -153,10 +153,11 @@
         {
             _objRef = DotNetObjectReference.Create(this);
             var apiBase = Http.BaseAddress?.ToString().TrimEnd('/') ?? string.Empty;
-            var token = await TokenStore.GetAsync() ?? string.Empty;
+            // The editor pulls the current token on demand via GetAuthTokenAsync
+            // rather than being seeded with a captured token here (issue #126).
             try
             {
-                await JS.InvokeVoidAsync("tiptapInterop.init", _editorId, _objRef, content, apiBase, token, !_isArchived);
+                await JS.InvokeVoidAsync("tiptapInterop.init", _editorId, _objRef, content, apiBase, !_isArchived);
                 _editorMounted = true;
             }
             catch (Exception ex)
@@ -179,6 +180,13 @@
         content = html;
         ScheduleAutoSave();
     }
+
+    // The editor calls back here for the current token at each authenticated
+    // image load/upload, so a re-login after JWT expiry is picked up without
+    // re-initializing the editor (issue #126).
+    [JSInvokable]
+    public async Task<string> GetAuthTokenAsync()
+        => await TokenStore.GetAsync() ?? string.Empty;
 
     [JSInvokable]
     public async Task OnSaveShortcut() => await InvokeAsync(DoAutoSave);
