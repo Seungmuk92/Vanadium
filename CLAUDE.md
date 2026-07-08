@@ -75,7 +75,7 @@ Before reporting work as done:
 
 Single-user, **password-only** (no user identity). There is no `User` entity and no `UserId`/`Username` ownership column on any table — the whole database belongs to one owner. Login verifies a password against a configured hash; a successful login mints a JWT carrying only a fixed `ClaimTypes.Name` = `AuthController.OwnerName` (`"owner"`) claim.
 
-- `POST /api/auth/login` (body `{ password }`) verifies against `Auth:PasswordHash` (PBKDF2-SHA256, `base64salt:base64hash`, same format as `Auth:JwtSecret` — supplied via config/env, never stored in the DB) and returns a JWT; no refresh tokens — JWT expiry defaults to 1440 min.
+- `POST /api/auth/login` (body `{ password }`) verifies against `Auth:PasswordHash` (PBKDF2-SHA256, `base64salt:base64hash:iterations` — supplied via config/env, never stored in the DB; legacy two-part `base64salt:base64hash` values verify at 100k for backward compatibility) and returns a JWT; no refresh tokens — JWT expiry defaults to 1440 min.
 - `POST /api/auth/hash` (dev-only, body `{ password }`) returns the storage hash for a password so it can be pasted into `Auth:PasswordHash`. It persists nothing (replaces the old user-provisioning `setup` endpoint).
 - Personal access tokens (`ApiToken`) still work; they no longer carry a `UserId`. `ApiTokenAuthHandler` matches the token hash and emits the same single `Name` claim.
 - Frontend stores JWT in `TokenStore` (scoped service wrapping `localStorage`), injects it via `AuthTokenHandler` (delegating `HttpMessageHandler`).
@@ -163,7 +163,7 @@ When adding new middleware, place it AFTER `CorrelationIdMiddleware` so logs car
 ### Rate limiting & security
 
 - `/api/auth/login` is fixed-window rate-limited at 10 req/min. Do not remove without discussion.
-- Passwords are hashed with PBKDF2-SHA256, 100k iterations. Never weaken these parameters.
+- Passwords are hashed with PBKDF2-SHA256 in `Security/PasswordHasher.cs`; new hashes use 600k iterations (OWASP guidance) and encode the count in the storage format (`salt:hash:iterations`) so it can be raised without rehashing. Legacy two-part hashes verify at 100k. Never weaken these parameters.
 - JWT validation does NOT check issuer/audience by design (single-tenant). Keep it that way unless deployment changes.
 - File uploads enforce a 13-MIME whitelist and 100 MB cap; new types must be added explicitly to both the controller and any frontend validation.
 
