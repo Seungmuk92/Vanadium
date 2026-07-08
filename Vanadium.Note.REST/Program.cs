@@ -53,8 +53,7 @@ builder.Services.AddDbContext<NoteDbContext>(options =>
     }
 });
 
-var jwtSecret = builder.Configuration["Auth:JwtSecret"]
-    ?? throw new InvalidOperationException("Auth:JwtSecret is not configured. Set Auth:JwtSecret in appsettings.");
+var jwtSecret = JwtSecretValidator.Validate(builder.Configuration["Auth:JwtSecret"]);
 
 const string smartScheme = "Smart";
 
