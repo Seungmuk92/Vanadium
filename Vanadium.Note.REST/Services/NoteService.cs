@@ -269,7 +269,10 @@ public class NoteService(
     private async Task UpdatePageLinkReferences(Guid noteId, string newTitle)
     {
         var idStr = noteId.ToString();
-        var referencingNotes = await db.Notes
+        // IgnoreQueryFilters so recycle-bin (soft-deleted) notes referencing this
+        // note also get their page-link title refreshed — otherwise a restored note
+        // keeps a stale title.
+        var referencingNotes = await db.Notes.IgnoreQueryFilters()
             .Where(n => n.Content.Contains($"data-note-id=\"{idStr}\""))
             .ToListAsync();
 
@@ -829,7 +832,10 @@ public class NoteService(
     private async Task StripMentionReferencesAsync(Guid noteId)
     {
         var idStr = noteId.ToString();
-        var referencingNotes = await db.Notes
+        // IgnoreQueryFilters so recycle-bin (soft-deleted) notes referencing this
+        // note also get their dead mention links stripped — otherwise a restored
+        // note keeps a dead mention pointing at a permanently-deleted note.
+        var referencingNotes = await db.Notes.IgnoreQueryFilters()
             .Where(n => n.Content.Contains($"data-note-id=\"{idStr}\""))
             .ToListAsync();
 
