@@ -3,7 +3,6 @@ using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.IdentityModel.Tokens;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
-using System.Security.Cryptography;
 using System.Text;
 using Vanadium.Note.REST.Models;
 using Vanadium.Note.REST.Security;
@@ -42,7 +41,7 @@ public class AuthController(
                 statusCode: StatusCodes.Status500InternalServerError);
         }
 
-        if (!VerifyPassword(request.Password, storedHash))
+        if (!PasswordHasher.Verify(request.Password, storedHash))
         {
             logger.LogWarning("Failed login attempt.");
             return Unauthorized(new { message = "Invalid password." });
@@ -78,7 +77,7 @@ public class AuthController(
             });
         }
 
-        return Ok(new { hash = HashPassword(request.Password) });
+        return Ok(new { hash = PasswordHasher.Hash(request.Password) });
     }
 
     private string GenerateJwtToken()
@@ -97,39 +96,5 @@ public class AuthController(
         );
 
         return new JwtSecurityTokenHandler().WriteToken(token);
-    }
-
-    private static string HashPassword(string password)
-    {
-        var salt = RandomNumberGenerator.GetBytes(16);
-        var hash = Rfc2898DeriveBytes.Pbkdf2(
-            Encoding.UTF8.GetBytes(password),
-            salt,
-            iterations: 100_000,
-            hashAlgorithm: HashAlgorithmName.SHA256,
-            outputLength: 32);
-        return $"{Convert.ToBase64String(salt)}:{Convert.ToBase64String(hash)}";
-    }
-
-    private static bool VerifyPassword(string password, string storedHash)
-    {
-        var parts = storedHash.Split(':');
-        if (parts.Length != 2) return false;
-        try
-        {
-            var salt = Convert.FromBase64String(parts[0]);
-            var expectedHash = Convert.FromBase64String(parts[1]);
-            var actualHash = Rfc2898DeriveBytes.Pbkdf2(
-                Encoding.UTF8.GetBytes(password),
-                salt,
-                iterations: 100_000,
-                hashAlgorithm: HashAlgorithmName.SHA256,
-                outputLength: 32);
-            return CryptographicOperations.FixedTimeEquals(expectedHash, actualHash);
-        }
-        catch
-        {
-            return false;
-        }
     }
 }
