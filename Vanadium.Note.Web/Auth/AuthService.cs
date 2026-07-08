@@ -1,3 +1,4 @@
+using System.Net;
 using System.Net.Http.Json;
 
 namespace Vanadium.Note.Web.Auth;
@@ -8,7 +9,7 @@ public class AuthService(
     JwtAuthenticationStateProvider authProvider,
     ILogger<AuthService> logger)
 {
-    public async Task<bool> LoginAsync(string password)
+    public async Task<LoginOutcome> LoginAsync(string password)
     {
         logger.LogInformation("Login attempt.");
         try
@@ -17,25 +18,30 @@ public class AuthService(
             if (!response.IsSuccessStatusCode)
             {
                 logger.LogWarning("Login failed: HTTP {StatusCode}.", (int)response.StatusCode);
-                return false;
+                return response.StatusCode switch
+                {
+                    HttpStatusCode.Unauthorized => LoginOutcome.InvalidPassword,
+                    HttpStatusCode.TooManyRequests => LoginOutcome.RateLimited,
+                    _ => LoginOutcome.ServerError,
+                };
             }
 
             var result = await response.Content.ReadFromJsonAsync<LoginResult>();
             if (result?.Token is null)
             {
                 logger.LogWarning("Login failed: response contained no token.");
-                return false;
+                return LoginOutcome.ServerError;
             }
 
             await tokenStore.SetAsync(result.Token);
             authProvider.NotifyAuthStateChanged();
             logger.LogInformation("Logged in successfully.");
-            return true;
+            return LoginOutcome.Success;
         }
         catch (Exception ex)
         {
             logger.LogError(ex, "Login request failed.");
-            return false;
+            return LoginOutcome.NetworkError;
         }
     }
 
