@@ -3,7 +3,7 @@
 @inject NoteService NoteService
 @inject NavigationManager Nav
 @inject ISnackbar Snackbar
-@inject IDialogService DialogService
+@inject ConfirmService Confirm
 @inject ILogger<Archive> Logger
 
 <PageTitle>Archive</PageTitle>
@@ -58,23 +58,10 @@
             }
         </div>
 
-        @if (TotalPages > 1)
-        {
-            <div class="pagination-bar">
-                <div class="pagination-controls">
-                    <button class="page-btn" disabled="@(currentPage == 1)" @onclick="() => LoadPage(1)">«</button>
-                    <button class="page-btn" disabled="@(currentPage == 1)" @onclick="() => LoadPage(currentPage - 1)">‹</button>
-                    @for (int i = Math.Max(1, currentPage - 2); i <= Math.Min(TotalPages, currentPage + 2); i++)
-                    {
-                        var p = i;
-                        <button class="page-btn @(p == currentPage ? "page-btn-active" : "")" @onclick="() => LoadPage(p)">@p</button>
-                    }
-                    <button class="page-btn" disabled="@(currentPage == TotalPages)" @onclick="() => LoadPage(currentPage + 1)">›</button>
-                    <button class="page-btn" disabled="@(currentPage == TotalPages)" @onclick="() => LoadPage(TotalPages)">»</button>
-                </div>
-                <span class="pagination-info">@totalCount note(s)</span>
-            </div>
-        }
+        <Pagination CurrentPage="currentPage"
+                    TotalPages="TotalPages"
+                    InfoText="@($"{totalCount} note(s)")"
+                    OnPageChanged="LoadPage" />
     }
 </div>
 
@@ -138,7 +125,7 @@
         var message = item.ChildCount > 0
             ? $"Move \"{title}\" and its sub-note(s) to the Recycle Bin? Items in the Recycle Bin are deleted permanently after 30 days."
             : $"Move \"{title}\" to the Recycle Bin? Items in the Recycle Bin are deleted permanently after 30 days.";
-        if (!await ConfirmAsync("Move to Recycle Bin", message, "Move to Recycle Bin")) return;
+        if (!await Confirm.ConfirmAsync("Move to Recycle Bin", message, "Move to Recycle Bin")) return;
 
         var result = await NoteService.DeleteAsync(item.Id);
         if (!result.IsSuccess)
@@ -149,18 +136,5 @@
         Logger.LogInformation("Archived note moved to recycle bin from archive page.");
         Snackbar.Add("Note moved to the Recycle Bin.", Severity.Normal);
         await ReloadAfterRemoval();
-    }
-
-    private async Task<bool> ConfirmAsync(string title, string message, string confirmText)
-    {
-        var parameters = new DialogParameters<ConfirmDialog>
-        {
-            { x => x.Message, message },
-            { x => x.ConfirmText, confirmText },
-            { x => x.ConfirmColor, Color.Error }
-        };
-        var dialog = await DialogService.ShowAsync<ConfirmDialog>(title, parameters);
-        var dialogResult = await dialog.Result;
-        return dialogResult is not null && !dialogResult.Canceled;
     }
 }

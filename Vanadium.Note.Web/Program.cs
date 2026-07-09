@@ -46,6 +46,7 @@ namespace Vanadium.Note.Web
             builder.Services.AddScoped<KeyboardShortcutService>();
             builder.Services.AddScoped<QuickNavService>();
             builder.Services.AddScoped<DraftStore>();
+            builder.Services.AddScoped<ConfirmService>();
             builder.Services.AddMudServices();
 
             await builder.Build().RunAsync();
