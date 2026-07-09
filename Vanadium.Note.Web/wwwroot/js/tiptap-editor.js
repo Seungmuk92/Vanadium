@@ -1840,7 +1840,7 @@ window.tiptapInterop = {
                             (ratio) => toast.update(ratio)
                         );
                         toast.done();
-                        console.log(`[tiptap] Image pasted and uploaded: ${file.name} (${file.size}B)`);
+                        console.debug(`[tiptap] Image pasted and uploaded: ${file.name} (${file.size}B)`);
                         editor.chain().focus().setImage({ src: `${apiBaseUrl}${url}` }).run();
                         // The browser cannot load /api/images/* without a JWT, so resolve
                         // the newly inserted <img> to a Blob URL immediately after insertion.
@@ -1936,7 +1936,7 @@ window.tiptapInterop = {
                             (ratio) => toast.update(ratio)
                         );
                         toast.done();
-                        console.log(`[tiptap] Image dropped and uploaded: ${file.name} (${file.size}B) -> ${url}`);
+                        console.debug(`[tiptap] Image dropped and uploaded: ${file.name} (${file.size}B) -> ${url}`);
                         editor.chain().focus().insertContentAt(insertPos, {
                             type: 'image',
                             attrs: { src: `${apiBaseUrl}${url}`, class: 'tiptap-image' },
@@ -1953,7 +1953,7 @@ window.tiptapInterop = {
                             (ratio) => toast.update(ratio)
                         );
                         toast.done();
-                        console.log(`[tiptap] File dropped and uploaded: ${file.name} (${file.size}B) -> ${url}`);
+                        console.debug(`[tiptap] File dropped and uploaded: ${file.name} (${file.size}B) -> ${url}`);
                         editor.chain().focus().insertContentAt(insertPos, {
                             type: 'fileAttachment',
                             attrs: { href: `${apiBaseUrl}${url}`, filename },
@@ -1969,7 +1969,7 @@ window.tiptapInterop = {
         const blobUrls = [];
         const blobUrlCache = new Map();
         _editors[elementId] = { editor, bubbleMenuEl, linkPopover, apiBaseUrl, getAuthToken, blobUrls, blobUrlCache };
-        console.log(`[tiptap] Editor initialized: ${elementId}`);
+        console.debug(`[tiptap] Editor initialized: ${elementId}`);
 
         // Re-apply blob URLs after every doc-mutating transaction. ProseMirror's
         // view layer patches <img src> back to the canonical /api/images/* URL
@@ -2106,7 +2106,7 @@ window.tiptapInterop = {
             entry.bubbleMenuEl.remove();
             entry.linkPopover.popover.remove();
             delete _editors[elementId];
-            console.log(`[tiptap] Editor destroyed: ${elementId}`);
+            console.debug(`[tiptap] Editor destroyed: ${elementId}`);
         }
     },
 };
