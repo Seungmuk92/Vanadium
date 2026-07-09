@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.OpenApi;
 using Microsoft.IdentityModel.Tokens;
@@ -28,6 +29,19 @@ builder.Host.UseSerilog((context, services, config) =>
         config.WriteTo.Seq(seqUrl, apiKey: seqApiKey);
 });
 
+
+// TLS terminates at an upstream reverse proxy (nginx etc.); the app itself
+// serves HTTP inside the container. Trust the proxy's X-Forwarded-For /
+// X-Forwarded-Proto so the real client IP and request scheme are restored
+// (also fixes the login rate limiter's per-IP partitioning). KnownNetworks /
+// KnownProxies are cleared because the proxy's container IP is not stable or
+// known ahead of time — the app port must only be reachable by the proxy.
+builder.Services.Configure<ForwardedHeadersOptions>(options =>
+{
+    options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
+    options.KnownIPNetworks.Clear();
+    options.KnownProxies.Clear();
+});
 
 var allowedOrigins = builder.Configuration["Cors:AllowedOrigins"]
     ?.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
@@ -99,8 +113,8 @@ builder.Services.AddRateLimiter(options =>
 {
     // Partition the login limiter by client IP so a single (anonymous) IP cannot
     // exhaust a shared global bucket and lock out the legitimate owner. Each IP gets
-    // its own 10 req/min fixed window. Correct behaviour behind a proxy additionally
-    // depends on UseForwardedHeaders (issue #113), which is out of scope here.
+    // its own 10 req/min fixed window. Behind a proxy the real client IP is restored
+    // by UseForwardedHeaders (configured above, runs first in the pipeline).
     options.AddPolicy("login", context =>
     {
         var partitionKey = context.Connection.RemoteIpAddress?.ToString() ?? "unknown";
@@ -195,6 +209,20 @@ using (var scope = app.Services.CreateScope())
     startupLogger.LogInformation("Database migrations applied.");
 }
 
+// Must run before any middleware that reads the client IP or request scheme
+// (rate limiter, logging, HSTS) so they observe the values the proxy forwarded.
+app.UseForwardedHeaders();
+
+// HSTS instructs browsers to stick to HTTPS. Skipped in Development (where the
+// app is hit over plain HTTP) and emitted only once ForwardedHeaders has
+// restored scheme=https from the proxy. HTTPS *redirection* is deliberately NOT
+// enabled here: the app is HTTP-only inside the container and redirection is the
+// reverse proxy's responsibility — UseHttpsRedirection would need an HTTPS port
+// and would otherwise cause redirect loops behind the proxy.
+if (!app.Environment.IsDevelopment())
+    app.UseHsts();
+
+app.UseMiddleware<SecurityHeadersMiddleware>();
 app.UseMiddleware<CorrelationIdMiddleware>();
 app.UseCors();
 app.UseRateLimiter();
