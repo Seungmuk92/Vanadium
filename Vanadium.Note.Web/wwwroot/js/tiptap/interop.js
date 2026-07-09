@@ -1,0 +1,423 @@
+import { Editor } from 'https://esm.sh/@tiptap/core@2'
+import StarterKit from 'https://esm.sh/@tiptap/starter-kit@2'
+import BubbleMenu from 'https://esm.sh/@tiptap/extension-bubble-menu@2'
+import Placeholder from 'https://esm.sh/@tiptap/extension-placeholder@2'
+import Link from 'https://esm.sh/@tiptap/extension-link@2'
+import Image from 'https://esm.sh/@tiptap/extension-image@2'
+import { Markdown } from 'https://esm.sh/tiptap-markdown?deps=@tiptap/core@2'
+import TaskList from 'https://esm.sh/@tiptap/extension-task-list@2'
+import TaskItem from 'https://esm.sh/@tiptap/extension-task-item@2'
+import Table from 'https://esm.sh/@tiptap/extension-table@2'
+import TableRow from 'https://esm.sh/@tiptap/extension-table-row@2'
+import TableHeader from 'https://esm.sh/@tiptap/extension-table-header@2'
+import TableCell from 'https://esm.sh/@tiptap/extension-table-cell@2'
+
+import { editors as _editors } from './registry.js'
+import { getMermaid, renderMermaidSvg } from './mermaid.js'
+import { CodeBlock, lowlight } from './extensions/code-block.js'
+import { TabIndent } from './extensions/tab-indent.js'
+import { createSlashCommandsExtension } from './extensions/slash-commands.js'
+import { createMentionExtension } from './extensions/mention.js'
+import { ToggleKeymap } from './extensions/toggle-keymap.js'
+import { FileAttachment } from './nodes/file-attachment.js'
+import { PageLink } from './nodes/page-link.js'
+import { NoteMention } from './nodes/note-mention.js'
+import { Callout } from './nodes/callout.js'
+import { MermaidNode } from './nodes/mermaid-node.js'
+import { Toggle, ToggleSummary, ToggleContent } from './nodes/toggle.js'
+import { CollapsibleHeading } from './nodes/collapsible-heading.js'
+import { AccordionGroup } from './nodes/accordion.js'
+import { createBubbleMenu } from './ui/bubble-menu.js'
+import { createLinkPopover, showLinkPopover } from './ui/link-popover.js'
+import { showCalloutEmojiPicker, hideCalloutPicker } from './ui/callout-picker.js'
+import { uploadWithProgress, createProgressToast } from './upload.js'
+import { resolveAuthenticatedImages } from './images.js'
+
+// ── Public API ───────────────────────────────────────────────────────────────
+
+window.tiptapInterop = {
+    async init(elementId, dotnetRef, initialContent, apiBaseUrl, editable = true) {
+        const el = document.getElementById(elementId);
+        if (!el) {
+            console.error(`[tiptap] Element not found: '${elementId}'`);
+            return;
+        }
+
+        // Resolve the current auth token on demand rather than capturing it once,
+        // so image load/upload after a JWT expiry + re-login uses the fresh token
+        // (issue #126). Blazor's TokenStore returns the latest token for the session.
+        const getAuthToken = () => dotnetRef.invokeMethodAsync('GetAuthTokenAsync');
+
+        const bubbleMenuEl = createBubbleMenu(elementId);
+        const linkPopover  = createLinkPopover(elementId);
+
+        const editor = new Editor({
+            element: el,
+            extensions: [
+                StarterKit.configure({ codeBlock: false, heading: false }),
+                CollapsibleHeading.configure({ levels: [1, 2, 3, 4, 5, 6] }),
+                CodeBlock.configure({ lowlight, defaultLanguage: 'plaintext' }),
+                Markdown.configure({
+                    html: true,
+                    tightLists: true,
+                    bulletListMarker: '-',
+                    linkify: false,
+                    breaks: false,
+                    transformPastedText: true,
+                    transformCopiedText: false,
+                }),
+                Placeholder.configure({
+                    // includeChildren + showOnlyCurrent:false so empty toggle
+                    // summaries always show their hint; CSS only renders the
+                    // ::before for the first paragraph and toggle summaries,
+                    // so other empty nodes are visually unchanged.
+                    includeChildren: true,
+                    showOnlyCurrent: false,
+                    placeholder: ({ node }) =>
+                        node.type.name === 'toggleSummary' ? 'Toggle summary' : 'Write something...',
+                }),
+                Link.configure({
+                    autolink: true,
+                    openOnClick: false,
+                    HTMLAttributes: { target: '_blank', rel: 'noopener noreferrer' },
+                }),
+                Image.configure({
+                    inline: false,
+                    HTMLAttributes: { class: 'tiptap-image' },
+                }),
+                TaskList,
+                TaskItem.configure({ nested: true }),
+                Table.configure({ resizable: false }),
+                TableRow,
+                TableHeader,
+                TableCell,
+                TabIndent,
+                FileAttachment,
+                PageLink,
+                NoteMention,
+                Callout,
+                MermaidNode,
+                Toggle,
+                ToggleSummary,
+                ToggleContent,
+                AccordionGroup,
+                ToggleKeymap,
+                createSlashCommandsExtension(dotnetRef),
+                createMentionExtension(dotnetRef),
+                BubbleMenu.configure({
+                    element: bubbleMenuEl,
+                    shouldShow: ({ editor, from, to }) => editor.isFocused && from !== to,
+                }),
+            ],
+            content: initialContent || '',
+            editable,
+            onUpdate({ editor }) {
+                dotnetRef.invokeMethodAsync('OnEditorContentChanged', editor.getHTML())
+                    .catch(err => console.error('[tiptap] OnEditorContentChanged failed', err));
+            },
+        });
+
+        // Ctrl+K shortcut
+        editor.view.dom.addEventListener('keydown', (e) => {
+            if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+                e.preventDefault();
+                // Stop propagation so the event does not bubble to the global
+                // ctrl+k handler (Quick Navigation); otherwise both the link
+                // popover and the Quick Nav dialog would open at once.
+                e.stopPropagation();
+                showLinkPopover(elementId);
+            }
+        });
+
+        // Clipboard image paste — upload to server, insert URL
+        editor.view.dom.addEventListener('paste', async (e) => {
+            const items = e.clipboardData?.items;
+            if (!items) return;
+            for (const item of items) {
+                if (item.type.startsWith('image/')) {
+                    e.preventDefault();
+                    const file = item.getAsFile();
+                    if (!file) return;
+
+                    const formData = new FormData();
+                    formData.append('file', file);
+                    const authToken = await getAuthToken();
+                    const headers = authToken ? { 'Authorization': `Bearer ${authToken}` } : {};
+                    const toast = createProgressToast(file.name || 'image');
+
+                    try {
+                        const { url } = await uploadWithProgress(
+                            `${apiBaseUrl}/api/images`, formData, headers,
+                            (ratio) => toast.update(ratio)
+                        );
+                        toast.done();
+                        console.debug(`[tiptap] Image pasted and uploaded: ${file.name} (${file.size}B)`);
+                        editor.chain().focus().setImage({ src: `${apiBaseUrl}${url}` }).run();
+                        // The browser cannot load /api/images/* without a JWT, so resolve
+                        // the newly inserted <img> to a Blob URL immediately after insertion.
+                        const entry = _editors[elementId];
+                        if (entry) {
+                            await resolveAuthenticatedImages(editor.view.dom, apiBaseUrl, getAuthToken, entry.blobUrls, entry.blobUrlCache);
+                        }
+                    } catch (err) {
+                        toast.error();
+                        console.error('[tiptap] Paste image upload failed', { file: file.name, size: file.size, error: err.message });
+                    }
+                    break;
+                }
+            }
+        });
+
+        // File attachment click — ProseMirror intercepts clicks, so we handle it manually
+        editor.view.dom.addEventListener('click', (e) => {
+            const link = e.target.closest('a.file-attachment');
+            if (!link) return;
+            e.preventDefault();
+            e.stopPropagation();
+            const a = document.createElement('a');
+            a.href = link.getAttribute('href');
+            a.download = link.getAttribute('data-filename') || '';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+        });
+
+        // Callout emoji click — prevent cursor move, open emoji picker
+        editor.view.dom.addEventListener('mousedown', (e) => {
+            if (e.target.classList.contains('callout-emoji')) e.preventDefault();
+        });
+
+        editor.view.dom.addEventListener('click', (e) => {
+            const emojiEl = e.target.closest('.callout-emoji');
+            if (!emojiEl) return;
+            showCalloutEmojiPicker(emojiEl, editor);
+        });
+
+        // Page link click — open sub-note in dialog via Blazor
+        editor.view.dom.addEventListener('click', (e) => {
+            const block = e.target.closest('.page-link-block');
+            if (!block) return;
+            e.preventDefault();
+            e.stopPropagation();
+            const noteId = block.getAttribute('data-note-id');
+            if (noteId) {
+                // Blur the editor before the async dialog opens so the bubble menu hides immediately
+                editor.commands.blur();
+                dotnetRef.invokeMethodAsync('OnPageLinkClick', noteId)
+                    .catch(err => console.error('[tiptap] OnPageLinkClick failed', err));
+            }
+        });
+
+        // File drag & drop
+        editor.view.dom.addEventListener('dragover', (e) => {
+            if (e.dataTransfer?.types.includes('Files')) {
+                e.preventDefault();
+                editor.view.dom.classList.add('drag-over');
+            }
+        });
+
+        editor.view.dom.addEventListener('dragleave', (e) => {
+            if (!editor.view.dom.contains(e.relatedTarget)) {
+                editor.view.dom.classList.remove('drag-over');
+            }
+        });
+
+        editor.view.dom.addEventListener('drop', async (e) => {
+            editor.view.dom.classList.remove('drag-over');
+            const files = Array.from(e.dataTransfer?.files || []);
+            if (files.length === 0) return;
+            e.preventDefault();
+
+            const pos = editor.view.posAtCoords({ left: e.clientX, top: e.clientY });
+            const insertPos = pos ? pos.pos : editor.state.doc.content.size;
+
+            const authToken = await getAuthToken();
+            const headers = authToken ? { 'Authorization': `Bearer ${authToken}` } : {};
+
+            for (const file of files) {
+                const formData = new FormData();
+                formData.append('file', file);
+                const toast = createProgressToast(file.name);
+
+                try {
+                    if (file.type.startsWith('image/')) {
+                        // Image files are inserted as inline images
+                        const { url } = await uploadWithProgress(
+                            `${apiBaseUrl}/api/images`, formData, headers,
+                            (ratio) => toast.update(ratio)
+                        );
+                        toast.done();
+                        console.debug(`[tiptap] Image dropped and uploaded: ${file.name} (${file.size}B) -> ${url}`);
+                        editor.chain().focus().insertContentAt(insertPos, {
+                            type: 'image',
+                            attrs: { src: `${apiBaseUrl}${url}`, class: 'tiptap-image' },
+                        }).run();
+                        // Resolve the newly inserted <img> to a Blob URL immediately.
+                        const entry = _editors[elementId];
+                        if (entry) {
+                            await resolveAuthenticatedImages(editor.view.dom, apiBaseUrl, getAuthToken, entry.blobUrls, entry.blobUrlCache);
+                        }
+                    } else {
+                        // Other files are inserted as file attachment links
+                        const { url, filename } = await uploadWithProgress(
+                            `${apiBaseUrl}/api/files`, formData, headers,
+                            (ratio) => toast.update(ratio)
+                        );
+                        toast.done();
+                        console.debug(`[tiptap] File dropped and uploaded: ${file.name} (${file.size}B) -> ${url}`);
+                        editor.chain().focus().insertContentAt(insertPos, {
+                            type: 'fileAttachment',
+                            attrs: { href: `${apiBaseUrl}${url}`, filename },
+                        }).run();
+                    }
+                } catch (err) {
+                    toast.error();
+                    console.error('[tiptap] Drop file upload failed', { file: file.name, size: file.size, error: err.message });
+                }
+            }
+        });
+
+        const blobUrls = [];
+        const blobUrlCache = new Map();
+        _editors[elementId] = { editor, bubbleMenuEl, linkPopover, apiBaseUrl, getAuthToken, blobUrls, blobUrlCache };
+        console.debug(`[tiptap] Editor initialized: ${elementId}`);
+
+        // Re-apply blob URLs after every doc-mutating transaction. ProseMirror's
+        // view layer patches <img src> back to the canonical /api/images/* URL
+        // whenever it re-renders the node (e.g., pressing Enter near the image),
+        // which makes the browser try to load the URL without a JWT and the
+        // image looks broken. The cache hit path is synchronous and fires no
+        // network calls, so this is cheap on the keystroke hot path.
+        editor.on('update', () => {
+            resolveAuthenticatedImages(editor.view.dom, apiBaseUrl, getAuthToken, blobUrls, blobUrlCache);
+        });
+
+        // Resolve any images that were injected with initialContent.
+        if (initialContent) {
+            await resolveAuthenticatedImages(editor.view.dom, apiBaseUrl, getAuthToken, blobUrls, blobUrlCache);
+        }
+    },
+
+    focus(elementId) {
+        _editors[elementId]?.editor.commands.focus('start');
+    },
+
+    // Toggle read-only mode (used for archived notes).
+    setEditable(elementId, editable) {
+        _editors[elementId]?.editor.setEditable(editable);
+    },
+
+    async setContent(elementId, content) {
+        const entry = _editors[elementId];
+        if (!entry) return;
+        // Revoke previous blob URLs before the DOM is replaced with new content,
+        // and clear the cache so stale apiUrl → blobUrl entries don't linger.
+        for (const url of entry.blobUrls) URL.revokeObjectURL(url);
+        entry.blobUrls = [];
+        entry.blobUrlCache.clear();
+        entry.editor.commands.setContent(content, false);
+        await resolveAuthenticatedImages(entry.editor.view.dom, entry.apiBaseUrl, entry.getAuthToken, entry.blobUrls, entry.blobUrlCache);
+    },
+
+    setInputValue(elementId, value) {
+        const el = document.getElementById(elementId);
+        if (el) el.value = value;
+    },
+
+    updateMentionTitle(elementId, noteId, newTitle) {
+        const entry = _editors[elementId];
+        if (!entry) return null;
+        const { editor } = entry;
+        let found = false;
+        editor.state.doc.descendants((node, pos) => {
+            if (found) return false;
+            if (node.type.name === 'noteMention' && node.attrs.noteId === noteId) {
+                editor.view.dispatch(
+                    editor.state.tr.setNodeMarkup(pos, null, { ...node.attrs, title: newTitle })
+                );
+                found = true;
+                return false;
+            }
+        });
+        return found ? editor.getHTML() : null;
+    },
+
+    updatePageLink(elementId, noteId, newTitle) {
+        const entry = _editors[elementId];
+        if (!entry) return null;
+        const { editor } = entry;
+        let found = false;
+        editor.state.doc.descendants((node, pos) => {
+            if (found) return false;
+            if (node.type.name === 'pageLink' && node.attrs.noteId === noteId) {
+                editor.view.dispatch(
+                    editor.state.tr.setNodeMarkup(pos, null, { ...node.attrs, title: newTitle })
+                );
+                found = true;
+                return false;
+            }
+        });
+        // Read HTML from the updated state
+        return found ? editor.getHTML() : null;
+    },
+
+    getMarkdown(elementId) {
+        return _editors[elementId]?.editor.storage.markdown.getMarkdown() ?? '';
+    },
+
+    downloadMarkdown(elementId, filename) {
+        const md = _editors[elementId]?.editor.storage.markdown.getMarkdown() ?? '';
+        const blob = new Blob([md], { type: 'text/markdown;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+    },
+
+    // Render all mermaid blocks found inside a DOM element (for read-only views).
+    // Pass a CSS selector string or a DOM element reference.
+    async renderMermaidIn(root) {
+        const el = typeof root === 'string' ? document.querySelector(root) : root;
+        if (!el) return;
+        const blocks = el.querySelectorAll('pre[data-type="mermaid"]');
+        if (!blocks.length) return;
+        // Eagerly load mermaid so any module-load error surfaces early
+        try { await getMermaid(); } catch (err) {
+            console.error('[tiptap] Failed to load Mermaid for read-only render', err);
+            return;
+        }
+        for (const block of blocks) {
+            const code = block.querySelector('code')?.textContent?.trim();
+            if (!code) continue;
+            try {
+                const container = document.createElement('div');
+                container.className = 'mermaid-rendered';
+                container.innerHTML = await renderMermaidSvg(code);
+                block.replaceWith(container);
+            } catch (err) {
+                const errDiv = document.createElement('div');
+                errDiv.className = 'mermaid-error';
+                errDiv.textContent = `⚠ ${err.message || 'Diagram error'}`;
+                block.replaceWith(errDiv);
+            }
+        }
+    },
+
+    destroy(elementId) {
+        const entry = _editors[elementId];
+        if (entry) {
+            hideCalloutPicker();
+            for (const url of entry.blobUrls) URL.revokeObjectURL(url);
+            entry.blobUrlCache.clear();
+            entry.editor.destroy();
+            entry.bubbleMenuEl.remove();
+            entry.linkPopover.popover.remove();
+            delete _editors[elementId];
+            console.debug(`[tiptap] Editor destroyed: ${elementId}`);
+        }
+    },
+};
