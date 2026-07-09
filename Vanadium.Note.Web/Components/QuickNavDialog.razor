@@ -9,7 +9,11 @@
 @if (Open)
 {
     <div class="quicknav-backdrop" @onclick="Close">
-        <div class="quicknav-panel" @onclick:stopPropagation="true">
+        <div class="quicknav-panel"
+             role="dialog"
+             aria-modal="true"
+             aria-label="Quick note navigation"
+             @onclick:stopPropagation="true">
             <input @ref="_input"
                    class="quicknav-input"
                    type="text"

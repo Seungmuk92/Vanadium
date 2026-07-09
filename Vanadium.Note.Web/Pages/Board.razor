@@ -109,7 +109,12 @@
 @if (showDialog)
 {
     <div class="board-dialog-overlay" @onclick="CancelDialog">
-        <div class="board-dialog" @onclick:stopPropagation="true">
+        <div class="board-dialog"
+             role="dialog"
+             aria-modal="true"
+             aria-label="Add a note"
+             @ref="_dialogRef"
+             @onclick:stopPropagation="true">
             <div class="board-dialog-header">
                 <h4>New note in &ldquo;<strong>@dialogLabel?.Name</strong>&rdquo;</h4>
                 <button class="board-dialog-close" @onclick="CancelDialog">×</button>
@@ -117,10 +122,10 @@
             <input class="board-dialog-input"
                    type="text"
                    placeholder="Note title"
+                   @ref="_dialogInput"
                    @bind="newNoteTitle"
                    @bind:event="oninput"
-                   @onkeydown="OnDialogKeyDown"
-                   autofocus />
+                   @onkeydown="OnDialogKeyDown" />
             @if (string.IsNullOrWhiteSpace(newNoteTitle))
             {
                 <div class="board-dialog-hint">Title is empty — will be saved as <em>(No title)</em></div>
@@ -151,6 +156,9 @@
     private string newNoteTitle = "";
     private string? dialogError;
     private bool isAdding = false;
+    private ElementReference _dialogRef;
+    private ElementReference _dialogInput;
+    private bool _trapQueued;
 
     private LabelCategory? selectedCategory =>
         categories.FirstOrDefault(c => c.Id == selectedCategoryId);
@@ -188,6 +196,13 @@
         {
             _dotNetRef = DotNetObjectReference.Create(this);
             await JS.InvokeVoidAsync("boardDragDrop.init", _dotNetRef);
+        }
+
+        if (_trapQueued)
+        {
+            _trapQueued = false;
+            await JS.InvokeVoidAsync("focusTrap.activate", _dialogRef);
+            try { await _dialogInput.FocusAsync(); } catch { /* dialog may have closed */ }
         }
     }
 
@@ -282,15 +297,17 @@
         dialogError = null;
         isAdding = false;
         showDialog = true;
+        _trapQueued = true;
     }
 
-    private void CancelDialog()
+    private async Task CancelDialog()
     {
         if (isAdding) return;
         showDialog = false;
         dialogLabel = null;
         newNoteTitle = "";
         dialogError = null;
+        await JS.InvokeVoidAsync("focusTrap.deactivate");
     }
 
     private async Task ConfirmAddNote()
@@ -312,6 +329,7 @@
                 showDialog = false;
                 dialogLabel = null;
                 newNoteTitle = "";
+                await JS.InvokeVoidAsync("focusTrap.deactivate");
             }
             else
             {
@@ -334,11 +352,13 @@
     private async Task OnDialogKeyDown(KeyboardEventArgs e)
     {
         if (e.Key == "Enter") await ConfirmAddNote();
-        else if (e.Key == "Escape") CancelDialog();
+        else if (e.Key == "Escape") await CancelDialog();
     }
 
     public async ValueTask DisposeAsync()
     {
+        if (showDialog)
+            await JS.InvokeVoidAsync("focusTrap.deactivate");
         await JS.InvokeVoidAsync("boardDragDrop.dispose");
         _dotNetRef?.Dispose();
     }
