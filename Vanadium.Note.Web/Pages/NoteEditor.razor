@@ -91,81 +91,20 @@
            @oninput="OnTitleInput"
            @onkeydown="OnTitleKeyDown" />
 
-    <div class="label-bar">
-        @foreach (var label in noteLabels)
-        {
-            <span class="label-chip @(label.CategoryId.HasValue ? "label-chip-cat" : "")">
-                @if (label.CategoryId.HasValue)
-                {
-                    <span class="label-cat-prefix">@label.CategoryName:</span>
-                }
-                <span>@label.Name</span>
-                @if (!IsArchived)
-                {
-                    <button class="label-chip-remove" @onclick="() => RemoveLabel(label.Id)">×</button>
-                }
-            </span>
-        }
-
-        @if (!IsArchived)
-        {
-        <div class="label-add-wrapper">
-            <button class="label-add-btn @(showLabelPicker ? "label-add-btn-active" : "")" @onclick="ToggleLabelPicker">
-                + Label
-            </button>
-
-            @if (showLabelPicker)
-            {
-                <div class="label-picker-backdrop" @onclick="CloseLabelPicker"></div>
-                <div class="label-picker">
-                    @{
-                        var generalLabels = availableLabels.Where(l => !l.CategoryId.HasValue).ToList();
-                    }
-
-                    @if (generalLabels.Any())
-                    {
-                        <div class="label-picker-section">
-                            <div class="label-picker-section-title">General</div>
-                            @foreach (var lbl in generalLabels)
-                            {
-                                var isAdded = noteLabels.Any(nl => nl.Id == lbl.Id);
-                                <div class="label-picker-item @(isAdded ? "is-added" : "")" @onclick="() => ToggleLabel(lbl)">
-                                    <span class="label-picker-check">@(isAdded ? "✓" : "")</span>
-                                    <span>@lbl.Name</span>
-                                </div>
-                            }
-                        </div>
-                    }
-
-                    @foreach (var cat in labelCategories)
-                    {
-                        var catLabels = availableLabels.Where(l => l.CategoryId == cat.Id).ToList();
-                        if (!catLabels.Any()) continue;
-                        <div class="label-picker-section">
-                            <div class="label-picker-section-title">@cat.Name</div>
-                            @foreach (var lbl in catLabels)
-                            {
-                                var isAdded = noteLabels.Any(nl => nl.Id == lbl.Id);
-                                <div class="label-picker-item @(isAdded ? "is-added" : "")" @onclick="() => ToggleLabel(lbl)">
-                                    <span class="label-picker-check">@(isAdded ? "✓" : "")</span>
-                                    <span>@lbl.Name</span>
-                                </div>
-                            }
-                        </div>
-                    }
-
-                    @if (!availableLabels.Any())
-                    {
-                        <div class="label-picker-empty">No labels</div>
-                    }
-
-                    <div class="label-picker-divider"></div>
-                    <div class="label-picker-manage-btn" @onclick="ToggleLabelManager">Manage labels...</div>
-                </div>
-            }
-        </div>
-        }
-    </div>
+    <LabelPicker @ref="_labelPicker"
+                 BarClass="label-bar"
+                 NoteLabels="noteLabels"
+                 AvailableLabels="availableLabels"
+                 LabelCategories="labelCategories"
+                 ReadOnly="IsArchived"
+                 OnToggleLabel="ToggleLabel"
+                 OnRemoveLabel="RemoveLabel"
+                 OnPickerOpened="OnLabelPickerOpened">
+        <Footer>
+            <div class="label-picker-divider"></div>
+            <div class="label-picker-manage-btn" @onclick="ToggleLabelManager">Manage labels...</div>
+        </Footer>
+    </LabelPicker>
 
     @if (showLabelManager)
     {
@@ -267,7 +206,7 @@
     private bool _contentJustLoaded = false;
     private readonly string _editorId = "tiptap-" + Guid.NewGuid().ToString("N")[..8];
     private DotNetObjectReference<NoteEditor>? _objRef;
-    private CancellationTokenSource? _debounceCts;
+    private readonly AutoSaveDebouncer _autoSave = new();
     private bool _hasPendingChanges = false;
 
     /// <summary>
@@ -310,7 +249,7 @@
     private List<Label> noteLabels = [];
     private List<Label> availableLabels = [];
     private List<LabelCategory> labelCategories = [];
-    private bool showLabelPicker = false;
+    private LabelPicker? _labelPicker;
     private bool showLabelManager = false;
     private string newLabelName = "";
     private string newLabelCategoryStr = "";
@@ -487,20 +426,7 @@
         if (_hasConflict || IsArchived || _loadFailed) return;
         HasPendingChanges = true;
         SetStatus("Writing...", "status-pending");
-        _debounceCts?.Cancel();
-        _debounceCts?.Dispose();
-        _debounceCts = new CancellationTokenSource();
-        _ = DebounceAndSave(_debounceCts.Token);
-    }
-
-    private async Task DebounceAndSave(CancellationToken token)
-    {
-        try
-        {
-            await Task.Delay(1500, token);
-            await InvokeAsync(DoAutoSave);
-        }
-        catch (TaskCanceledException) { }
+        _autoSave.Schedule(() => InvokeAsync(DoAutoSave));
     }
 
     // Single save entry point. Auto-save and manual save (Ctrl+S) both funnel
@@ -609,9 +535,7 @@
 
     private async Task SaveNote()
     {
-        _debounceCts?.Cancel();
-        _debounceCts?.Dispose();
-        _debounceCts = null;
+        _autoSave.Cancel();
 
         // If an auto-save is already in flight, join it rather than racing it — a
         // second concurrent PUT on the same UpdatedAt is what caused false 409s (#120).
@@ -681,7 +605,7 @@
 
     private async Task DeleteNote()
     {
-        _debounceCts?.Cancel();
+        _autoSave.Cancel();
         if (Id is not null)
         {
             var parts = new List<string>();
@@ -724,7 +648,7 @@
         if (IsArchived) return;
         archivedAt = DateTime.UtcNow; // marker only; the server holds the real value
         HasPendingChanges = false;
-        _debounceCts?.Cancel();
+        _autoSave.Cancel();
         Snackbar.Add("This note has been archived and is now read-only.", Severity.Warning);
         if (_editorMounted)
             await JS.InvokeVoidAsync("tiptapInterop.setEditable", _editorId, false);
@@ -740,7 +664,7 @@
         if (!confirmed) return;
 
         // Flush any pending edits before the note becomes read-only.
-        _debounceCts?.Cancel();
+        _autoSave.Cancel();
         if (HasPendingChanges)
             await SaveCoreAsync();
 
@@ -808,7 +732,7 @@
             if (!string.IsNullOrEmpty(newContent))
             {
                 content = newContent;
-                _debounceCts?.Cancel();
+                _autoSave.Cancel();
                 await DoAutoSave();
             }
         }
@@ -841,7 +765,7 @@
             if (!string.IsNullOrEmpty(newContent))
             {
                 content = newContent;
-                _debounceCts?.Cancel();
+                _autoSave.Cancel();
                 await DoAutoSave();
             }
         }
@@ -872,21 +796,13 @@
 
     // ── Label actions ─────────────────────────────────────────────────────────
 
-    private void ToggleLabelPicker()
-    {
-        showLabelPicker = !showLabelPicker;
-        if (showLabelPicker) showLabelManager = false;
-    }
-
-    private void CloseLabelPicker()
-    {
-        showLabelPicker = false;
-    }
+    // Opening the label picker closes the manager (they overlap the same space).
+    private void OnLabelPickerOpened() => showLabelManager = false;
 
     private void ToggleLabelManager()
     {
         showLabelManager = !showLabelManager;
-        showLabelPicker = false;
+        _labelPicker?.ClosePicker();
     }
 
     private async Task ToggleLabel(Label label)
@@ -1002,8 +918,7 @@
     public async ValueTask DisposeAsync()
     {
         _isDisposing = true;
-        _debounceCts?.Cancel();
-        _debounceCts?.Dispose();
+        _autoSave.Dispose();
 
         if (HasPendingChanges && !_hasConflict && !IsArchived)
             await SaveCoreAsync();

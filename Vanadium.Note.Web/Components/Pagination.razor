@@ -1,0 +1,28 @@
+@* Shared pager extracted from Home/Archive/RecycleBin (issue #124). Renders
+   nothing when there is a single page, so callers no longer need their own guard. *@
+@if (TotalPages > 1)
+{
+    <div class="pagination-bar">
+        <div class="pagination-controls">
+            <button class="page-btn" disabled="@(CurrentPage == 1)" @onclick="() => Go(1)">«</button>
+            <button class="page-btn" disabled="@(CurrentPage == 1)" @onclick="() => Go(CurrentPage - 1)">‹</button>
+            @for (int i = Math.Max(1, CurrentPage - 2); i <= Math.Min(TotalPages, CurrentPage + 2); i++)
+            {
+                var p = i;
+                <button class="page-btn @(p == CurrentPage ? "page-btn-active" : "")" @onclick="() => Go(p)">@p</button>
+            }
+            <button class="page-btn" disabled="@(CurrentPage == TotalPages)" @onclick="() => Go(CurrentPage + 1)">›</button>
+            <button class="page-btn" disabled="@(CurrentPage == TotalPages)" @onclick="() => Go(TotalPages)">»</button>
+        </div>
+        <span class="pagination-info">@InfoText</span>
+    </div>
+}
+
+@code {
+    [Parameter, EditorRequired] public int CurrentPage { get; set; }
+    [Parameter, EditorRequired] public int TotalPages { get; set; }
+    [Parameter, EditorRequired] public string InfoText { get; set; } = string.Empty;
+    [Parameter, EditorRequired] public EventCallback<int> OnPageChanged { get; set; }
+
+    private Task Go(int page) => OnPageChanged.InvokeAsync(page);
+}

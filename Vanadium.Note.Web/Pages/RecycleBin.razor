@@ -2,7 +2,7 @@
 @attribute [Authorize]
 @inject NoteService NoteService
 @inject ISnackbar Snackbar
-@inject IDialogService DialogService
+@inject ConfirmService Confirm
 @inject ILogger<RecycleBin> Logger
 
 <PageTitle>Recycle Bin</PageTitle>
@@ -63,23 +63,10 @@
             }
         </div>
 
-        @if (TotalPages > 1)
-        {
-            <div class="pagination-bar">
-                <div class="pagination-controls">
-                    <button class="page-btn" disabled="@(currentPage == 1)" @onclick="() => LoadPage(1)">«</button>
-                    <button class="page-btn" disabled="@(currentPage == 1)" @onclick="() => LoadPage(currentPage - 1)">‹</button>
-                    @for (int i = Math.Max(1, currentPage - 2); i <= Math.Min(TotalPages, currentPage + 2); i++)
-                    {
-                        var p = i;
-                        <button class="page-btn @(p == currentPage ? "page-btn-active" : "")" @onclick="() => LoadPage(p)">@p</button>
-                    }
-                    <button class="page-btn" disabled="@(currentPage == TotalPages)" @onclick="() => LoadPage(currentPage + 1)">›</button>
-                    <button class="page-btn" disabled="@(currentPage == TotalPages)" @onclick="() => LoadPage(TotalPages)">»</button>
-                </div>
-                <span class="pagination-info">@totalCount note(s)</span>
-            </div>
-        }
+        <Pagination CurrentPage="currentPage"
+                    TotalPages="TotalPages"
+                    InfoText="@($"{totalCount} note(s)")"
+                    OnPageChanged="LoadPage" />
     }
 </div>
 
@@ -147,7 +134,7 @@
         var message = item.ChildCount > 0
             ? $"Permanently delete \"{title}\" and its sub-note(s)? This cannot be undone."
             : $"Permanently delete \"{title}\"? This cannot be undone.";
-        if (!await ConfirmAsync("Delete forever", message, "Delete forever")) return;
+        if (!await Confirm.ConfirmAsync("Delete forever", message, "Delete forever")) return;
 
         var result = await NoteService.DeletePermanentAsync(item.Id);
         if (!result.IsSuccess)
@@ -162,7 +149,7 @@
     private async Task EmptyRecycleBin()
     {
         var message = $"Permanently delete all {totalCount} note(s) in the recycle bin? This cannot be undone.";
-        if (!await ConfirmAsync("Empty Recycle Bin", message, "Empty Recycle Bin")) return;
+        if (!await Confirm.ConfirmAsync("Empty Recycle Bin", message, "Empty Recycle Bin")) return;
 
         var result = await NoteService.EmptyRecycleBinAsync();
         if (!result.IsSuccess)
@@ -172,18 +159,5 @@
         }
         Snackbar.Add("Recycle bin emptied.", Severity.Success);
         await LoadPage(1);
-    }
-
-    private async Task<bool> ConfirmAsync(string title, string message, string confirmText)
-    {
-        var parameters = new DialogParameters<ConfirmDialog>
-        {
-            { x => x.Message, message },
-            { x => x.ConfirmText, confirmText },
-            { x => x.ConfirmColor, Color.Error }
-        };
-        var dialog = await DialogService.ShowAsync<ConfirmDialog>(title, parameters);
-        var dialogResult = await dialog.Result;
-        return dialogResult is not null && !dialogResult.Canceled;
     }
 }
