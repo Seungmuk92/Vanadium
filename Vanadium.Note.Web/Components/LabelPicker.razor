@@ -1,0 +1,123 @@
+@* Shared label chips + "+ Label" picker dropdown extracted from NoteEditor and
+   SubNoteDialog (issue #124). The picker's open/closed state is owned here; the
+   parent supplies the label data and toggle/remove callbacks. NoteEditor passes a
+   <Footer> (its "Manage labels..." link) and reacts to OnPickerOpened; SubNoteDialog
+   uses neither. *@
+<div class="@BarClass">
+    @foreach (var label in NoteLabels)
+    {
+        <span class="label-chip @(label.CategoryId.HasValue ? "label-chip-cat" : "")">
+            @if (label.CategoryId.HasValue)
+            {
+                <span class="label-cat-prefix">@label.CategoryName:</span>
+            }
+            <span>@label.Name</span>
+            @if (!ReadOnly)
+            {
+                <button class="label-chip-remove" @onclick="() => Remove(label.Id)">×</button>
+            }
+        </span>
+    }
+
+    @if (!ReadOnly)
+    {
+        <div class="label-add-wrapper">
+            <button class="label-add-btn @(_showPicker ? "label-add-btn-active" : "")" @onclick="TogglePicker">
+                + Label
+            </button>
+
+            @if (_showPicker)
+            {
+                <div class="label-picker-backdrop" @onclick="ClosePicker"></div>
+                <div class="label-picker">
+                    @{
+                        var generalLabels = AvailableLabels.Where(l => !l.CategoryId.HasValue).ToList();
+                    }
+
+                    @if (generalLabels.Any())
+                    {
+                        <div class="label-picker-section">
+                            <div class="label-picker-section-title">General</div>
+                            @foreach (var lbl in generalLabels)
+                            {
+                                var isAdded = NoteLabels.Any(nl => nl.Id == lbl.Id);
+                                <div class="label-picker-item @(isAdded ? "is-added" : "")" @onclick="() => Toggle(lbl)">
+                                    <span class="label-picker-check">@(isAdded ? "✓" : "")</span>
+                                    <span>@lbl.Name</span>
+                                </div>
+                            }
+                        </div>
+                    }
+
+                    @foreach (var cat in LabelCategories)
+                    {
+                        var catLabels = AvailableLabels.Where(l => l.CategoryId == cat.Id).ToList();
+                        if (!catLabels.Any()) continue;
+                        <div class="label-picker-section">
+                            <div class="label-picker-section-title">@cat.Name</div>
+                            @foreach (var lbl in catLabels)
+                            {
+                                var isAdded = NoteLabels.Any(nl => nl.Id == lbl.Id);
+                                <div class="label-picker-item @(isAdded ? "is-added" : "")" @onclick="() => Toggle(lbl)">
+                                    <span class="label-picker-check">@(isAdded ? "✓" : "")</span>
+                                    <span>@lbl.Name</span>
+                                </div>
+                            }
+                        </div>
+                    }
+
+                    @if (!AvailableLabels.Any())
+                    {
+                        <div class="label-picker-empty">No labels</div>
+                    }
+
+                    @Footer
+                </div>
+            }
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter, EditorRequired] public List<Label> NoteLabels { get; set; } = [];
+    [Parameter, EditorRequired] public List<Label> AvailableLabels { get; set; } = [];
+    [Parameter, EditorRequired] public List<LabelCategory> LabelCategories { get; set; } = [];
+
+    /// <summary>When true, hides the remove buttons and the whole "+ Label" affordance
+    /// (archived, read-only notes).</summary>
+    [Parameter] public bool ReadOnly { get; set; }
+
+    /// <summary>CSS class for the outer bar — <c>label-bar</c> in the full editor,
+    /// <c>dialog-label-bar</c> in the sub-note dialog.</summary>
+    [Parameter] public string BarClass { get; set; } = "label-bar";
+
+    [Parameter] public EventCallback<Label> OnToggleLabel { get; set; }
+    [Parameter] public EventCallback<Guid> OnRemoveLabel { get; set; }
+
+    /// <summary>Rendered at the bottom of the open picker (e.g. the "Manage labels..." link).</summary>
+    [Parameter] public RenderFragment? Footer { get; set; }
+
+    /// <summary>Raised when the picker is opened, so the parent can close any conflicting UI
+    /// (NoteEditor closes its label manager).</summary>
+    [Parameter] public EventCallback OnPickerOpened { get; set; }
+
+    private bool _showPicker;
+
+    private async Task TogglePicker()
+    {
+        _showPicker = !_showPicker;
+        if (_showPicker)
+            await OnPickerOpened.InvokeAsync();
+    }
+
+    /// <summary>Closes the picker from the parent (e.g. when opening the label manager).</summary>
+    public void ClosePicker()
+    {
+        if (!_showPicker) return;
+        _showPicker = false;
+        StateHasChanged();
+    }
+
+    private Task Toggle(Label label) => OnToggleLabel.InvokeAsync(label);
+    private Task Remove(Guid labelId) => OnRemoveLabel.InvokeAsync(labelId);
+}
