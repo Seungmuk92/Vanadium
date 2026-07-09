@@ -104,7 +104,7 @@ window.boardDragDrop = (() => {
         init(dotNetRef) {
             _dotNetRef = dotNetRef;
             document.addEventListener('dragstart',  _h.dragstart);
-            console.log('[board] Drag-drop initialized.');
+            console.debug('[board] Drag-drop initialized.');
             document.addEventListener('dragend',    _h.dragend);
             document.addEventListener('dragover',   _h.dragover);
             document.addEventListener('dragenter',  _h.dragenter);
@@ -119,7 +119,7 @@ window.boardDragDrop = (() => {
             document.removeEventListener('dragleave',  _h.dragleave);
             document.removeEventListener('drop',       _h.drop);
             _dotNetRef = null;
-            console.log('[board] Drag-drop disposed.');
+            console.debug('[board] Drag-drop disposed.');
         }
     };
 })();
