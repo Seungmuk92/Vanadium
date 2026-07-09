@@ -238,17 +238,13 @@ public class NoteService(
             return (null, false, true);
         }
 
-        // Optimistic concurrency: reject if the client's known version differs from DB,
-        // unless UpdatedAt is default (force-save bypass).
-        if (note.UpdatedAt != default && existing.UpdatedAt != note.UpdatedAt)
-        {
-            logger.LogWarning(
-                "Conflict on note {NoteId}: client has {ClientVersion}, server has {ServerVersion}.",
-                id, note.UpdatedAt, existing.UpdatedAt);
-            return (null, true, false);
-        }
-
         var titleChanged = existing.Title != note.Title;
+
+        // Capture the client's claimed version before mutating the tracked row:
+        // callers may hand us the tracked entity itself as `note`, so reading
+        // note.UpdatedAt after the stamp below would read the new value, not the
+        // version the client actually knew.
+        var clientVersion = note.UpdatedAt;
 
         existing.Title = note.Title;
         // Sanitize on the update path too — a leaked PAT could otherwise store a
@@ -258,7 +254,28 @@ public class NoteService(
         existing.ContentText = StripHtml(note.Content);
         existing.ParentNoteId = note.ParentNoteId;
         existing.UpdatedAt = UtcNowMicroseconds();
-        await db.SaveChangesAsync();
+
+        // Optimistic concurrency: when the client sent the version it last saw,
+        // pin it as the concurrency token's original value so EF enforces the
+        // check in the UPDATE's WHERE clause at the DB level — the DB, not an
+        // in-memory compare, decides the conflict, so a write racing between our
+        // read and save can no longer be lost. A default version is the
+        // force-save bypass: leave the token at the freshly-read DB value so the
+        // save proceeds (only a genuine mid-flight race can still conflict it).
+        if (clientVersion != default)
+            db.Entry(existing).Property(e => e.UpdatedAt).OriginalValue = clientVersion;
+
+        try
+        {
+            await db.SaveChangesAsync();
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            logger.LogWarning(
+                "Conflict on note {NoteId}: client version {ClientVersion} no longer matches the server row.",
+                id, note.UpdatedAt);
+            return (null, true, false);
+        }
 
         if (titleChanged)
             await UpdatePageLinkReferences(id, note.Title);
