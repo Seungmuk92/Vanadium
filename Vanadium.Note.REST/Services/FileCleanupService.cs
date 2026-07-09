@@ -50,14 +50,8 @@ public class FileCleanupService(
         logger.LogDebug("On-delete orphan check: {FileCount} file(s) and {ImageCount} image(s) referenced in deleted content.",
             fileIds.Count, imageIds.Count);
 
-        // Combine all surviving notes' content into one string for fast lookup.
-        // IgnoreQueryFilters: soft-deleted notes still reference their files — their
-        // attachments must NOT be treated as orphans until they are purged.
-        var survivingContent = string.Join(' ',
-            await db.Notes.IgnoreQueryFilters().Select(n => n.Content).ToListAsync(ct));
-
-        var filesRemoved  = await DeleteFileAttachmentsAsync(fileIds, survivingContent, ct);
-        var imagesRemoved = DeleteImageFiles(imageIds, survivingContent);
+        var filesRemoved  = await DeleteFileAttachmentsAsync(fileIds, ct);
+        var imagesRemoved = await DeleteImageFilesAsync(imageIds, ct);
 
         if (filesRemoved > 0 || imagesRemoved > 0)
             logger.LogInformation(
@@ -77,11 +71,6 @@ public class FileCleanupService(
         var graceMinutes = config.GetValue("FileCleanup:GraceMinutes", DefaultGraceMinutes);
         var graceCutoff = DateTime.UtcNow.AddMinutes(-graceMinutes);
 
-        // IgnoreQueryFilters: content of soft-deleted notes still counts as a live
-        // file reference until the recycle bin purge actually deletes the note.
-        var allContent = string.Join(' ',
-            await db.Notes.IgnoreQueryFilters().Select(n => n.Content).ToListAsync(ct));
-
         // --- File attachments (have DB records) ---
         var attachments = await db.FileAttachments.ToListAsync(ct);
 
@@ -93,7 +82,7 @@ public class FileCleanupService(
 
         foreach (var attachment in attachments)
         {
-            if (allContent.Contains(attachment.Id.ToString(), StringComparison.OrdinalIgnoreCase))
+            if (await IsReferencedInAnyNoteAsync(attachment.Id, ct))
                 continue;
 
             // Skip recently uploaded attachments still within the grace window.
@@ -132,10 +121,10 @@ public class FileCleanupService(
                 continue;
 
             var guidStr = Path.GetFileNameWithoutExtension(file.Name);
-            if (!Guid.TryParse(guidStr, out _))
+            if (!Guid.TryParse(guidStr, out var imageId))
                 continue;
 
-            if (allContent.Contains(guidStr, StringComparison.OrdinalIgnoreCase))
+            if (await IsReferencedInAnyNoteAsync(imageId, ct))
                 continue;
 
             // Disk-only images have no DB record, so fall back to the file's
@@ -161,13 +150,13 @@ public class FileCleanupService(
     // ── Helpers ──────────────────────────────────────────────────────────────
 
     private async Task<int> DeleteFileAttachmentsAsync(
-        IEnumerable<Guid> ids, string survivingContent, CancellationToken ct)
+        IEnumerable<Guid> ids, CancellationToken ct)
     {
         int removed = 0;
 
         foreach (var id in ids)
         {
-            if (survivingContent.Contains(id.ToString(), StringComparison.OrdinalIgnoreCase))
+            if (await IsReferencedInAnyNoteAsync(id, ct))
                 continue;
 
             var attachment = await db.FileAttachments.FindAsync([id], ct);
@@ -186,7 +175,7 @@ public class FileCleanupService(
         return removed;
     }
 
-    private int DeleteImageFiles(IEnumerable<Guid> ids, string survivingContent)
+    private async Task<int> DeleteImageFilesAsync(IEnumerable<Guid> ids, CancellationToken ct)
     {
         if (!Directory.Exists(UploadsPath)) return 0;
 
@@ -194,7 +183,7 @@ public class FileCleanupService(
 
         foreach (var id in ids)
         {
-            if (survivingContent.Contains(id.ToString(), StringComparison.OrdinalIgnoreCase))
+            if (await IsReferencedInAnyNoteAsync(id, ct))
                 continue;
 
             var file = new DirectoryInfo(UploadsPath)
@@ -209,6 +198,28 @@ public class FileCleanupService(
         }
 
         return removed;
+    }
+
+    /// <summary>
+    /// Returns whether any note still references <paramref name="id"/> in its content,
+    /// queried per-GUID against the DB so the full note corpus is never loaded into memory.
+    /// <para>
+    /// IgnoreQueryFilters: content of soft-deleted (recycle-bin) notes still counts as a
+    /// live file reference until the recycle bin purge actually deletes the note — their
+    /// attachments must NOT be treated as orphans early.
+    /// </para>
+    /// <para>
+    /// The content side is lowered before matching so this reproduces the previous
+    /// in-memory <see cref="StringComparison.OrdinalIgnoreCase"/> <c>Contains</c> semantics
+    /// (<see cref="Guid.ToString()"/> is already lowercase, and GUIDs are ASCII hex).
+    /// </para>
+    /// </summary>
+    private Task<bool> IsReferencedInAnyNoteAsync(Guid id, CancellationToken ct)
+    {
+        var needle = id.ToString();
+        return db.Notes
+                 .IgnoreQueryFilters()
+                 .AnyAsync(n => n.Content.ToLower().Contains(needle), ct);
     }
 
     private void DeletePhysicalFile(string path)
