@@ -43,6 +43,36 @@ public sealed class KeyboardShortcutService : IAsyncDisposable
             await UnregisterAsync(key);
     }
 
+    /// <summary>
+    /// Temporarily takes over <paramref name="key"/> with a new handler and returns a token that,
+    /// when disposed, restores the previously registered handler (or clears the binding if there
+    /// was none). Modal dialogs use this to claim Ctrl+S for their own note while open and hand it
+    /// back to the underlying page on close (#168).
+    /// </summary>
+    public async Task<IAsyncDisposable> OverrideAsync(string key, string description, Func<Task> handler)
+    {
+        _handlers.TryGetValue(key, out var previous);
+        await RegisterAsync(key, description, handler);
+        return new ShortcutOverride(this, key, previous);
+    }
+
+    private sealed class ShortcutOverride(KeyboardShortcutService owner, string key, HandlerEntry? previous)
+        : IAsyncDisposable
+    {
+        public async ValueTask DisposeAsync()
+        {
+            if (previous is not null)
+            {
+                owner._handlers[key] = previous;
+                await owner._js.InvokeVoidAsync("keyboardShortcuts.register", key);
+            }
+            else
+            {
+                await owner.UnregisterAsync(key);
+            }
+        }
+    }
+
     [JSInvokable]
     public async Task HandleShortcut(string key)
     {
