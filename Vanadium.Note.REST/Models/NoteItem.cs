@@ -13,6 +13,11 @@ public class NoteItem
     public string Content { get; set; } = string.Empty;
     [JsonIgnore]
     public string ContentText { get; set; } = string.Empty;
+    // DB-level optimistic concurrency token: EF Core appends UpdatedAt to the
+    // WHERE clause of every UPDATE/DELETE, so a stale write affects 0 rows and
+    // raises DbUpdateConcurrencyException instead of silently clobbering a
+    // concurrent edit (closes the read-then-write TOCTOU window in Update).
+    [ConcurrencyCheck]
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
 
     /// <summary>Null = active. Non-null marks the note as soft-deleted and is the purge clock.</summary>
