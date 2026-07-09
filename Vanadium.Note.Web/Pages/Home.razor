@@ -66,12 +66,12 @@
                            checked="@IsAllSelected"
                            @onchange="ToggleSelectAll" />
                 </div>
-                <div class="col-title sortable" @onclick="() => SetSort(SortColumn.Title)">
+                <button type="button" class="col-title sortable" @onclick="() => SetSort(SortColumn.Title)">
                     Title @SortIcon(SortColumn.Title)
-                </div>
-                <div class="col-date sortable" @onclick="() => SetSort(SortColumn.Date)">
+                </button>
+                <button type="button" class="col-date sortable" @onclick="() => SetSort(SortColumn.Date)">
                     Modified @SortIcon(SortColumn.Date)
-                </div>
+                </button>
             </div>
             @foreach (var note in notes)
             {
@@ -105,9 +105,11 @@
                             {
                                 <span class="expand-btn-placeholder"></span>
                             }
-                            <div class="note-title-text">
+                            <a class="note-title-text"
+                               href="/editor/@note.Id"
+                               @onclick:stopPropagation="true">
                                 @(string.IsNullOrWhiteSpace(note.Title) ? "(No title)" : note.Title)
-                            </div>
+                            </a>
                             @if (note.IsArchived)
                             {
                                 <span class="archived-badge">Archived</span>
@@ -170,9 +172,11 @@
                                 <div class="col-title" @onclick="() => EditNote(child.Id)">
                                     <div class="note-title-row note-child-indent">
                                         <span class="child-indicator">└</span>
-                                        <div class="note-title-text">
+                                        <a class="note-title-text"
+                                           href="/editor/@child.Id"
+                                           @onclick:stopPropagation="true">
                                             @(string.IsNullOrWhiteSpace(child.Title) ? "(No title)" : child.Title)
-                                        </div>
+                                        </a>
                                         @if (child.ChildCount > 0)
                                         {
                                             <span class="child-count-badge">+@child.ChildCount</span>
