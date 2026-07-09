@@ -8,6 +8,7 @@
 @inject TokenStore TokenStore
 @inject ISnackbar Snackbar
 @inject ILogger<SubNoteDialog> Logger
+@inject KeyboardShortcutService ShortcutService
 
 <MudDialog>
     <TitleContent>
@@ -59,6 +60,7 @@
 
     private readonly string _editorId = "tiptap-" + Guid.NewGuid().ToString("N")[..8];
     private DotNetObjectReference<SubNoteDialog>? _objRef;
+    private IAsyncDisposable? _ctrlSOverride;
     private readonly AutoSaveDebouncer _autoSave = new();
     private bool _hasPendingChanges = false;
     private bool _isSaving = false;
@@ -104,6 +106,10 @@
             {
                 await JS.InvokeVoidAsync("tiptapInterop.init", _editorId, _objRef, content, apiBase, !_isArchived);
                 _editorMounted = true;
+                // Claim Ctrl+S while the dialog is open so it saves THIS sub-note instead of the
+                // underlying page's note (which would navigate away). The prior binding is restored
+                // on dispose (#168).
+                _ctrlSOverride = await ShortcutService.OverrideAsync("ctrl+s", "Save note", OnSaveShortcut);
             }
             catch (Exception ex)
             {
@@ -133,8 +139,9 @@
     public async Task<string> GetAuthTokenAsync()
         => await TokenStore.GetAsync() ?? string.Empty;
 
-    [JSInvokable]
-    public async Task OnSaveShortcut() => await InvokeAsync(DoAutoSave);
+    // Ctrl+S handler wired via ShortcutService.OverrideAsync while the dialog is open (#168).
+    // The dialog already auto-saves on a debounce, so this just flushes immediately.
+    private async Task OnSaveShortcut() => await InvokeAsync(DoAutoSave);
 
     [JSInvokable]
     public async Task<List<JsMentionItem>> SearchNotes(string query)
@@ -312,6 +319,11 @@
 
     public async ValueTask DisposeAsync()
     {
+        // Hand Ctrl+S back to the underlying page before anything else so the shortcut is never
+        // left pointing at this disposed dialog (#168).
+        if (_ctrlSOverride is not null)
+            await _ctrlSOverride.DisposeAsync();
+
         // Esc/backdrop closes bypass Close() and only reach here, so flush pending edits on this
         // path too. Use SaveCoreAsync (no StateHasChanged) since the component is being disposed.
         _autoSave.Dispose();
