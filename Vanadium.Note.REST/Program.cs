@@ -97,12 +97,21 @@ builder.Services.AddAuthentication(smartScheme)
 
 builder.Services.AddRateLimiter(options =>
 {
-    options.AddFixedWindowLimiter("login", limiter =>
+    // Partition the login limiter by client IP so a single (anonymous) IP cannot
+    // exhaust a shared global bucket and lock out the legitimate owner. Each IP gets
+    // its own 10 req/min fixed window. Correct behaviour behind a proxy additionally
+    // depends on UseForwardedHeaders (issue #113), which is out of scope here.
+    options.AddPolicy("login", context =>
     {
-        limiter.Window = TimeSpan.FromMinutes(1);
-        limiter.PermitLimit = 10;
-        limiter.QueueLimit = 0;
-        limiter.QueueProcessingOrder = QueueProcessingOrder.OldestFirst;
+        var partitionKey = context.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+        return RateLimitPartition.GetFixedWindowLimiter(partitionKey, _ =>
+            new FixedWindowRateLimiterOptions
+            {
+                Window = TimeSpan.FromMinutes(1),
+                PermitLimit = 10,
+                QueueLimit = 0,
+                QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
+            });
     });
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
 });
