@@ -16,6 +16,7 @@ public class ApiToken
     public string Name { get; set; } = string.Empty;
 
     /// <summary>Base64-encoded SHA-256 hash of the plaintext token.</summary>
+    [MaxLength(64)]
     public string TokenHash { get; set; } = string.Empty;
 
     /// <summary>Last 4 characters of the plaintext token, for UI identification.</summary>
