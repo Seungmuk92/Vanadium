@@ -5,6 +5,7 @@
 @inject AuthenticationStateProvider AuthStateProvider
 @inject KeyboardShortcutService ShortcutService
 @inject NavigationManager Nav
+@inject ILogger<MainLayout> Logger
 @implements IAsyncDisposable
 
 <MudThemeProvider IsDarkMode="_isDarkMode" />
@@ -122,13 +123,22 @@
         InvokeAsync(StateHasChanged);
     }
 
+    // async void handler: exceptions cannot be observed by a caller, so they
+    // must be caught here — an unhandled throw would tear down the renderer.
     private async void OnAuthStateChanged(Task<AuthenticationState> task)
     {
-        var state = await task;
-        if (state.User.Identity?.IsAuthenticated == true)
-            await LoadThemeAsync();
-        else
-            await ApplyThemeAsync("system");
+        try
+        {
+            var state = await task;
+            if (state.User.Identity?.IsAuthenticated == true)
+                await LoadThemeAsync();
+            else
+                await ApplyThemeAsync("system");
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to handle authentication state change.");
+        }
     }
 
     private async Task LoadThemeAsync()
