@@ -12,6 +12,7 @@
 @inject ILogger<NoteEditor> Logger
 @inject ISnackbar Snackbar
 @inject IDialogService DialogService
+@inject ConfirmService Confirm
 @inject KeyboardShortcutService ShortcutService
 @inject QuickNavService QuickNav
 @inject DraftStore DraftStore
@@ -608,16 +609,11 @@
         _autoSave.Cancel();
         if (Id is not null)
         {
-            var parts = new List<string>();
-            if (childCount > 0)
-                parts.Add($"This note has {childCount} sub-note(s) that will be moved to the Recycle Bin too.");
-
-            if (parts.Count > 0)
-            {
-                parts.Add("Move this note to the Recycle Bin? Items in the Recycle Bin are deleted permanently after 30 days.");
-                var confirmed = await JS.InvokeAsync<bool>("confirm", string.Join("\n\n", parts));
-                if (!confirmed) return;
-            }
+            var message = childCount > 0
+                ? $"This note has {childCount} sub-note(s) that will be moved to the Recycle Bin too. Move this note to the Recycle Bin? Items in the Recycle Bin are deleted permanently after 30 days."
+                : "Move this note to the Recycle Bin? Items in the Recycle Bin are deleted permanently after 30 days.";
+            if (!await Confirm.ConfirmAsync("Move to Recycle Bin", message, "Move to Recycle Bin"))
+                return;
 
             var noteId = Id.Value;
             var result = await NoteService.DeleteAsync(noteId);
@@ -659,9 +655,10 @@
     {
         if (Id is null) return;
 
-        var confirmed = await JS.InvokeAsync<bool>("confirm",
-            "Archive this note? Sub-notes will be archived too. Archived notes are read-only and kept indefinitely.");
-        if (!confirmed) return;
+        if (!await Confirm.ConfirmAsync("Archive note",
+            "Archive this note? Sub-notes will be archived too. Archived notes are read-only and kept indefinitely.",
+            "Archive", Color.Warning))
+            return;
 
         // Flush any pending edits before the note becomes read-only.
         _autoSave.Cancel();
