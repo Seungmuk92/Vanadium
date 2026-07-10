@@ -2,7 +2,7 @@
 @attribute [Authorize]
 @inject NoteService NoteService
 @inject NavigationManager Nav
-@inject IJSRuntime JS
+@inject ConfirmService Confirm
 @inject ILogger<Home> Logger
 @inject ISnackbar Snackbar
 @inject KeyboardShortcutService ShortcutService
@@ -442,8 +442,7 @@
             ? $"Move {selectedIds.Count} note(s) to the Recycle Bin? Sub-notes will be moved too. Items in the Recycle Bin are deleted permanently after 30 days."
             : $"Move {selectedIds.Count} selected note(s) to the Recycle Bin?";
 
-        var confirmed = await JS.InvokeAsync<bool>("confirm", message);
-        if (!confirmed) return;
+        if (!await Confirm.ConfirmAsync("Move to Recycle Bin", message, "Move to Recycle Bin")) return;
 
         Logger.LogInformation("Moving {Count} note(s) to recycle bin.", selectedIds.Count);
         var deletedIds = new List<Guid>();
@@ -501,8 +500,7 @@
         var message = note.ChildCount > 0
             ? "Archive this note? Sub-notes will be archived too. Archived notes are read-only and kept indefinitely."
             : "Archive this note? Archived notes are read-only and kept indefinitely.";
-        var confirmed = await JS.InvokeAsync<bool>("confirm", message);
-        if (!confirmed) return;
+        if (!await Confirm.ConfirmAsync("Archive note", message, "Archive", Color.Warning)) return;
 
         var result = await NoteService.ArchiveAsync(note.Id);
         if (!result.IsSuccess)
