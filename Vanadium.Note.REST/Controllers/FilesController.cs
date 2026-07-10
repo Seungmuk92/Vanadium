@@ -40,19 +40,19 @@ public class FilesController(IWebHostEnvironment env, NoteDbContext db, ILogger<
     public async Task<ActionResult> Upload([FromForm] FileUploadRequest request)
     {
         if (request.File is null || request.File.Length == 0)
-            return BadRequest("No file provided.");
+            return Problem(detail: "No file provided.", statusCode: StatusCodes.Status400BadRequest);
 
         if (!AllowedContentTypes.Contains(request.File.ContentType))
         {
             logger.LogWarning("File upload rejected: unsupported content type '{ContentType}'", request.File.ContentType);
-            return BadRequest($"File type '{request.File.ContentType}' is not allowed.");
+            return Problem(detail: $"File type '{request.File.ContentType}' is not allowed.", statusCode: StatusCodes.Status400BadRequest);
         }
 
         if (!await HasValidMagicBytesAsync(request.File, request.File.ContentType))
         {
             logger.LogWarning("File upload rejected: magic bytes mismatch for '{ContentType}' ('{FileName}')",
                 request.File.ContentType, request.File.FileName);
-            return BadRequest("File content does not match the declared file type.");
+            return Problem(detail: "File content does not match the declared file type.", statusCode: StatusCodes.Status400BadRequest);
         }
 
         var originalName = Path.GetFileName(request.File.FileName);

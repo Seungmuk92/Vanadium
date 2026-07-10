@@ -28,7 +28,7 @@ public class LabelsController(LabelService labelService, ILogger<LabelsControlle
         catch (InvalidOperationException ex)
         {
             logger.LogWarning("Duplicate label category: '{Name}'", req.Name);
-            return Conflict(new { error = ex.Message });
+            return Problem(detail: ex.Message, statusCode: StatusCodes.Status409Conflict);
         }
     }
 
@@ -62,7 +62,7 @@ public class LabelsController(LabelService labelService, ILogger<LabelsControlle
         catch (InvalidOperationException ex)
         {
             logger.LogWarning("Duplicate label: '{Name}'", req.Name);
-            return Conflict(new { error = ex.Message });
+            return Problem(detail: ex.Message, statusCode: StatusCodes.Status409Conflict);
         }
     }
 
