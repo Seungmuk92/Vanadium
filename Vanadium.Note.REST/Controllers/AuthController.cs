@@ -44,7 +44,7 @@ public class AuthController(
         if (!PasswordHasher.Verify(request.Password, storedHash))
         {
             logger.LogWarning("Failed login attempt.");
-            return Unauthorized(new { message = "Invalid password." });
+            return Problem(detail: "Invalid password.", statusCode: StatusCodes.Status401Unauthorized);
         }
 
         var token = GenerateJwtToken();

@@ -22,14 +22,14 @@ public class ImagesController(IWebHostEnvironment env, ILogger<ImagesController>
     public async Task<ActionResult> Upload([FromForm] ImageUploadRequest request)
     {
         if (request.File is null || request.File.Length == 0)
-            return BadRequest("No file provided.");
+            return Problem(detail: "No file provided.", statusCode: StatusCodes.Status400BadRequest);
 
         var imageType = await DetectImageTypeAsync(request.File);
         if (imageType is null)
         {
             logger.LogWarning("Image upload rejected: unrecognized format '{FileName}' ({ContentType})",
                 request.File.FileName, request.File.ContentType);
-            return BadRequest("File is not a supported image (JPEG, PNG, GIF, WebP).");
+            return Problem(detail: "File is not a supported image (JPEG, PNG, GIF, WebP).", statusCode: StatusCodes.Status400BadRequest);
         }
 
         logger.LogInformation("Image upload requested: '{FileName}' ({Size} bytes, {ContentType})",
