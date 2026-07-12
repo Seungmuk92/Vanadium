@@ -131,6 +131,10 @@ builder.Services.AddRateLimiter(options =>
 });
 
 builder.Services.AddControllers();
+// Unify error responses on RFC 7807 ProblemDetails: controllers already emit
+// ProblemDetails via Problem()/ValidationProblem(), and this registration lets the
+// global exception handler below render the same shape through IProblemDetailsService.
+builder.Services.AddProblemDetails();
 builder.Services.AddSingleton<IHtmlSanitizerService, HtmlSanitizerService>();
 builder.Services.AddScoped<NoteService>();
 builder.Services.AddScoped<LabelService>();
@@ -190,8 +194,32 @@ app.UseExceptionHandler(errorApp =>
         if (feature?.Error is not null)
             logger.LogError(feature.Error, "Unhandled exception: {Method} {Path}",
                 context.Request.Method, context.Request.Path);
-        context.Response.StatusCode = 500;
-        await context.Response.WriteAsJsonAsync(new { error = "An unexpected error occurred." });
+
+        context.Response.StatusCode = StatusCodes.Status500InternalServerError;
+
+        // Respond with RFC 7807 ProblemDetails, matching the controllers' error contract.
+        // The message is deliberately generic — internal exception details are logged, not exposed.
+        var problemDetailsService = context.RequestServices.GetRequiredService<IProblemDetailsService>();
+        var written = await problemDetailsService.TryWriteAsync(new ProblemDetailsContext
+        {
+            HttpContext = context,
+            ProblemDetails =
+            {
+                Status = StatusCodes.Status500InternalServerError,
+                Title = "An unexpected error occurred.",
+            }
+        });
+
+        // Fallback for the rare case the writer declines (e.g. no acceptable content type):
+        // still emit a ProblemDetails body so the error contract holds unconditionally.
+        if (!written)
+        {
+            await context.Response.WriteAsJsonAsync(new Microsoft.AspNetCore.Mvc.ProblemDetails
+            {
+                Status = StatusCodes.Status500InternalServerError,
+                Title = "An unexpected error occurred.",
+            }, options: (System.Text.Json.JsonSerializerOptions?)null, contentType: "application/problem+json");
+        }
     });
 });
 

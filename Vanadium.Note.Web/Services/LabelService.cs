@@ -155,8 +155,9 @@ public class LabelService(HttpClient http, ILogger<LabelService> logger)
         try
         {
             var json = await response.Content.ReadFromJsonAsync<JsonElement>();
-            if (json.TryGetProperty("error", out var err))
-                return err.GetString() ?? "An error occurred.";
+            // Error responses are RFC 7807 ProblemDetails; the human-readable message lives in "detail".
+            if (json.TryGetProperty("detail", out var detail) && detail.ValueKind == JsonValueKind.String)
+                return detail.GetString() ?? "An error occurred.";
         }
         catch { }
         return "An error occurred.";

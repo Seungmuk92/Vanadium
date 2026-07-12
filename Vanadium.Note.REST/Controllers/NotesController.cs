@@ -26,7 +26,7 @@ public class NotesController(NoteService noteService, LabelService labelService,
         page = Math.Max(1, page);
         pageSize = Math.Clamp(pageSize, 1, 200);
         if (labelIds is { Length: > 50 })
-            return BadRequest("Too many label IDs (maximum 50).");
+            return Problem(detail: "Too many label IDs (maximum 50).", statusCode: StatusCodes.Status400BadRequest);
         var result = await noteService.GetPaged(page, pageSize, search, sortBy, sortDir, labelIds);
         if (includeLabels)
             result.Labels = await labelService.GetAllLabelsAsync();
@@ -60,7 +60,7 @@ public class NotesController(NoteService noteService, LabelService labelService,
         [FromQuery] Guid[]? labelIds = null)
     {
         if (labelIds is { Length: > 50 })
-            return BadRequest("Too many label IDs (maximum 50).");
+            return Problem(detail: "Too many label IDs (maximum 50).", statusCode: StatusCodes.Status400BadRequest);
         return Ok(await noteService.GetAllSummaries(labelIds));
     }
 
@@ -88,7 +88,7 @@ public class NotesController(NoteService noteService, LabelService labelService,
         if (note.ParentNoteId.HasValue && !await IsActiveNote(note.ParentNoteId.Value))
         {
             logger.LogWarning("Create rejected — parent note {ParentNoteId} not found, archived, or in recycle bin.", note.ParentNoteId);
-            return BadRequest("Parent note does not exist, is archived, or is in the recycle bin.");
+            return Problem(detail: "Parent note does not exist, is archived, or is in the recycle bin.", statusCode: StatusCodes.Status400BadRequest);
         }
         var created = await noteService.Create(note);
         logger.LogInformation("Note created: {NoteId}", created.Id);
@@ -103,17 +103,17 @@ public class NotesController(NoteService noteService, LabelService labelService,
             if (note.ParentNoteId.Value == id)
             {
                 logger.LogWarning("Update rejected — note {NoteId} cannot be its own parent.", id);
-                return BadRequest("A note cannot be its own parent.");
+                return Problem(detail: "A note cannot be its own parent.", statusCode: StatusCodes.Status400BadRequest);
             }
             if (await noteService.HasCircularReference(id, note.ParentNoteId.Value))
             {
                 logger.LogWarning("Update rejected — circular parent reference detected for note {NoteId}.", id);
-                return BadRequest("Setting this parent would create a circular reference.");
+                return Problem(detail: "Setting this parent would create a circular reference.", statusCode: StatusCodes.Status400BadRequest);
             }
             if (!await IsActiveNote(note.ParentNoteId.Value))
             {
                 logger.LogWarning("Update rejected — parent note {ParentNoteId} not found, archived, or in recycle bin.", note.ParentNoteId);
-                return BadRequest("Parent note does not exist, is archived, or is in the recycle bin.");
+                return Problem(detail: "Parent note does not exist, is archived, or is in the recycle bin.", statusCode: StatusCodes.Status400BadRequest);
             }
         }
 
@@ -123,7 +123,9 @@ public class NotesController(NoteService noteService, LabelService labelService,
                 detail: "Note is archived and read-only.",
                 statusCode: StatusCodes.Status403Forbidden);
         if (conflict)
-            return Conflict(new { message = "The note was modified by another session. Reload to get the latest version." });
+            return Problem(
+                detail: "The note was modified by another session. Reload to get the latest version.",
+                statusCode: StatusCodes.Status409Conflict);
         if (updated is null)
         {
             logger.LogWarning("Update failed — note {NoteId} not found", id);
@@ -213,7 +215,9 @@ public class NotesController(NoteService noteService, LabelService labelService,
         if (!wasInRecycleBin)
         {
             logger.LogWarning("Permanent delete rejected — note {NoteId} is not in recycle bin", id);
-            return Conflict(new { message = "Note is not in the recycle bin. Move it to the recycle bin before deleting permanently." });
+            return Problem(
+                detail: "Note is not in the recycle bin. Move it to the recycle bin before deleting permanently.",
+                statusCode: StatusCodes.Status409Conflict);
         }
         logger.LogInformation("Note permanently deleted: {NoteId}", id);
         return NoContent();

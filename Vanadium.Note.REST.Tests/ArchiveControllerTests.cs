@@ -91,7 +91,9 @@ public class ArchiveControllerTests
         var result = await controller.Create(
             new NoteItem { Title = "Orphan", Content = "", ParentNoteId = parent.Id });
 
-        Assert.IsType<BadRequestObjectResult>(result.Result);
+        var objectResult = Assert.IsType<ObjectResult>(result.Result);
+        Assert.Equal(StatusCodes.Status400BadRequest, objectResult.StatusCode);
+        Assert.IsType<ProblemDetails>(objectResult.Value);
     }
 
     [Fact]
@@ -111,7 +113,9 @@ public class ArchiveControllerTests
             UpdatedAt = default
         });
 
-        Assert.IsType<BadRequestObjectResult>(result.Result);
+        var objectResult = Assert.IsType<ObjectResult>(result.Result);
+        Assert.Equal(StatusCodes.Status400BadRequest, objectResult.StatusCode);
+        Assert.IsType<ProblemDetails>(objectResult.Value);
     }
 
     [Fact]
@@ -146,7 +150,9 @@ public class ArchiveControllerTests
 
         var result = await controller.DeletePermanent(note.Id);
 
-        Assert.IsType<ConflictObjectResult>(result);
+        var objectResult = Assert.IsType<ObjectResult>(result);
+        Assert.Equal(StatusCodes.Status409Conflict, objectResult.StatusCode);
+        Assert.IsType<ProblemDetails>(objectResult.Value);
     }
 
     [Fact]
