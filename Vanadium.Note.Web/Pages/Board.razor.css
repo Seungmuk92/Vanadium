@@ -330,3 +330,16 @@
     justify-content: flex-end;
     gap: 0.5rem;
 }
+
+/* ── Responsive (narrow / mobile) ───────────────────────────────────────────
+   Complements the desktop breakpoint in MainLayout.razor.css (min-width: 641px).
+   The columns container already scrolls horizontally; on a phone viewport a
+   fixed 280px column leaves almost no margin, so columns become viewport-width
+   and the user swipes between them. */
+@media (max-width: 640px) {
+    .board-column {
+        width: 82vw;
+        min-width: 0;
+        max-width: 300px;
+    }
+}
