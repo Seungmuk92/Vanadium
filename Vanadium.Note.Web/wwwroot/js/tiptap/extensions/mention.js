@@ -4,7 +4,34 @@ import Suggestion from 'https://esm.sh/@tiptap/suggestion@2'
 
 // ── Mention extension (@) ────────────────────────────────────────────────────
 
+const MENTION_SEARCH_DEBOUNCE_MS = 150;
+
+// Wraps the mention search so it only fires ~150ms after the last keystroke,
+// instead of once per keystroke. Each call supersedes any pending call; a late
+// API response whose query was already superseded is ignored so the menu never
+// renders stale results and the newest query alone drives the list.
+function createDebouncedSearch(dotnetRef, delayMs) {
+    let timer = null;
+    let latestToken = 0;
+    return query => {
+        if (timer) clearTimeout(timer);
+        const token = ++latestToken;
+        return new Promise(resolve => {
+            timer = setTimeout(async () => {
+                timer = null;
+                try {
+                    const results = await dotnetRef.invokeMethodAsync('SearchNotes', query);
+                    if (token === latestToken) resolve(results);
+                } catch {
+                    if (token === latestToken) resolve([]);
+                }
+            }, delayMs);
+        });
+    };
+}
+
 export function createMentionExtension(dotnetRef) {
+    const searchNotes = createDebouncedSearch(dotnetRef, MENTION_SEARCH_DEBOUNCE_MS);
     return Extension.create({
         name: 'mention',
         addProseMirrorPlugins() {
@@ -14,13 +41,7 @@ export function createMentionExtension(dotnetRef) {
                     pluginKey: new PluginKey('mention'),
                     char: '@',
                     allowSpaces: true,
-                    items: async ({ query }) => {
-                        try {
-                            return await dotnetRef.invokeMethodAsync('SearchNotes', query);
-                        } catch {
-                            return [];
-                        }
-                    },
+                    items: ({ query }) => searchNotes(query),
                     render() {
                         let menu = null;
                         let selectedIndex = 0;
