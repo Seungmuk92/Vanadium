@@ -39,6 +39,7 @@
                 <button class="btn btn-outline-secondary" @onclick="CreateSubNote">+ Sub-note</button>
             }
             <button class="btn btn-outline-secondary" @onclick="ExportMarkdown">Export MD</button>
+            <button class="btn btn-outline-secondary" @onclick="OpenShareDialog">Share</button>
             @if (!IsArchived)
             {
                 <button class="btn btn-outline-secondary" @onclick="ArchiveNote">Archive</button>
@@ -720,6 +721,14 @@
     }
 
     private void CreateSubNote() => Nav.NavigateTo($"/editor?parentId={Id}");
+
+    private async Task OpenShareDialog()
+    {
+        if (Id is null) return;
+        var parameters = new DialogParameters<ShareDialog> { { x => x.NoteId, Id.Value } };
+        var options = new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true, CloseOnEscapeKey = true };
+        await DialogService.ShowAsync<ShareDialog>("Share note", parameters, options);
+    }
 
     // ── Archive actions ───────────────────────────────────────────────────────
 
