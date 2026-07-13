@@ -83,6 +83,16 @@
     </div>
 }
 
+@if (_editorInitFailed)
+{
+    <div class="editor-error-banner">
+        <span>⚠ Editor failed to load — check your connection and try again.</span>
+        <div class="editor-error-banner-actions">
+            <button class="btn btn-sm btn-primary" @onclick="RetryEditorInit">Retry</button>
+        </div>
+    </div>
+}
+
 <div class="editor-body">
     <input class="editor-title"
            type="text"
@@ -242,6 +252,7 @@
     private bool _isDisposing = false;
     private bool _hasConflict = false;
     private bool _loadFailed = false;
+    private bool _editorInitFailed = false;
     private DateTime _serverUpdatedAt;
     private string saveStatusText = string.Empty;
     private string saveStatusCss = string.Empty;
@@ -383,7 +394,13 @@
             }
             catch (Exception ex)
             {
+                // The editor stack loads from a CDN at runtime; a transient outage (or a
+                // throw during editor construction) leaves a dead, empty div. Surface a
+                // retry banner instead of failing silently (issue #121). StateHasChanged is
+                // required because OnAfterRenderAsync does not re-render on its own.
+                _editorInitFailed = true;
                 Logger.LogError(ex, "Failed to initialize Tiptap editor for element '{EditorId}'.", _editorId);
+                StateHasChanged();
             }
         }
         else if (_contentJustLoaded && _editorMounted)
@@ -586,6 +603,18 @@
         _currentId = null;
         _currentParentId = null;
         await OnParametersSetAsync();
+    }
+
+    /// <summary>Recovers from a failed editor initialization (#121). A failed ES-module
+    /// import — the transient-CDN-outage case this guards against — is recorded as a
+    /// permanent failure in the browser's module map, so re-invoking <c>tiptapInterop.init</c>
+    /// in place cannot recover it; only a fresh document load re-fetches the editor stack.
+    /// Reloading is lossless here: the editor never mounted, the note content is re-fetched
+    /// from the server, and any unsaved draft is restored from <see cref="DraftStore"/> on
+    /// the way back in.</summary>
+    private void RetryEditorInit()
+    {
+        Nav.NavigateTo(Nav.Uri, forceLoad: true);
     }
 
     private async Task ReloadNote()
