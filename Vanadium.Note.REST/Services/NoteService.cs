@@ -464,6 +464,38 @@ public class NoteService(
     }
 
     /// <summary>
+    /// "What links here": returns notes whose HTML content references the given note via a
+    /// <c>data-note-id="{id}"</c> attribute (mentions and page links). Reuses the same
+    /// <c>Content.Contains</c> scan as title propagation (<see cref="UpdatePageLinkReferences"/>);
+    /// a normalized reference table is intentionally out of scope (issue #141).
+    /// Soft-deleted notes are excluded by the default global query filter (no
+    /// <c>IgnoreQueryFilters()</c>); archived notes are INCLUDED and flagged via
+    /// <see cref="BacklinkResult.IsArchived"/>, mirroring full-text/Quick Navigation search so
+    /// the full reference graph is visible. The note itself is excluded from its own backlinks.
+    /// </summary>
+    public async Task<List<BacklinkResult>> GetBacklinks(Guid id, int limit = 50, CancellationToken ct = default)
+    {
+        limit = Math.Clamp(limit, 1, 200);
+        var needle = $"data-note-id=\"{id}\"";
+
+        var rows = await db.Notes
+            .Where(n => n.Id != id && n.Content.Contains(needle))
+            .OrderByDescending(n => n.UpdatedAt)
+            .Take(limit)
+            .Select(n => new { n.Id, n.Title, n.ContentText, n.ArchivedAt })
+            .ToListAsync(ct);
+
+        return rows.Select(r => new BacklinkResult
+        {
+            Id = r.Id,
+            Title = r.Title,
+            // No search term for backlinks — BuildSnippet falls back to the leading slice.
+            Snippet = BuildSnippet(r.ContentText, []),
+            IsArchived = r.ArchivedAt != null
+        }).ToList();
+    }
+
+    /// <summary>
     /// Soft delete: moves the note and all its active descendants to the recycle bin.
     /// References in other notes and uploaded files are left untouched so a
     /// restore is lossless; cleanup is deferred to permanent deletion.
