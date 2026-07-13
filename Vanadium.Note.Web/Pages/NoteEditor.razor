@@ -863,7 +863,7 @@
                 noteLabels.RemoveAll(l => l.CategoryId == label.CategoryId);
 
             noteLabels.Add(label);
-            noteLabels = [.. noteLabels.OrderBy(l => l.Name)];
+            noteLabels = [.. noteLabels.OrderForDisplay()];
         }
     }
 

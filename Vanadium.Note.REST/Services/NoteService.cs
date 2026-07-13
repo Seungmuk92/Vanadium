@@ -97,7 +97,7 @@ public class NoteService(
                 ParentTitle = n.ParentNoteId.HasValue ? parentTitles.GetValueOrDefault(n.ParentNoteId.Value) : null,
                 ChildCount = childCounts.GetValueOrDefault(n.Id),
                 IsArchived = n.IsArchived,
-                Labels = n.Labels.OrderBy(l => l.Name).ToList()
+                Labels = OrderLabelsForDisplay(n.Labels).ToList()
             }).ToList(),
             TotalCount = totalCount,
             Page = page,
@@ -142,7 +142,7 @@ public class NoteService(
             UpdatedAt = n.UpdatedAt,
             ParentNoteId = n.ParentNoteId,
             ChildCount = childCounts.GetValueOrDefault(n.Id),
-            Labels = n.Labels.OrderBy(l => l.Name).ToList()
+            Labels = OrderLabelsForDisplay(n.Labels).ToList()
         }).ToList();
     }
 
@@ -177,7 +177,7 @@ public class NoteService(
             UpdatedAt = n.UpdatedAt,
             ParentNoteId = n.ParentNoteId,
             ChildCount = childCounts.GetValueOrDefault(n.Id),
-            Labels = n.Labels.OrderBy(l => l.Name).ToList()
+            Labels = OrderLabelsForDisplay(n.Labels).ToList()
         }).ToList();
     }
 
@@ -961,15 +961,25 @@ public class NoteService(
 
     private static void PopulateLabels(NoteItem note)
     {
-        note.Labels = note.NoteLabels
-            .Select(nl => new LabelSummary
+        note.Labels = OrderLabelsForDisplay(
+            note.NoteLabels.Select(nl => new LabelSummary
             {
                 Id = nl.Label.Id,
                 Name = nl.Label.Name,
                 CategoryId = nl.Label.CategoryId,
                 CategoryName = nl.Label.Category?.Name
-            })
-            .OrderBy(l => l.Name)
+            }))
             .ToList();
     }
+
+    /// <summary>
+    /// Orders labels for display so category and general labels do not interleave
+    /// (issue #186): category labels first, grouped by category name, then general
+    /// labels, sorted alphabetically by name within each group.
+    /// </summary>
+    private static IOrderedEnumerable<LabelSummary> OrderLabelsForDisplay(IEnumerable<LabelSummary> labels) =>
+        labels
+            .OrderBy(l => l.CategoryId.HasValue ? 0 : 1)
+            .ThenBy(l => l.CategoryName)
+            .ThenBy(l => l.Name);
 }
