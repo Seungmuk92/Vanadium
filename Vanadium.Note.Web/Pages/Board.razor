@@ -32,7 +32,11 @@
         </div>
     </div>
 
-    @if (selectedCategory is null || !selectedCategory.Labels.Any())
+    @if (isLoading && !notes.Any())
+    {
+        <p class="board-loading-msg">Loading...</p>
+    }
+    else if (selectedCategory is null || !selectedCategory.Labels.Any())
     {
         <p class="board-empty-msg">
             @if (!categories.Any())
@@ -148,6 +152,7 @@
     private IReadOnlyList<NoteSummary> notes = [];
     private List<LabelCategory> categories = [];
     private Guid? selectedCategoryId;
+    private bool isLoading = false;
     private DotNetObjectReference<Board>? _dotNetRef;
 
     // ── Dialog state ──────────────────────────────────────────────────────────
@@ -165,6 +170,7 @@
 
     protected override async Task OnInitializedAsync()
     {
+        isLoading = true;
         var catResult = await LabelService.GetCategoriesAsync();
         if (!catResult.IsSuccess)
             Snackbar.Add(catResult.Error ?? "Failed to load categories.", Severity.Error);
@@ -174,6 +180,7 @@
             selectedCategoryId = categories[0].Id;
             await LoadNotesForCurrentCategory();
         }
+        isLoading = false;
     }
 
     private async Task LoadNotesForCurrentCategory()
@@ -181,13 +188,17 @@
         if (selectedCategory is null || !selectedCategory.Labels.Any())
         {
             notes = [];
+            isLoading = false;
             return;
         }
+        isLoading = true;
+        StateHasChanged();
         var labelIds = selectedCategory.Labels.Select(l => l.Id);
         var notesResult = await NoteService.GetAllSummariesAsync(labelIds);
         if (!notesResult.IsSuccess)
             Snackbar.Add(notesResult.Error ?? "Failed to load notes.", Severity.Error);
         notes = notesResult.Value ?? [];
+        isLoading = false;
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)

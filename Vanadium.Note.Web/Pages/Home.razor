@@ -48,6 +48,13 @@
     {
         <p class="empty-message">Loading...</p>
     }
+    else if (loadFailed && !notes.Any())
+    {
+        <div class="load-error">
+            <p class="load-error-text">Couldn't load your notes. Please try again.</p>
+            <button class="btn btn-primary" @onclick="RetryLoad">Retry</button>
+        </div>
+    }
     else if (!isLoading && !notes.Any())
     {
         <p class="empty-message">
@@ -233,6 +240,7 @@
     private int totalCount = 0;
     private const int PageSize = 30;
     private bool isLoading = false;
+    private bool loadFailed = false;
 
     private enum SortColumn { Title, Date }
     private SortColumn currentSort = SortColumn.Date;
@@ -249,33 +257,11 @@
 
     protected override async Task OnInitializedAsync()
     {
-        _loadCts = new CancellationTokenSource();
-        var token = _loadCts.Token;
-        isLoading = true;
-
-        var result = await NoteService.GetAllAsync(
-            currentPage, PageSize, null,
-            currentSort == SortColumn.Title ? "title" : "date",
-            sortAscending ? "asc" : "desc",
-            null,
-            includeLabels: true,
-            cancellationToken: token);
-
-        if (result.IsSuccess)
-        {
-            allLabels = result.Value!.Labels ?? [];
-            notes = result.Value!.Items;
-            totalCount = result.Value!.TotalCount;
-            if (currentPage > TotalPages && TotalPages > 0)
-                currentPage = TotalPages;
-        }
-        else
-        {
-            Snackbar.Add(result.Error ?? "Failed to load notes.", Severity.Error);
-        }
-
-        isLoading = false;
+        await LoadNotes(includeLabels: true);
     }
+
+    // Retry after a failed load. Reload labels too if the initial load never delivered them.
+    private async Task RetryLoad() => await LoadNotes(includeLabels: allLabels.Count == 0);
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
@@ -283,7 +269,7 @@
             await ShortcutService.RegisterAsync("delete", "Delete selected notes", () => InvokeAsync(OnDeleteKeyPressed));
     }
 
-    private async Task LoadNotes()
+    private async Task LoadNotes(bool includeLabels = false)
     {
         // Cancel any in-flight request so only the latest call updates the UI
         _loadCts?.Cancel();
@@ -292,6 +278,7 @@
         var token = _loadCts.Token;
 
         isLoading = true;
+        loadFailed = false;
         StateHasChanged();
 
         try
@@ -305,14 +292,18 @@
                     currentSort == SortColumn.Title ? "title" : "date",
                     sortAscending ? "asc" : "desc",
                     activeFilters.Count > 0 ? activeFilters : null,
+                    includeLabels: includeLabels,
                     cancellationToken: token);
 
                 if (!result.IsSuccess)
                 {
+                    loadFailed = true;
                     Snackbar.Add(result.Error ?? "Failed to load notes.", Severity.Error);
                     break;
                 }
 
+                if (includeLabels)
+                    allLabels = result.Value!.Labels ?? [];
                 notes = result.Value!.Items;
                 totalCount = result.Value!.TotalCount;
 
