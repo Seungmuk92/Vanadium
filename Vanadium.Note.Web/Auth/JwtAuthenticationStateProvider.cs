@@ -4,12 +4,26 @@ using System.Text.Json;
 
 namespace Vanadium.Note.Web.Auth;
 
-public class JwtAuthenticationStateProvider(
-    TokenStore tokenStore,
-    ILogger<JwtAuthenticationStateProvider> logger) : AuthenticationStateProvider
+public class JwtAuthenticationStateProvider : AuthenticationStateProvider
 {
     private static readonly AuthenticationState Anonymous =
         new(new ClaimsPrincipal(new ClaimsIdentity()));
+
+    private readonly TokenStore tokenStore;
+    private readonly ILogger<JwtAuthenticationStateProvider> logger;
+
+    public JwtAuthenticationStateProvider(
+        TokenStore tokenStore,
+        ILogger<JwtAuthenticationStateProvider> logger)
+    {
+        this.tokenStore = tokenStore;
+        this.logger = logger;
+        // Cross-tab logout/login: when another tab changes the token, TokenStore
+        // invalidates its cache and raises this event so we re-publish auth state
+        // (issue #134). Both services live for the app's lifetime, so the
+        // subscription needs no explicit teardown.
+        this.tokenStore.TokenChangedExternally += NotifyAuthStateChanged;
+    }
 
     public override async Task<AuthenticationState> GetAuthenticationStateAsync()
     {
