@@ -127,6 +127,21 @@ builder.Services.AddRateLimiter(options =>
                 QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
             });
     });
+    // The anonymous share read endpoint is partitioned by client IP so a single IP cannot
+    // brute-force tokens or flood the DB. 60 req/min is ample for opening shared notes (the
+    // endpoint returns note metadata + HTML only; embedded assets are not served here).
+    options.AddPolicy("share", context =>
+    {
+        var partitionKey = context.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+        return RateLimitPartition.GetFixedWindowLimiter(partitionKey, _ =>
+            new FixedWindowRateLimiterOptions
+            {
+                Window = TimeSpan.FromMinutes(1),
+                PermitLimit = 60,
+                QueueLimit = 0,
+                QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
+            });
+    });
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
 });
 

@@ -205,6 +205,102 @@ public class NoteService(
         return note;
     }
 
+    // ── Sharing ────────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Sets a note's share mode. Enabling sharing mints a fresh unguessable token the first time;
+    /// switching between share modes keeps the same token (and link). <see cref="ShareMode.None"/>
+    /// is treated as unshare. Returns the resulting <see cref="ShareInfo"/>, or null if the note
+    /// does not exist (soft-deleted notes are hidden by the global filter). Does NOT bump
+    /// <c>UpdatedAt</c> — sharing is metadata and must not reorder the note in date-sorted lists.
+    /// </summary>
+    public async Task<ShareInfo?> SetShare(Guid id, ShareMode mode, CancellationToken ct = default)
+    {
+        var note = await db.Notes.FirstOrDefaultAsync(n => n.Id == id, ct);
+        if (note is null) return null;
+
+        if (mode == ShareMode.None)
+        {
+            ClearShare(note);
+        }
+        else
+        {
+            if (string.IsNullOrEmpty(note.ShareToken))
+            {
+                note.ShareToken = GenerateShareToken();
+                note.SharedAt = UtcNowMicroseconds();
+            }
+            note.ShareMode = mode;
+        }
+
+        await db.SaveChangesAsync(ct);
+        logger.LogInformation("Note {NoteId} share mode set to {ShareMode}.", id, note.ShareMode);
+        return ToShareInfo(note);
+    }
+
+    /// <summary>
+    /// Disables sharing for a note, clearing its token so any previously issued link stops working
+    /// immediately. Returns false when the note does not exist. Idempotent: unsharing an already
+    /// un-shared note succeeds and reports success.
+    /// </summary>
+    public async Task<bool> Unshare(Guid id, CancellationToken ct = default)
+    {
+        var note = await db.Notes.FirstOrDefaultAsync(n => n.Id == id, ct);
+        if (note is null) return false;
+
+        ClearShare(note);
+        await db.SaveChangesAsync(ct);
+        logger.LogInformation("Note {NoteId} unshared.", id);
+        return true;
+    }
+
+    /// <summary>Returns the current share status of a note, or null if it does not exist.</summary>
+    public async Task<ShareInfo?> GetShareInfo(Guid id, CancellationToken ct = default)
+    {
+        var note = await db.Notes
+            .Select(n => new { n.Id, n.ShareToken, n.ShareMode, n.SharedAt })
+            .FirstOrDefaultAsync(n => n.Id == id, ct);
+        if (note is null) return null;
+        return new ShareInfo
+        {
+            IsShared = note.ShareMode != ShareMode.None && !string.IsNullOrEmpty(note.ShareToken),
+            Mode = note.ShareMode,
+            Token = note.ShareToken,
+            SharedAt = note.SharedAt
+        };
+    }
+
+    /// <summary>
+    /// Resolves a shared note by its public token for anonymous read access. Returns null when the
+    /// token is empty, does not match any note, or the note is not currently shared. Soft-deleted
+    /// notes are excluded by the global query filter, so an unshared-then-deleted link cannot leak.
+    /// </summary>
+    public async Task<NoteItem?> GetSharedByToken(string? token, CancellationToken ct = default)
+    {
+        if (string.IsNullOrEmpty(token)) return null;
+        return await db.Notes
+            .FirstOrDefaultAsync(n =>
+                n.ShareToken == token && n.ShareMode != ShareMode.None, ct);
+    }
+
+    private static void ClearShare(NoteItem note)
+    {
+        note.ShareToken = null;
+        note.ShareMode = ShareMode.None;
+        note.SharedAt = null;
+    }
+
+    private static ShareInfo ToShareInfo(NoteItem note) => new()
+    {
+        IsShared = note.ShareMode != ShareMode.None && !string.IsNullOrEmpty(note.ShareToken),
+        Mode = note.ShareMode,
+        Token = note.ShareToken,
+        SharedAt = note.SharedAt
+    };
+
+    // 128 bits of randomness in the GUID makes the token unguessable; "N" yields 32 hex chars.
+    private static string GenerateShareToken() => Guid.NewGuid().ToString("N");
+
     public async Task<NoteItem> Create(NoteItem note, CancellationToken ct = default)
     {
         note.Id = Guid.NewGuid();
@@ -221,6 +317,11 @@ public class NoteService(
         note.IsDeletionRoot = false;
         note.ArchivedAt = null;
         note.IsArchiveRoot = false;
+        // Sharing is off at birth and can only be turned on through the dedicated share
+        // endpoints — a client must never be able to mint a share token via create/update.
+        note.ShareToken = null;
+        note.ShareMode = ShareMode.None;
+        note.SharedAt = null;
         db.Notes.Add(note);
         await db.SaveChangesAsync(ct);
         return note;
