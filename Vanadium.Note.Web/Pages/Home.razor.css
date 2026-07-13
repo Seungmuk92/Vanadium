@@ -456,3 +456,29 @@ a.note-title-text:hover {
     opacity: 0.5;
     white-space: nowrap;
 }
+
+/* ── Responsive (narrow / mobile) ───────────────────────────────────────────
+   Complements the desktop breakpoint in MainLayout.razor.css (min-width: 641px).
+   Tightens the note table so it fits a phone-width viewport without clipping. */
+@media (max-width: 640px) {
+    .notes-header {
+        flex-wrap: wrap;
+    }
+
+    .notes-search {
+        max-width: none;
+    }
+
+    .note-row {
+        grid-template-columns: 2rem 1fr 8.5rem;
+        padding: 0.5rem 0.6rem;
+    }
+
+    .col-date {
+        font-size: 0.72rem;
+    }
+
+    .pagination-info {
+        display: none;
+    }
+}
