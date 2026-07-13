@@ -632,3 +632,21 @@
     gap: 0.5rem;
     flex-shrink: 0;
 }
+
+/* ── Responsive (narrow / mobile) ───────────────────────────────────────────
+   Complements the desktop breakpoint in MainLayout.razor.css (min-width: 641px).
+   The header already wraps (flex-wrap); on a phone viewport, trim the editor
+   body padding and title size so content is not cramped against the edges. */
+@media (max-width: 640px) {
+    .editor-actions {
+        margin-left: 0;
+    }
+
+    .editor-body {
+        padding: 1rem 0.9rem;
+    }
+
+    .editor-title {
+        font-size: 1.25rem;
+    }
+}
