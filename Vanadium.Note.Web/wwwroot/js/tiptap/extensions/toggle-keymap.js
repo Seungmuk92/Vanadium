@@ -1,5 +1,5 @@
 import { Extension } from 'https://esm.sh/@tiptap/core@2'
-import { Selection, TextSelection } from 'https://esm.sh/prosemirror-state'
+import { Selection, TextSelection } from 'https://esm.sh/prosemirror-state@1.4.4'
 import { findAncestorOfType, toggleOpenAt } from '../nodes/toggle.js'
 import { collectFoldedHeadingSpans } from '../nodes/collapsible-heading.js'
 
