@@ -38,6 +38,18 @@
     color: #888;
 }
 
+.load-error {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.5rem;
+}
+
+.load-error-text {
+    color: var(--mud-palette-error);
+    margin: 0;
+}
+
 .note-table {
     display: flex;
     flex-direction: column;
