@@ -268,43 +268,61 @@
     z-index: 2;
 }
 
-/* ── Label bar ──────────────────────────────────────────────────────────── */
+/* ── Label bar ────────────────────────────────────────────────────────────
+   The bar and its chips/buttons are rendered by the shared <LabelPicker> child
+   component, so these rules must pierce component isolation with ::deep — a
+   plain `.label-bar { }` here would not reach the child's markup. */
 
-.label-bar {
+.editor-body ::deep .label-bar {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
     gap: 0.35rem;
-    padding: 0.4rem 0 0.5rem;
-    margin-bottom: 0.5rem;
-    border-bottom: 1px solid var(--vn-editor-title-border);
+    padding: 0.4rem 0.6rem;
+    margin-bottom: 0.75rem;
+    background-color: var(--vn-label-bar-bg);
+    border: 1px solid var(--vn-label-bar-border);
+    border-radius: 6px;
     min-height: 2.2rem;
 }
 
-.label-chip {
+/* Leading caption so the strip reads as the "labels" zone even when empty. */
+.editor-body ::deep .label-bar::before {
+    content: "Labels";
+    font-size: 0.68rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--vn-label-caption-color);
+    margin-right: 0.15rem;
+    user-select: none;
+}
+
+.editor-body ::deep .label-chip {
     display: inline-flex;
     align-items: center;
     gap: 0.2rem;
-    padding: 0.15rem 0.45rem;
+    padding: 0.15rem 0.5rem;
     border-radius: 999px;
     font-size: 0.78rem;
-    background-color: var(--mud-palette-action-default-hover);
-    border: 1px solid var(--mud-palette-divider);
+    font-weight: 500;
+    background-color: var(--vn-label-chip-bg);
+    border: 1px solid var(--vn-label-chip-border);
     color: inherit;
     white-space: nowrap;
 }
 
-.label-chip-cat {
+.editor-body ::deep .label-chip-cat {
     border-color: var(--mud-palette-primary);
 }
 
-.label-cat-prefix {
+.editor-body ::deep .label-cat-prefix {
     font-size: 0.7rem;
     opacity: 0.65;
     margin-right: 0.1rem;
 }
 
-.label-chip-remove {
+.editor-body ::deep .label-chip-remove {
     background: none;
     border: none;
     cursor: pointer;
@@ -315,21 +333,21 @@
     opacity: 0.55;
 }
 
-.label-chip-remove:hover {
+.editor-body ::deep .label-chip-remove:hover {
     opacity: 1;
 }
 
-.label-add-hint {
+.editor-body ::deep .label-add-hint {
     font-size: 0.75rem;
     opacity: 0.5;
     font-style: italic;
 }
 
-.label-add-wrapper {
+.editor-body ::deep .label-add-wrapper {
     position: relative;
 }
 
-.label-add-btn {
+.editor-body ::deep .label-add-btn {
     background: none;
     border: 1px dashed var(--mud-palette-divider);
     border-radius: 999px;
@@ -341,12 +359,12 @@
     transition: opacity 0.15s;
 }
 
-.label-add-btn:hover {
+.editor-body ::deep .label-add-btn:hover {
     opacity: 1;
     border-color: var(--mud-palette-primary);
 }
 
-.label-add-btn-active {
+.editor-body ::deep .label-add-btn-active {
     opacity: 1;
     border-color: var(--mud-palette-primary);
     color: var(--mud-palette-primary);
@@ -354,13 +372,13 @@
 
 /* ── Label picker dropdown ──────────────────────────────────────────────── */
 
-.label-picker-backdrop {
+.editor-body ::deep .label-picker-backdrop {
     position: fixed;
     inset: 0;
     z-index: 199;
 }
 
-.label-picker {
+.editor-body ::deep .label-picker {
     position: absolute;
     top: calc(100% + 0.25rem);
     left: 0;
@@ -373,15 +391,15 @@
     padding: 0.3rem 0;
 }
 
-.label-picker-section {
+.editor-body ::deep .label-picker-section {
     padding: 0.25rem 0;
 }
 
-.label-picker-section + .label-picker-section {
+.editor-body ::deep .label-picker-section + .label-picker-section {
     border-top: 1px solid var(--mud-palette-divider);
 }
 
-.label-picker-section-title {
+.editor-body ::deep .label-picker-section-title {
     font-size: 0.7rem;
     font-weight: 600;
     opacity: 0.55;
@@ -390,7 +408,7 @@
     padding: 0.2rem 0.75rem 0.1rem;
 }
 
-.label-picker-item {
+.editor-body ::deep .label-picker-item {
     display: flex;
     align-items: center;
     gap: 0.4rem;
@@ -399,22 +417,22 @@
     cursor: pointer;
 }
 
-.label-picker-item:hover {
+.editor-body ::deep .label-picker-item:hover {
     background-color: var(--mud-palette-action-default-hover);
 }
 
-.label-picker-item.is-added {
+.editor-body ::deep .label-picker-item.is-added {
     font-weight: 600;
 }
 
-.label-picker-check {
+.editor-body ::deep .label-picker-check {
     width: 1rem;
     text-align: center;
     font-size: 0.75rem;
     color: var(--mud-palette-primary);
 }
 
-.label-picker-empty {
+.editor-body ::deep .label-picker-empty {
     padding: 0.5rem 0.75rem;
     font-size: 0.82rem;
     opacity: 0.5;
