@@ -296,6 +296,23 @@ public class NoteService(HttpClient http, ILogger<NoteService> logger)
         }
     }
 
+    public async Task<ServiceResult<List<BacklinkResult>>> GetBacklinksAsync(
+        Guid noteId,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var url = $"api/notes/{noteId}/backlinks";
+            var result = await http.GetFromJsonAsync<List<BacklinkResult>>(url, cancellationToken);
+            return ServiceResult<List<BacklinkResult>>.Ok(result ?? []);
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Failed to load backlinks for note {NoteId}.", noteId);
+            return ServiceResult<List<BacklinkResult>>.Fail("Failed to load backlinks.");
+        }
+    }
+
     public async Task<ServiceResult<List<NoteSummary>>> GetChildrenAsync(Guid parentId)
     {
         try

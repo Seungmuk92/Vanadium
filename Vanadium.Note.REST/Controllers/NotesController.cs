@@ -74,6 +74,15 @@ public class NotesController(NoteService noteService, LabelService labelService,
         return Ok(await noteService.GetChildren(id, ct));
     }
 
+    [HttpGet("{id:guid}/backlinks")]
+    public async Task<ActionResult<List<BacklinkResult>>> GetBacklinks(
+        Guid id,
+        [FromQuery] int limit = 50,
+        CancellationToken ct = default)
+    {
+        return Ok(await noteService.GetBacklinks(id, limit, ct));
+    }
+
     [HttpGet("{id:guid}")]
     public async Task<ActionResult<NoteItem>> Get(Guid id, CancellationToken ct)
     {
