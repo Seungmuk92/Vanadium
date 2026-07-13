@@ -55,7 +55,7 @@ public class ArchiveControllerTests
         var controller = CreateNotesController(h);
 
         var result = await controller.Update(note.Id,
-            new NoteItem { Title = "Changed", Content = "", UpdatedAt = default });
+            new NoteItem { Title = "Changed", Content = "", UpdatedAt = default }, CancellationToken.None);
 
         var objectResult = Assert.IsType<ObjectResult>(result.Result);
         Assert.Equal(StatusCodes.Status403Forbidden, objectResult.StatusCode);
@@ -89,7 +89,7 @@ public class ArchiveControllerTests
         var controller = CreateNotesController(h);
 
         var result = await controller.Create(
-            new NoteItem { Title = "Orphan", Content = "", ParentNoteId = parent.Id });
+            new NoteItem { Title = "Orphan", Content = "", ParentNoteId = parent.Id }, CancellationToken.None);
 
         var objectResult = Assert.IsType<ObjectResult>(result.Result);
         Assert.Equal(StatusCodes.Status400BadRequest, objectResult.StatusCode);
@@ -111,7 +111,7 @@ public class ArchiveControllerTests
             Content = "",
             ParentNoteId = archivedParent.Id,
             UpdatedAt = default
-        });
+        }, CancellationToken.None);
 
         var objectResult = Assert.IsType<ObjectResult>(result.Result);
         Assert.Equal(StatusCodes.Status400BadRequest, objectResult.StatusCode);
@@ -126,8 +126,8 @@ public class ArchiveControllerTests
         await h.Notes.Delete(binned.Id);
         var controller = CreateNotesController(h);
 
-        Assert.IsType<NotFoundResult>(await controller.Archive(Guid.NewGuid()));
-        Assert.IsType<NotFoundResult>(await controller.Archive(binned.Id));
+        Assert.IsType<NotFoundResult>(await controller.Archive(Guid.NewGuid(), CancellationToken.None));
+        Assert.IsType<NotFoundResult>(await controller.Archive(binned.Id, CancellationToken.None));
     }
 
     [Fact]
@@ -137,7 +137,7 @@ public class ArchiveControllerTests
         var note = await h.CreateNoteAsync("Active");
         var controller = CreateNotesController(h);
 
-        Assert.IsType<NotFoundResult>(await controller.Unarchive(note.Id));
+        Assert.IsType<NotFoundResult>(await controller.Unarchive(note.Id, CancellationToken.None));
     }
 
     [Fact]
@@ -148,7 +148,7 @@ public class ArchiveControllerTests
         await h.Notes.Archive(note.Id);
         var controller = CreateNotesController(h);
 
-        var result = await controller.DeletePermanent(note.Id);
+        var result = await controller.DeletePermanent(note.Id, CancellationToken.None);
 
         var objectResult = Assert.IsType<ObjectResult>(result);
         Assert.Equal(StatusCodes.Status409Conflict, objectResult.StatusCode);
