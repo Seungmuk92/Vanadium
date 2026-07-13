@@ -186,6 +186,44 @@
     }
 
     <div id="@_editorId" class="tiptap-wrapper"></div>
+
+    @if (!isNew && !_loadFailed)
+    {
+        <div class="backlinks-panel">
+            <div class="backlinks-header">🔗 Linked from@(backlinks.Count > 0 ? $" ({backlinks.Count})" : "")</div>
+            @if (_backlinksLoading)
+            {
+                <div class="backlinks-hint">Loading…</div>
+            }
+            else if (backlinks.Count == 0)
+            {
+                <div class="backlinks-hint">No other notes link here yet.</div>
+            }
+            else
+            {
+                <ul class="backlinks-list">
+                    @foreach (var bl in backlinks)
+                    {
+                        <li class="backlinks-item">
+                            <a href="/editor/@bl.Id" class="backlinks-link">
+                                <span class="backlinks-title">
+                                    @(string.IsNullOrWhiteSpace(bl.Title) ? "(Untitled)" : bl.Title)
+                                    @if (bl.IsArchived)
+                                    {
+                                        <span class="backlinks-badge">Archived</span>
+                                    }
+                                </span>
+                                @if (!string.IsNullOrEmpty(bl.Snippet))
+                                {
+                                    <span class="backlinks-snippet">@bl.Snippet</span>
+                                }
+                            </a>
+                        </li>
+                    }
+                </ul>
+            }
+        </div>
+    }
 </div>
 
 @code {
@@ -257,6 +295,10 @@
     private string saveStatusText = string.Empty;
     private string saveStatusCss = string.Empty;
 
+    // Backlinks ("what links here") state
+    private List<BacklinkResult> backlinks = [];
+    private bool _backlinksLoading = false;
+
     // Label state
     private List<Label> noteLabels = [];
     private List<Label> availableLabels = [];
@@ -285,6 +327,7 @@
         parentTitle = null;
         childCount = 0;
         noteLabels = [];
+        backlinks = [];
         _hasConflict = false;
         _loadFailed = false;
         _saveInFlight = null;
@@ -363,6 +406,20 @@
         _contentJustLoaded = true;
 
         await LoadLabelsAsync();
+
+        if (Id is not null)
+            await LoadBacklinksAsync(Id.Value);
+    }
+
+    private async Task LoadBacklinksAsync(Guid noteId)
+    {
+        _backlinksLoading = true;
+        var result = await NoteService.GetBacklinksAsync(noteId);
+        // Ignore a stale response if the user navigated to another note while loading.
+        if (_currentId != noteId) return;
+        backlinks = result.IsSuccess ? result.Value! : [];
+        _backlinksLoading = false;
+        StateHasChanged();
     }
 
     private async Task LoadLabelsAsync()
