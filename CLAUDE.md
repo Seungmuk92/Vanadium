@@ -58,7 +58,7 @@ dotnet ef database update --project Vanadium.Note.REST
 docker compose up -d
 ```
 
-Required env vars for `docker-compose.yml`: `DB_PASSWORD`, `AUTH_JWT_SECRET`. Optional: `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, `CORS_ALLOWED_ORIGINS`, `API_BASE_URL`.
+Required env vars for `docker-compose.yml`: `DB_PASSWORD`, `AUTH_JWT_SECRET`, `AUTH_PASSWORD_HASH`. Optional: `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, `CORS_ALLOWED_ORIGINS`, `API_BASE_URL`.
 
 ### Verifying a change
 
@@ -96,7 +96,12 @@ Editor-layer-only feature (no backend/schema change): toggle blocks (`/toggle`),
 
 ### File uploads
 
-Files are uploaded to `Vanadium.Note.REST/uploads/` as `file_{guid}`. Metadata is stored in `FileAttachments`. An `OrphanFileCleanupJob` (background hosted service) periodically removes files whose GUIDs no longer appear in any note's HTML content. Soft-deleted notes' content still counts as a live reference (the scans use `IgnoreQueryFilters()`).
+Two upload kinds share the `Vanadium.Note.REST/uploads/` directory:
+
+- **File attachments** (`FilesController`) — stored on disk as `file_{guid}` (no extension), with a metadata row in `FileAttachments`. The upload response returns `url = /api/files/{guid}`, and that is the reference form embedded in note HTML.
+- **Images** (`ImagesController`) — stored on disk as `{guid}{ext}` (extension preserved), with **no** DB record. The upload response returns `url = /api/images/{guid}`.
+
+An `OrphanFileCleanupJob` (background hosted service) periodically removes files whose GUIDs no longer appear in any note's HTML content — `FileCleanupService` scans note HTML for `/api/files/{guid}` and `/api/images/{guid}` references. Soft-deleted notes' content still counts as a live reference (the scans use `IgnoreQueryFilters()`).
 
 ### Note recycle bin (soft delete)
 
@@ -146,10 +151,17 @@ The frontend's dev API base URL is set in `Vanadium.Note.Web/wwwroot/appsettings
 
 Order matters. Registered in `Program.cs`:
 
-1. `CorrelationIdMiddleware` — assigns/propagates `X-Correlation-Id`
-2. `UserContextMiddleware` — pushes username into Serilog `LogContext`
-3. `RequestLoggingMiddleware` — structured request log
-4. CORS, Authentication, Authorization, RateLimiter
+1. `UseForwardedHeaders` — restores client IP / request scheme from the reverse proxy
+2. `UseHsts` — non-Development only
+3. `SecurityHeadersMiddleware` — security response headers
+4. `CorrelationIdMiddleware` — assigns/propagates `X-Correlation-Id`
+5. `UseCors`
+6. `UseRateLimiter`
+7. `UseAuthentication`
+8. `UserContextMiddleware` — pushes username into Serilog `LogContext`
+9. `RequestLoggingMiddleware` — structured request log
+10. `UseAuthorization`
+11. `MapControllers`
 
 When adding new middleware, place it AFTER `CorrelationIdMiddleware` so logs carry the correlation ID.
 
@@ -192,5 +204,5 @@ A keyboard-first note switcher opened by `Ctrl+K` (Windows/Linux) / `Cmd+K` (mac
 - **Schema changes:** always create an EF Core migration (`dotnet ef migrations add <Name> --project Vanadium.Note.REST`). Never edit existing migration files.
 - **New API endpoint:** add (1) DTO in `Vanadium.Note.REST/Models`, (2) DTO mirror in `Vanadium.Note.Web/Models`, (3) HTTP client method in `NoteService`/`LabelService`/etc.
 - **Tiptap editor changes:** all JS interop must go through `tiptapInterop.*` in `wwwroot/js/tiptap-editor.js` and be invoked only from `NoteEditor.razor`. Do not call interop from other components.
-- **File uploads:** orphan cleanup expects file references to appear as `/uploads/file_{guid}` substrings in note HTML. Changing the URL format requires updating `OrphanFileCleanupJob`.
+- **File uploads:** orphan cleanup expects file references to appear as `/api/files/{guid}` (attachments) and `/api/images/{guid}` (images) substrings in note HTML. Changing either URL format requires updating `FileCleanupService`'s scan patterns.
 - **Label categories:** mutual exclusion within a category is enforced server-side in `NoteService`, not via DB constraint. Frontend should not assume DB will reject duplicates.
