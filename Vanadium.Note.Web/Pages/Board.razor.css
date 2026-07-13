@@ -63,6 +63,12 @@
     font-size: 0.9rem;
 }
 
+.board-loading-msg {
+    color: #888;
+    margin-top: 1rem;
+    font-size: 0.9rem;
+}
+
 /* ── Columns container ───────────────────────────────────────────────────── */
 
 .board-columns {
