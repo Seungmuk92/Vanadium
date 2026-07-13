@@ -1,5 +1,5 @@
 import { Node, mergeAttributes } from 'https://esm.sh/@tiptap/core@2'
-import { PluginKey, Plugin } from 'https://esm.sh/prosemirror-state'
+import { PluginKey, Plugin } from 'https://esm.sh/prosemirror-state@1.4.4'
 
 // ── Accordion group ──────────────────────────────────────────────────────────
 //
