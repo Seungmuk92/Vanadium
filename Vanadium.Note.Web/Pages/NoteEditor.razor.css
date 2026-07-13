@@ -651,6 +651,81 @@
     flex-shrink: 0;
 }
 
+/* ── Backlinks panel ("what links here") ────────────────────────────────────
+   Sits below the editor body, listing notes that reference this one. */
+.backlinks-panel {
+    margin-top: 1.5rem;
+    padding-top: 1rem;
+    border-top: 1px solid var(--mud-palette-lines-default, rgba(0, 0, 0, 0.12));
+}
+
+.backlinks-header {
+    font-size: 0.8rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    opacity: 0.6;
+    margin-bottom: 0.6rem;
+}
+
+.backlinks-hint {
+    font-size: 0.85rem;
+    opacity: 0.5;
+}
+
+.backlinks-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+}
+
+.backlinks-link {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+    padding: 0.5rem 0.7rem;
+    border-radius: 6px;
+    text-decoration: none;
+    color: inherit;
+    border: 1px solid var(--mud-palette-lines-default, rgba(0, 0, 0, 0.1));
+    transition: background-color 0.12s ease;
+}
+
+.backlinks-link:hover {
+    background-color: var(--mud-palette-action-default-hover, rgba(0, 0, 0, 0.05));
+}
+
+.backlinks-title {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-weight: 500;
+    font-size: 0.92rem;
+}
+
+.backlinks-badge {
+    font-size: 0.68rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    padding: 0.05rem 0.35rem;
+    border-radius: 4px;
+    background-color: var(--mud-palette-warning, #ff9800);
+    color: #fff;
+    opacity: 0.85;
+}
+
+.backlinks-snippet {
+    font-size: 0.8rem;
+    opacity: 0.6;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
 /* ── Responsive (narrow / mobile) ───────────────────────────────────────────
    Complements the desktop breakpoint in MainLayout.razor.css (min-width: 641px).
    The header already wraps (flex-wrap); on a phone viewport, trim the editor
