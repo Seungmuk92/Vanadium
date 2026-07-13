@@ -18,7 +18,8 @@ public class NoteService(
         string? search,
         string sortBy,
         string sortDir,
-        Guid[]? labelIds)
+        Guid[]? labelIds,
+        CancellationToken ct = default)
     {
         // When not searching, show active root notes only.
         // When searching, archived notes are included (flagged IsArchived for the badge).
@@ -31,7 +32,7 @@ public class NoteService(
 
         // Lean query for COUNT — no joins to label/category tables
         var countQuery = ApplyFilters(baseNotes, search, labelIds);
-        var totalCount = await countQuery.CountAsync();
+        var totalCount = await countQuery.CountAsync(ct);
 
         // Full query for data — projects to NoteSummary to avoid fetching large Content column
         var baseDataQuery = ApplyFilters(baseNotes, search, labelIds);
@@ -64,9 +65,9 @@ public class NoteService(
                     CategoryName = nl.Label.Category == null ? null : nl.Label.Category.Name
                 }).ToList()
             })
-            .ToListAsync();
+            .ToListAsync(ct);
 
-        var childCounts = await GetChildCountsAsync(summaries.Select(n => n.Id));
+        var childCounts = await GetChildCountsAsync(summaries.Select(n => n.Id), ct);
 
         // Batch-fetch parent titles for sub-notes that surfaced via search
         Dictionary<Guid, string> parentTitles = [];
@@ -80,7 +81,7 @@ public class NoteService(
             if (parentIds.Count > 0)
                 parentTitles = await db.Notes
                     .Where(n => parentIds.Contains(n.Id))
-                    .ToDictionaryAsync(n => n.Id, n => n.Title);
+                    .ToDictionaryAsync(n => n.Id, n => n.Title, ct);
         }
 
         logger.LogDebug("GetPaged: page={Page}, pageSize={PageSize}, total={Total}.", page, pageSize, totalCount);
@@ -104,7 +105,7 @@ public class NoteService(
         };
     }
 
-    public async Task<List<NoteSummary>> GetAllSummaries(Guid[]? labelIds = null)
+    public async Task<List<NoteSummary>> GetAllSummaries(Guid[]? labelIds = null, CancellationToken ct = default)
     {
         // The board never shows archived notes.
         var query = db.Notes.Where(n => n.ArchivedAt == null);
@@ -129,9 +130,9 @@ public class NoteService(
                     CategoryName = nl.Label.Category == null ? null : nl.Label.Category.Name
                 }).ToList()
             })
-            .ToListAsync();
+            .ToListAsync(ct);
 
-        var childCounts = await GetChildCountsAsync(summaries.Select(n => n.Id));
+        var childCounts = await GetChildCountsAsync(summaries.Select(n => n.Id), ct);
 
         logger.LogDebug("GetAllSummaries: {Count} note(s).", summaries.Count);
         return summaries.Select(n => new NoteSummary
@@ -145,7 +146,7 @@ public class NoteService(
         }).ToList();
     }
 
-    public async Task<List<NoteSummary>> GetChildren(Guid parentId)
+    public async Task<List<NoteSummary>> GetChildren(Guid parentId, CancellationToken ct = default)
     {
         var summaries = await db.Notes
             .Where(n => n.ParentNoteId == parentId && n.ArchivedAt == null)
@@ -164,9 +165,9 @@ public class NoteService(
                     CategoryName = nl.Label.Category == null ? null : nl.Label.Category.Name
                 }).ToList()
             })
-            .ToListAsync();
+            .ToListAsync(ct);
 
-        var childCounts = await GetChildCountsAsync(summaries.Select(n => n.Id));
+        var childCounts = await GetChildCountsAsync(summaries.Select(n => n.Id), ct);
 
         logger.LogDebug("GetChildren: parentId={ParentId}, count={Count}.", parentId, summaries.Count);
         return summaries.Select(n => new NoteSummary
@@ -180,31 +181,31 @@ public class NoteService(
         }).ToList();
     }
 
-    public async Task<NoteItem?> Get(Guid id)
+    public async Task<NoteItem?> Get(Guid id, CancellationToken ct = default)
     {
         var note = await db.Notes
             .Include(n => n.NoteLabels)
             .ThenInclude(nl => nl.Label)
             .ThenInclude(l => l.Category)
-            .FirstOrDefaultAsync(n => n.Id == id);
+            .FirstOrDefaultAsync(n => n.Id == id, ct);
 
         if (note is null) return null;
 
         PopulateLabels(note);
-        note.ChildCount = await db.Notes.CountAsync(n => n.ParentNoteId == id);
+        note.ChildCount = await db.Notes.CountAsync(n => n.ParentNoteId == id, ct);
 
         if (note.ParentNoteId.HasValue)
         {
             note.ParentTitle = await db.Notes
                 .Where(n => n.Id == note.ParentNoteId.Value)
                 .Select(n => n.Title)
-                .FirstOrDefaultAsync();
+                .FirstOrDefaultAsync(ct);
         }
 
         return note;
     }
 
-    public async Task<NoteItem> Create(NoteItem note)
+    public async Task<NoteItem> Create(NoteItem note, CancellationToken ct = default)
     {
         note.Id = Guid.NewGuid();
         note.UpdatedAt = UtcNowMicroseconds();
@@ -221,13 +222,13 @@ public class NoteService(
         note.ArchivedAt = null;
         note.IsArchiveRoot = false;
         db.Notes.Add(note);
-        await db.SaveChangesAsync();
+        await db.SaveChangesAsync(ct);
         return note;
     }
 
-    public async Task<(NoteItem? Note, bool Conflict, bool Archived)> Update(Guid id, NoteItem note)
+    public async Task<(NoteItem? Note, bool Conflict, bool Archived)> Update(Guid id, NoteItem note, CancellationToken ct = default)
     {
-        var existing = await db.Notes.FirstOrDefaultAsync(n => n.Id == id);
+        var existing = await db.Notes.FirstOrDefaultAsync(n => n.Id == id, ct);
         if (existing is null) return (null, false, false);
 
         // Archived notes are read-only. Checked before the concurrency check so a
@@ -267,7 +268,7 @@ public class NoteService(
 
         try
         {
-            await db.SaveChangesAsync();
+            await db.SaveChangesAsync(ct);
         }
         catch (DbUpdateConcurrencyException)
         {
@@ -278,12 +279,12 @@ public class NoteService(
         }
 
         if (titleChanged)
-            await UpdatePageLinkReferences(id, note.Title);
+            await UpdatePageLinkReferences(id, note.Title, ct);
 
         return (existing, false, false);
     }
 
-    private async Task UpdatePageLinkReferences(Guid noteId, string newTitle)
+    private async Task UpdatePageLinkReferences(Guid noteId, string newTitle, CancellationToken ct = default)
     {
         var idStr = noteId.ToString();
         // IgnoreQueryFilters so recycle-bin (soft-deleted) notes referencing this
@@ -291,7 +292,7 @@ public class NoteService(
         // keeps a stale title.
         var referencingNotes = await db.Notes.IgnoreQueryFilters()
             .Where(n => n.Content.Contains($"data-note-id=\"{idStr}\""))
-            .ToListAsync();
+            .ToListAsync(ct);
 
         if (referencingNotes.Count == 0) return;
 
@@ -304,7 +305,7 @@ public class NoteService(
             n.ContentText = StripHtml(updated);
         }
 
-        await db.SaveChangesAsync();
+        await db.SaveChangesAsync(ct);
         logger.LogInformation(
             "Propagated title change to '{NewTitle}' across {Count} note(s) referencing {NoteId}.",
             newTitle, referencingNotes.Count, noteId);
@@ -361,7 +362,7 @@ public class NoteService(
     /// Returns true if making <paramref name="proposedParentId"/> the parent of
     /// <paramref name="noteId"/> would create a cycle in the ancestor chain.
     /// </summary>
-    public async Task<bool> HasCircularReference(Guid noteId, Guid proposedParentId)
+    public async Task<bool> HasCircularReference(Guid noteId, Guid proposedParentId, CancellationToken ct = default)
     {
         const int maxDepth = 100;
         var current = (Guid?)proposedParentId;
@@ -371,12 +372,12 @@ public class NoteService(
             current = await db.Notes
                 .Where(n => n.Id == current.Value)
                 .Select(n => n.ParentNoteId)
-                .FirstOrDefaultAsync();
+                .FirstOrDefaultAsync(ct);
         }
         return false;
     }
 
-    public async Task<List<MentionSuggestionDto>> SearchForMention(string query, int limit = 10)
+    public async Task<List<MentionSuggestionDto>> SearchForMention(string query, int limit = 10, CancellationToken ct = default)
     {
         // Mentions target active work — archived notes are excluded.
         var q = db.Notes.Where(n => n.ArchivedAt == null);
@@ -389,7 +390,7 @@ public class NoteService(
             .OrderByDescending(n => n.UpdatedAt)
             .Take(limit)
             .Select(n => new MentionSuggestionDto { Id = n.Id, Title = n.Title })
-            .ToListAsync();
+            .ToListAsync(ct);
     }
 
     /// <summary>
@@ -398,7 +399,7 @@ public class NoteService(
     /// Archived notes are INCLUDED (no <c>ArchivedAt == null</c> predicate); the default
     /// <c>DeletedAt == null</c> global filter excludes Recycle Bin notes — no opt-out needed.
     /// </summary>
-    public async Task<List<QuickNavResult>> QuickSearch(string query, int limit = 20)
+    public async Task<List<QuickNavResult>> QuickSearch(string query, int limit = 20, CancellationToken ct = default)
     {
         var terms = (query ?? string.Empty).Trim()
             .Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
@@ -420,7 +421,7 @@ public class NoteService(
             .OrderByDescending(n => n.UpdatedAt)
             .Take(limit)
             .Select(n => new { n.Id, n.Title, n.ContentText, ArchivedAt = n.ArchivedAt })
-            .ToListAsync();
+            .ToListAsync(ct);
 
         return rows.Select(r => new QuickNavResult
         {
@@ -467,9 +468,9 @@ public class NoteService(
     /// References in other notes and uploaded files are left untouched so a
     /// restore is lossless; cleanup is deferred to permanent deletion.
     /// </summary>
-    public async Task<bool> Delete(Guid id)
+    public async Task<bool> Delete(Guid id, CancellationToken ct = default)
     {
-        var note = await db.Notes.FirstOrDefaultAsync(n => n.Id == id);
+        var note = await db.Notes.FirstOrDefaultAsync(n => n.Id == id, ct);
         if (note is null) return false;
 
         var deletedAt = UtcNowMicroseconds();
@@ -478,26 +479,26 @@ public class NoteService(
 
         // Active descendants are swept into the same recycle bin group (same timestamp).
         // Descendants soft-deleted earlier keep their own group and restore independently.
-        var descendants = await CollectActiveDescendantsAsync(id);
+        var descendants = await CollectActiveDescendantsAsync(id, ct);
         foreach (var descendant in descendants)
         {
             descendant.DeletedAt = deletedAt;
             descendant.IsDeletionRoot = false;
         }
 
-        await db.SaveChangesAsync();
+        await db.SaveChangesAsync(ct);
         logger.LogInformation(
             "Note {NoteId} moved to recycle bin with {DescendantCount} descendant(s).",
             id, descendants.Count);
         return true;
     }
 
-    public async Task<PagedResult<RecycleBinNoteSummary>> GetRecycleBin(int page, int pageSize)
+    public async Task<PagedResult<RecycleBinNoteSummary>> GetRecycleBin(int page, int pageSize, CancellationToken ct = default)
     {
         var query = db.Notes.IgnoreQueryFilters()
             .Where(n => n.DeletedAt != null && n.IsDeletionRoot);
 
-        var totalCount = await query.CountAsync();
+        var totalCount = await query.CountAsync(ct);
 
         var items = await query
             .OrderByDescending(n => n.DeletedAt)
@@ -510,7 +511,7 @@ public class NoteService(
                 DeletedAt = n.DeletedAt!.Value,
                 IsArchived = n.ArchivedAt != null
             })
-            .ToListAsync();
+            .ToListAsync(ct);
 
         // Direct soft-deleted children per listed root (two-step, mirrors GetChildCountsAsync)
         var ids = items.Select(i => i.Id).ToList();
@@ -522,7 +523,7 @@ public class NoteService(
                     && ids.Contains(n.ParentNoteId.Value))
                 .GroupBy(n => n.ParentNoteId!.Value)
                 .Select(g => new { ParentId = g.Key, Count = g.Count() })
-                .ToDictionaryAsync(x => x.ParentId, x => x.Count);
+                .ToDictionaryAsync(x => x.ParentId, x => x.Count, ct);
             foreach (var item in items)
                 item.ChildCount = childCounts.GetValueOrDefault(item.Id);
         }
@@ -541,15 +542,15 @@ public class NoteService(
     /// with it (same DeletedAt). If the original parent is missing or itself
     /// soft-deleted, the note is reattached as a root note.
     /// </summary>
-    public async Task<bool> Restore(Guid id)
+    public async Task<bool> Restore(Guid id, CancellationToken ct = default)
     {
         var note = await db.Notes.IgnoreQueryFilters()
             .FirstOrDefaultAsync(n =>
-                n.Id == id && n.DeletedAt != null && n.IsDeletionRoot);
+                n.Id == id && n.DeletedAt != null && n.IsDeletionRoot, ct);
         if (note is null) return false;
 
         var groupDeletedAt = note.DeletedAt!.Value;
-        var groupMembers = await CollectDeletedGroupDescendantsAsync(id, groupDeletedAt);
+        var groupMembers = await CollectDeletedGroupDescendantsAsync(id, groupDeletedAt, ct);
 
         if (note.ParentNoteId.HasValue)
         {
@@ -557,8 +558,8 @@ public class NoteService(
             // parent also detaches, unless the restored root is itself archived —
             // then it returns to the archive where an archived parent is a legal home.
             var parentIsValid = note.ArchivedAt is not null
-                ? await db.Notes.AnyAsync(n => n.Id == note.ParentNoteId.Value)
-                : await db.Notes.AnyAsync(n => n.Id == note.ParentNoteId.Value && n.ArchivedAt == null);
+                ? await db.Notes.AnyAsync(n => n.Id == note.ParentNoteId.Value, ct)
+                : await db.Notes.AnyAsync(n => n.Id == note.ParentNoteId.Value && n.ArchivedAt == null, ct);
             if (!parentIsValid)
                 note.ParentNoteId = null;
         }
@@ -571,7 +572,7 @@ public class NoteService(
             member.IsDeletionRoot = false;
         }
 
-        await db.SaveChangesAsync();
+        await db.SaveChangesAsync(ct);
         logger.LogInformation(
             "Note {NoteId} restored from recycle bin with {DescendantCount} descendant(s).",
             id, groupMembers.Count);
@@ -585,9 +586,9 @@ public class NoteService(
     /// note is a no-op. Returns false when the note is not found (or is in the
     /// recycle bin, which the global filter hides from this lookup).
     /// </summary>
-    public async Task<bool> Archive(Guid id)
+    public async Task<bool> Archive(Guid id, CancellationToken ct = default)
     {
-        var note = await db.Notes.FirstOrDefaultAsync(n => n.Id == id);
+        var note = await db.Notes.FirstOrDefaultAsync(n => n.Id == id, ct);
         if (note is null) return false;
         if (note.ArchivedAt is not null) return true; // idempotent no-op
 
@@ -598,7 +599,7 @@ public class NoteService(
         // Sweep active descendants into the same archive group. The BFS sees
         // archived descendants too (archive has no global filter), so skip them:
         // independently archived subtrees keep their own root and timestamp.
-        var descendants = (await CollectActiveDescendantsAsync(id))
+        var descendants = (await CollectActiveDescendantsAsync(id, ct))
             .Where(d => d.ArchivedAt == null)
             .ToList();
         foreach (var descendant in descendants)
@@ -607,7 +608,7 @@ public class NoteService(
             descendant.IsArchiveRoot = false;
         }
 
-        await db.SaveChangesAsync();
+        await db.SaveChangesAsync(ct);
         logger.LogInformation(
             "Note {NoteId} archived with {DescendantCount} descendant(s).",
             id, descendants.Count);
@@ -621,14 +622,14 @@ public class NoteService(
     /// reattached as a root note. Returns false when the note is not found or
     /// not archived.
     /// </summary>
-    public async Task<bool> Unarchive(Guid id)
+    public async Task<bool> Unarchive(Guid id, CancellationToken ct = default)
     {
         var note = await db.Notes.FirstOrDefaultAsync(n =>
-            n.Id == id && n.ArchivedAt != null);
+            n.Id == id && n.ArchivedAt != null, ct);
         if (note is null) return false;
 
         var groupArchivedAt = note.ArchivedAt!.Value;
-        var groupMembers = await CollectArchivedGroupDescendantsAsync(id, groupArchivedAt);
+        var groupMembers = await CollectArchivedGroupDescendantsAsync(id, groupArchivedAt, ct);
 
         note.ArchivedAt = null;
         note.IsArchiveRoot = false;
@@ -643,12 +644,12 @@ public class NoteService(
         if (note.ParentNoteId.HasValue)
         {
             var parentIsActive = await db.Notes.AnyAsync(n =>
-                n.Id == note.ParentNoteId.Value && n.ArchivedAt == null);
+                n.Id == note.ParentNoteId.Value && n.ArchivedAt == null, ct);
             if (!parentIsActive)
                 note.ParentNoteId = null;
         }
 
-        await db.SaveChangesAsync();
+        await db.SaveChangesAsync(ct);
         logger.LogInformation(
             "Note {NoteId} unarchived with {DescendantCount} descendant(s).",
             id, groupMembers.Count);
@@ -659,12 +660,12 @@ public class NoteService(
     /// Paged list of archive roots, newest first. The global filter automatically
     /// excludes archived notes that are currently in the recycle bin.
     /// </summary>
-    public async Task<PagedResult<ArchivedNoteSummary>> GetArchive(int page, int pageSize)
+    public async Task<PagedResult<ArchivedNoteSummary>> GetArchive(int page, int pageSize, CancellationToken ct = default)
     {
         var query = db.Notes
             .Where(n => n.ArchivedAt != null && n.IsArchiveRoot);
 
-        var totalCount = await query.CountAsync();
+        var totalCount = await query.CountAsync(ct);
 
         var items = await query
             .OrderByDescending(n => n.ArchivedAt)
@@ -676,7 +677,7 @@ public class NoteService(
                 Title = n.Title,
                 ArchivedAt = n.ArchivedAt!.Value
             })
-            .ToListAsync();
+            .ToListAsync(ct);
 
         // Direct children swept in the same archive operation (same timestamp),
         // mirroring the recycle bin's per-root child counts.
@@ -688,7 +689,7 @@ public class NoteService(
                     && n.ParentNoteId.HasValue
                     && ids.Contains(n.ParentNoteId.Value))
                 .Select(n => new { ParentId = n.ParentNoteId!.Value, n.ArchivedAt })
-                .ToListAsync();
+                .ToListAsync(ct);
             foreach (var item in items)
                 item.ChildCount = children.Count(c =>
                     c.ParentId == item.Id && c.ArchivedAt == item.ArchivedAt);
@@ -707,24 +708,24 @@ public class NoteService(
     /// Permanently deletes a soft-deleted note. Returns (Found, WasInRecycleBin):
     /// active notes are refused so the recycle bin cannot be bypassed.
     /// </summary>
-    public async Task<(bool Found, bool WasInRecycleBin)> DeletePermanent(Guid id)
+    public async Task<(bool Found, bool WasInRecycleBin)> DeletePermanent(Guid id, CancellationToken ct = default)
     {
         var note = await db.Notes.IgnoreQueryFilters()
-            .FirstOrDefaultAsync(n => n.Id == id);
+            .FirstOrDefaultAsync(n => n.Id == id, ct);
         if (note is null) return (false, false);
         if (note.DeletedAt is null) return (true, false);
 
-        await HardDeleteAsync(note);
+        await HardDeleteAsync(note, ct);
         return (true, true);
     }
 
     /// <summary>Permanently deletes every soft-deleted note of the user. Returns the root count.</summary>
-    public async Task<int> EmptyRecycleBin()
+    public async Task<int> EmptyRecycleBin(CancellationToken ct = default)
     {
         var rootIds = await db.Notes.IgnoreQueryFilters()
             .Where(n => n.DeletedAt != null && n.IsDeletionRoot)
             .Select(n => n.Id)
-            .ToListAsync();
+            .ToListAsync(ct);
 
         var purged = 0;
         foreach (var rootId in rootIds)
@@ -732,9 +733,9 @@ public class NoteService(
             // Re-fetch: an earlier iteration may have cascade-deleted this root
             // (a separately-soft-deleted sub-note of another soft-deleted parent).
             var note = await db.Notes.IgnoreQueryFilters()
-                .FirstOrDefaultAsync(n => n.Id == rootId && n.DeletedAt != null);
+                .FirstOrDefaultAsync(n => n.Id == rootId && n.DeletedAt != null, ct);
             if (note is null) continue;
-            await HardDeleteAsync(note);
+            await HardDeleteAsync(note, ct);
             purged++;
         }
 
@@ -760,7 +761,7 @@ public class NoteService(
             var note = await db.Notes.IgnoreQueryFilters()
                 .FirstOrDefaultAsync(n => n.Id == rootId && n.DeletedAt != null, ct);
             if (note is null) continue;
-            await HardDeleteAsync(note);
+            await HardDeleteAsync(note, ct);
             purged++;
         }
 
@@ -772,9 +773,9 @@ public class NoteService(
     /// from remaining notes, deletes the row (DB cascades the subtree), then
     /// cleans up files orphaned by the whole subtree's content.
     /// </summary>
-    private async Task HardDeleteAsync(NoteItem note)
+    private async Task HardDeleteAsync(NoteItem note, CancellationToken ct = default)
     {
-        var subtree = await CollectDescendantsUnfilteredAsync(note.Id);
+        var subtree = await CollectDescendantsUnfilteredAsync(note.Id, ct);
 
         var combinedContent = string.Join(' ',
             subtree.Select(n => n.Content).Prepend(note.Content));
@@ -789,13 +790,13 @@ public class NoteService(
         var strategy = db.Database.CreateExecutionStrategy();
         await strategy.ExecuteAsync(async () =>
         {
-            await using var tx = await db.Database.BeginTransactionAsync();
+            await using var tx = await db.Database.BeginTransactionAsync(ct);
 
             // Remove any page-link blocks referencing this note from the parent's content
             if (note.ParentNoteId.HasValue)
             {
                 var parent = await db.Notes.IgnoreQueryFilters()
-                    .FirstOrDefaultAsync(n => n.Id == note.ParentNoteId.Value);
+                    .FirstOrDefaultAsync(n => n.Id == note.ParentNoteId.Value, ct);
                 if (parent is not null)
                 {
                     var cleaned = RemovePageLinkFromContent(parent.Content, note.Id);
@@ -808,47 +809,49 @@ public class NoteService(
             }
 
             // Strip mention links referencing any note in the subtree from active notes
-            await StripMentionReferencesAsync(note.Id);
+            await StripMentionReferencesAsync(note.Id, ct);
             foreach (var descendant in subtree)
-                await StripMentionReferencesAsync(descendant.Id);
+                await StripMentionReferencesAsync(descendant.Id, ct);
 
             db.Notes.Remove(note);
-            await db.SaveChangesAsync();
+            await db.SaveChangesAsync(ct);
 
-            await tx.CommitAsync();
+            await tx.CommitAsync(ct);
         });
 
         // File cleanup runs AFTER the transaction commits: deleting files is an
         // irreversible filesystem side effect and must not sit inside the DB
         // transaction (a rollback cannot un-delete files).
-        await fileCleanup.DeleteOrphanedFromContentAsync(combinedContent);
+        await fileCleanup.DeleteOrphanedFromContentAsync(combinedContent, ct);
         logger.LogInformation(
             "Note {NoteId} permanently deleted with {DescendantCount} descendant(s).",
             note.Id, subtree.Count);
     }
 
     /// <summary>BFS over active descendants only (global filter applies).</summary>
-    private async Task<List<NoteItem>> CollectActiveDescendantsAsync(Guid rootId)
-        => await CollectDescendantsAsync(rootId, db.Notes);
+    private async Task<List<NoteItem>> CollectActiveDescendantsAsync(Guid rootId, CancellationToken ct = default)
+        => await CollectDescendantsAsync(rootId, db.Notes, ct);
 
     /// <summary>BFS over all descendants regardless of recycle bin state.</summary>
-    private async Task<List<NoteItem>> CollectDescendantsUnfilteredAsync(Guid rootId)
-        => await CollectDescendantsAsync(rootId, db.Notes.IgnoreQueryFilters());
+    private async Task<List<NoteItem>> CollectDescendantsUnfilteredAsync(Guid rootId, CancellationToken ct = default)
+        => await CollectDescendantsAsync(rootId, db.Notes.IgnoreQueryFilters(), ct);
 
     /// <summary>BFS over soft-deleted descendants sharing the given recycle-bin-group timestamp.</summary>
-    private async Task<List<NoteItem>> CollectDeletedGroupDescendantsAsync(Guid rootId, DateTime groupDeletedAt)
+    private async Task<List<NoteItem>> CollectDeletedGroupDescendantsAsync(Guid rootId, DateTime groupDeletedAt, CancellationToken ct = default)
         => await CollectDescendantsAsync(
             rootId,
-            db.Notes.IgnoreQueryFilters().Where(n => n.DeletedAt == groupDeletedAt));
+            db.Notes.IgnoreQueryFilters().Where(n => n.DeletedAt == groupDeletedAt),
+            ct);
 
     /// <summary>BFS over archived descendants sharing the given archive-group timestamp.
     /// Descends only through same-group notes, so independently archived subtrees stay put.</summary>
-    private async Task<List<NoteItem>> CollectArchivedGroupDescendantsAsync(Guid rootId, DateTime groupArchivedAt)
+    private async Task<List<NoteItem>> CollectArchivedGroupDescendantsAsync(Guid rootId, DateTime groupArchivedAt, CancellationToken ct = default)
         => await CollectDescendantsAsync(
             rootId,
-            db.Notes.Where(n => n.ArchivedAt == groupArchivedAt));
+            db.Notes.Where(n => n.ArchivedAt == groupArchivedAt),
+            ct);
 
-    private static async Task<List<NoteItem>> CollectDescendantsAsync(Guid rootId, IQueryable<NoteItem> source)
+    private static async Task<List<NoteItem>> CollectDescendantsAsync(Guid rootId, IQueryable<NoteItem> source, CancellationToken ct = default)
     {
         const int maxDepth = 100;
         var result = new List<NoteItem>();
@@ -857,7 +860,7 @@ public class NoteService(
         {
             var children = await source
                 .Where(n => n.ParentNoteId.HasValue && frontier.Contains(n.ParentNoteId.Value))
-                .ToListAsync();
+                .ToListAsync(ct);
             if (children.Count == 0) break;
             result.AddRange(children);
             frontier = children.Select(c => c.Id).ToList();
@@ -865,7 +868,7 @@ public class NoteService(
         return result;
     }
 
-    private async Task StripMentionReferencesAsync(Guid noteId)
+    private async Task StripMentionReferencesAsync(Guid noteId, CancellationToken ct = default)
     {
         var idStr = noteId.ToString();
         // IgnoreQueryFilters so recycle-bin (soft-deleted) notes referencing this
@@ -873,7 +876,7 @@ public class NoteService(
         // note keeps a dead mention pointing at a permanently-deleted note.
         var referencingNotes = await db.Notes.IgnoreQueryFilters()
             .Where(n => n.Content.Contains($"data-note-id=\"{idStr}\""))
-            .ToListAsync();
+            .ToListAsync(ct);
 
         foreach (var n in referencingNotes)
         {
@@ -884,7 +887,7 @@ public class NoteService(
         }
 
         if (referencingNotes.Count > 0)
-            await db.SaveChangesAsync();
+            await db.SaveChangesAsync(ct);
     }
 
     private static string RemovePageLinkFromContent(string content, Guid noteId)
@@ -945,7 +948,7 @@ public class NoteService(
         return WhitespaceRegex.Replace(text, " ").Trim();
     }
 
-    private async Task<Dictionary<Guid, int>> GetChildCountsAsync(IEnumerable<Guid> noteIds)
+    private async Task<Dictionary<Guid, int>> GetChildCountsAsync(IEnumerable<Guid> noteIds, CancellationToken ct = default)
     {
         var ids = noteIds.ToList();
         if (ids.Count == 0) return [];
@@ -953,7 +956,7 @@ public class NoteService(
             .Where(n => n.ParentNoteId.HasValue && ids.Contains(n.ParentNoteId!.Value))
             .GroupBy(n => n.ParentNoteId!.Value)
             .Select(g => new { ParentId = g.Key, Count = g.Count() })
-            .ToDictionaryAsync(x => x.ParentId, x => x.Count);
+            .ToDictionaryAsync(x => x.ParentId, x => x.Count, ct);
     }
 
     private static void PopulateLabels(NoteItem note)
