@@ -38,6 +38,18 @@ public class NoteItem
     [JsonIgnore]
     public bool IsArchiveRoot { get; set; }
 
+    /// <summary>Unguessable token that grants anonymous read access when the note is shared.
+    /// Null when the note is not shared. Cleared on unshare, which immediately invalidates any
+    /// previously issued link. Server-owned: never accepted from a client create/update payload.</summary>
+    public string? ShareToken { get; set; }
+
+    /// <summary>How the note is exposed to anonymous readers. Server-owned; changed only through
+    /// the dedicated share endpoints, never through create/update.</summary>
+    public ShareMode ShareMode { get; set; } = ShareMode.None;
+
+    /// <summary>When sharing was last enabled (UTC). Null when the note is not shared.</summary>
+    public DateTime? SharedAt { get; set; }
+
     public Guid? ParentNoteId { get; set; }
 
     [JsonIgnore]
