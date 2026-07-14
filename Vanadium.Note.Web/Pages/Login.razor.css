@@ -44,6 +44,22 @@
     border-color: var(--mud-palette-primary, #594ae2);
 }
 
+.login-hidden-username {
+    display: none;
+}
+
+.login-visually-hidden {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+}
+
 .login-error {
     font-size: 0.85rem;
     color: var(--mud-palette-error, #f44336);

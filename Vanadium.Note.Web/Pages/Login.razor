@@ -9,8 +9,23 @@
 
         <EditForm Model="@_model" OnValidSubmit="HandleLogin">
             <DataAnnotationsValidator />
+
+            @* Hidden username field so password managers can associate the saved credential. *@
+            <input type="text"
+                   name="username"
+                   autocomplete="username"
+                   value="owner"
+                   readonly
+                   aria-hidden="true"
+                   tabindex="-1"
+                   class="login-hidden-username" />
+
             <div class="login-field">
+                <label for="password" class="login-visually-hidden">Password</label>
                 <input type="password"
+                       id="password"
+                       name="password"
+                       autocomplete="current-password"
                        class="login-input"
                        placeholder="Password"
                        @bind="_model.Password"
