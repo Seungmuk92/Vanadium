@@ -73,6 +73,13 @@ public class NoteDbContext(DbContextOptions<NoteDbContext> options) : DbContext(
             .HasIndex(n => n.ArchivedAt)
             .HasFilter("\"ArchivedAt\" IS NOT NULL");
 
+        // Share tokens are looked up on the anonymous read path and must be unique.
+        // Filtered so the many notes with a NULL token don't collide on the unique index.
+        modelBuilder.Entity<NoteItem>()
+            .HasIndex(n => n.ShareToken)
+            .IsUnique()
+            .HasFilter("\"ShareToken\" IS NOT NULL");
+
         modelBuilder.Entity<ApiToken>()
             .HasIndex(t => t.TokenHash)
             .IsUnique();

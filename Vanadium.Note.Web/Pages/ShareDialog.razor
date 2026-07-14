@@ -1,0 +1,132 @@
+@using Vanadium.Note.Web.Models
+@inject NoteService NoteService
+@inject NavigationManager Nav
+@inject IJSRuntime JS
+@inject ISnackbar Snackbar
+
+<MudDialog>
+    <TitleContent>
+        <MudText Typo="Typo.h6">Share note</MudText>
+    </TitleContent>
+    <DialogContent>
+        @if (_loading)
+        {
+            <MudText Typo="Typo.body2">Loading…</MudText>
+        }
+        else
+        {
+            <MudText Typo="Typo.body2" Class="mb-3">
+                Choose how this note is exposed to people outside your account. Anyone with the link
+                can read it, but they can never edit or delete it.
+            </MudText>
+
+            <MudRadioGroup T="ShareMode" Value="_mode" ValueChanged="OnModeChanged">
+                <MudRadio T="ShareMode" Value="ShareMode.None" Color="Color.Primary">
+                    <strong>Not shared</strong> — only you can open this note.
+                </MudRadio>
+                <MudRadio T="ShareMode" Value="ShareMode.Link" Color="Color.Primary">
+                    <strong>Anyone with the link</strong> — read-only, not indexed by search engines.
+                </MudRadio>
+                <MudRadio T="ShareMode" Value="ShareMode.Public" Color="Color.Primary">
+                    <strong>Public</strong> — read-only, may be indexed by search engines.
+                </MudRadio>
+            </MudRadioGroup>
+
+            @if (_mode != ShareMode.None && !string.IsNullOrEmpty(_token))
+            {
+                <div class="mt-4">
+                    <MudTextField T="string"
+                                  Value="ShareUrl"
+                                  ReadOnly="true"
+                                  Label="Share link"
+                                  Variant="Variant.Outlined"
+                                  Margin="Margin.Dense"
+                                  Adornment="Adornment.End"
+                                  AdornmentIcon="@Icons.Material.Filled.ContentCopy"
+                                  OnAdornmentClick="CopyLink" />
+                    <MudText Typo="Typo.caption" Class="mt-2 d-block">
+                        Embedded images and file attachments require your account and may not appear
+                        in the shared view.
+                    </MudText>
+                </div>
+            }
+        }
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="Close">Done</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance MudDialog { get; set; } = default!;
+
+    [Parameter] public Guid NoteId { get; set; }
+
+    private bool _loading = true;
+    private bool _busy;
+    private ShareMode _mode = ShareMode.None;
+    private string? _token;
+
+    private string ShareUrl =>
+        string.IsNullOrEmpty(_token) ? string.Empty : $"{Nav.BaseUri}share/{_token}";
+
+    protected override async Task OnInitializedAsync()
+    {
+        var result = await NoteService.GetShareInfoAsync(NoteId);
+        if (result.IsSuccess)
+        {
+            _mode = result.Value!.Mode;
+            _token = result.Value!.Token;
+        }
+        else
+        {
+            Snackbar.Add(result.Error ?? "Failed to load share status.", Severity.Error);
+        }
+        _loading = false;
+    }
+
+    private async Task OnModeChanged(ShareMode mode)
+    {
+        if (_busy || mode == _mode) return;
+        _busy = true;
+        try
+        {
+            if (mode == ShareMode.None)
+            {
+                var result = await NoteService.UnshareAsync(NoteId);
+                if (!result.IsSuccess)
+                {
+                    Snackbar.Add(result.Error ?? "Failed to disable sharing.", Severity.Error);
+                    return;
+                }
+                _mode = ShareMode.None;
+                _token = null;
+                Snackbar.Add("Sharing disabled. The old link no longer works.", Severity.Info);
+            }
+            else
+            {
+                var result = await NoteService.SetShareAsync(NoteId, mode);
+                if (!result.IsSuccess)
+                {
+                    Snackbar.Add(result.Error ?? "Failed to update sharing.", Severity.Error);
+                    return;
+                }
+                _mode = result.Value!.Mode;
+                _token = result.Value!.Token;
+            }
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task CopyLink()
+    {
+        if (string.IsNullOrEmpty(ShareUrl)) return;
+        await JS.InvokeVoidAsync("navigator.clipboard.writeText", ShareUrl);
+        Snackbar.Add("Link copied to clipboard.", Severity.Info);
+    }
+
+    private void Close() => MudDialog.Close();
+}
