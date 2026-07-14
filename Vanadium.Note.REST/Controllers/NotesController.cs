@@ -246,6 +246,43 @@ public class NotesController(NoteService noteService, LabelService labelService,
         return NoContent();
     }
 
+    [HttpGet("{id:guid}/share")]
+    public async Task<ActionResult<ShareInfo>> GetShare(Guid id, CancellationToken ct)
+    {
+        var info = await noteService.GetShareInfo(id, ct);
+        if (info is null)
+        {
+            logger.LogWarning("Get share failed — note {NoteId} not found", id);
+            return NotFound();
+        }
+        return Ok(info);
+    }
+
+    [HttpPut("{id:guid}/share")]
+    public async Task<ActionResult<ShareInfo>> SetShare(Guid id, [FromBody] SetShareRequest request, CancellationToken ct)
+    {
+        var info = await noteService.SetShare(id, request.Mode, ct);
+        if (info is null)
+        {
+            logger.LogWarning("Set share failed — note {NoteId} not found", id);
+            return NotFound();
+        }
+        logger.LogInformation("Note {NoteId} share mode set to {ShareMode}", id, request.Mode);
+        return Ok(info);
+    }
+
+    [HttpDelete("{id:guid}/share")]
+    public async Task<IActionResult> Unshare(Guid id, CancellationToken ct)
+    {
+        if (!await noteService.Unshare(id, ct))
+        {
+            logger.LogWarning("Unshare failed — note {NoteId} not found", id);
+            return NotFound();
+        }
+        logger.LogInformation("Note {NoteId} unshared", id);
+        return NoContent();
+    }
+
     /// <summary>Active = not soft-deleted (global filter) and not archived.
     /// Archived parents are rejected: no active note may live under an archived one.</summary>
     private async Task<bool> IsActiveNote(Guid noteId, CancellationToken ct)

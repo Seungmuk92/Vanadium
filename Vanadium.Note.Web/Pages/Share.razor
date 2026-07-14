@@ -1,0 +1,59 @@
+@page "/share/{Token}"
+@layout ShareLayout
+@attribute [AllowAnonymous]
+@inject NoteService NoteService
+
+<PageTitle>@(_note is not null ? DisplayTitle : "Shared note")</PageTitle>
+
+<div class="shared-note">
+    @if (_loading)
+    {
+        <div class="shared-note-status">Loading…</div>
+    }
+    else if (_note is null)
+    {
+        <div class="shared-note-status">
+            <h1>This note isn't available</h1>
+            <p>The link may be incorrect, or the note is no longer shared.</p>
+        </div>
+    }
+    else
+    {
+        <article class="shared-note-card">
+            <header class="shared-note-header">
+                <h1 class="shared-note-title">@DisplayTitle</h1>
+                <div class="shared-note-meta">Read-only shared note · updated @_note.UpdatedAt.ToLocalTime().ToString("yyyy-MM-dd")</div>
+            </header>
+
+            @* Content is sanitized server-side before storage, so rendering it as markup is safe. *@
+            <div class="shared-note-content">@((MarkupString)_note.Content)</div>
+
+            <footer class="shared-note-footer">
+                Shared via Vanadium. Embedded images or attachments may not be visible in this view.
+            </footer>
+        </article>
+    }
+</div>
+
+@code {
+    [Parameter] public string Token { get; set; } = string.Empty;
+
+    private SharedNote? _note;
+    private bool _loading = true;
+    private string? _loadedToken;
+
+    private string DisplayTitle =>
+        string.IsNullOrWhiteSpace(_note?.Title) ? "(Untitled)" : _note!.Title;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (_loadedToken == Token) return;
+        _loadedToken = Token;
+        _loading = true;
+        _note = null;
+
+        var result = await NoteService.GetSharedNoteAsync(Token);
+        _note = result.IsSuccess ? result.Value : null;
+        _loading = false;
+    }
+}

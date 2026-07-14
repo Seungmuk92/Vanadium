@@ -313,6 +313,80 @@ public class NoteService(HttpClient http, ILogger<NoteService> logger)
         }
     }
 
+    public async Task<ServiceResult<ShareInfo>> GetShareInfoAsync(Guid noteId)
+    {
+        try
+        {
+            var result = await http.GetFromJsonAsync<ShareInfo>($"api/notes/{noteId}/share");
+            return result is not null
+                ? ServiceResult<ShareInfo>.Ok(result)
+                : ServiceResult<ShareInfo>.Fail("Failed to load share status.");
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Failed to load share status for note {NoteId}.", noteId);
+            return ServiceResult<ShareInfo>.Fail("Failed to load share status.");
+        }
+    }
+
+    public async Task<ServiceResult<ShareInfo>> SetShareAsync(Guid noteId, ShareMode mode)
+    {
+        try
+        {
+            var response = await http.PutAsJsonAsync($"api/notes/{noteId}/share", new { Mode = mode });
+            if (!response.IsSuccessStatusCode)
+                return ServiceResult<ShareInfo>.Fail("Failed to update sharing.");
+            var result = await response.Content.ReadFromJsonAsync<ShareInfo>();
+            return result is not null
+                ? ServiceResult<ShareInfo>.Ok(result)
+                : ServiceResult<ShareInfo>.Fail("Failed to update sharing.");
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Failed to update sharing for note {NoteId}.", noteId);
+            return ServiceResult<ShareInfo>.Fail("Failed to update sharing.");
+        }
+    }
+
+    public async Task<ServiceResult<bool>> UnshareAsync(Guid noteId)
+    {
+        try
+        {
+            var response = await http.DeleteAsync($"api/notes/{noteId}/share");
+            return response.IsSuccessStatusCode
+                ? ServiceResult<bool>.Ok(true)
+                : ServiceResult<bool>.Fail("Failed to disable sharing.");
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Failed to disable sharing for note {NoteId}.", noteId);
+            return ServiceResult<bool>.Fail("Failed to disable sharing.");
+        }
+    }
+
+    /// <summary>Fetches a shared note by its public token. This hits the anonymous share endpoint,
+    /// so it works without a logged-in session. A 404 means the token is unknown or revoked.</summary>
+    public async Task<ServiceResult<SharedNote>> GetSharedNoteAsync(string token)
+    {
+        try
+        {
+            var response = await http.GetAsync($"api/share/{Uri.EscapeDataString(token)}");
+            if (response.StatusCode == HttpStatusCode.NotFound)
+                return ServiceResult<SharedNote>.NotFound("This shared note is unavailable.");
+            if (!response.IsSuccessStatusCode)
+                return ServiceResult<SharedNote>.Fail("Failed to load the shared note.");
+            var result = await response.Content.ReadFromJsonAsync<SharedNote>();
+            return result is not null
+                ? ServiceResult<SharedNote>.Ok(result)
+                : ServiceResult<SharedNote>.Fail("Failed to load the shared note.");
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Failed to load shared note for token.");
+            return ServiceResult<SharedNote>.Fail("Failed to load the shared note.");
+        }
+    }
+
     public async Task<ServiceResult<List<NoteSummary>>> GetChildrenAsync(Guid parentId)
     {
         try
