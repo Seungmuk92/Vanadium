@@ -1,0 +1,225 @@
+﻿Create(Y),Label,Milestone,Severity,Title,Body
+Y,enhancement,1.0.0 배포 준비,중간,로그인 비밀번호 필드에 autocomplete/label/id 추가,"**Severity:** 중간
+
+**Problem:** 비밀번호 필드에 name/autocomplete=""current-password""/<label>/id가 전부 없어 비밀번호 매니저가 자격증명을 저장·자동입력하지 못하고, 접근성 레이블이 없어 스크린리더가 필드를 읽지 못함.
+
+**Fix:** <input name=""password"" autocomplete=""current-password"" id=""password""> + 숨김 username 필드 + <label> 추가.
+
+**Evidence:** Login.razor:13-19"
+Y,bug,1.0.0 배포 준비,높음,SubNoteDialog에 beforeunload 가드 + draft 백업 이식 (편집분 소실),"**Severity:** 높음
+
+**Problem:** SubNoteDialog(하위 노트 인라인 편집)에는 beforeunload 가드도 DraftStore도 없음. 409 충돌 시 안내만 뜨고 DisposeAsync가 다시 SaveCoreAsync를 호출해 또 409 → 편집분 소실. 1.5초 디바운스 창 안에서 닫아도 소실. 풀페이지 에디터와 달리 다이얼로그는 데이터 손실을 막지 못함.
+
+**Fix:** 다이얼로그에도 동일한 beforeunload + draft 스택 적용, 또는 닫기 전 강제 flush.
+
+**Evidence:** SubNoteDialog.razor:244-248, 330-331"
+,bug,1.0.0 배포 준비,중간,자동저장 실패를 스낵바로 승격 (현재 작은 라벨만),"**Severity:** 중간
+
+**Problem:** 자동저장 실패가 작은 'Save failed' 라벨로만 표시되고 수동저장과 달리 스낵바가 없음. 일시적 5xx나 리다이렉트 직전 401 상황에서 저장이 안 되는 걸 사용자가 인지하기 어려움. draft 백업이 손실은 막지만 인지 실패는 못 막음.
+
+**Fix:** 자동저장 실패도 수동저장과 동일하게 스낵바로 승격.
+
+**Evidence:** NoteEditor.razor DoAutoSave:566-571, 623"
+,bug,1.0.0 배포 준비,중간,새 노트 라벨 저장 결과 확인 (AddLabelToNoteAsync 결과 무시),"**Severity:** 중간
+
+**Problem:** 새 노트에 붙인 라벨을 AddLabelToNoteAsync 결과를 무시하고 저장. 라벨 POST 실패 시 UI엔 라벨이 보이는데 실제로는 저장 안 됨 → '라벨이 사라졌다'.
+
+**Fix:** 결과 확인 후 실패 시 토스트 + UI 롤백.
+
+**Evidence:** NoteEditor.razor:575-576, 640-641"
+,bug,1.0.0 배포 준비,낮음,저장 전 제목 trim + 빈 제목 fallback,"**Severity:** 낮음
+
+**Problem:** 빈/공백 제목이 정규화되지 않음. Board.razor:334는 trim하는데 에디터는 안 함 → 목록에 공백 제목 노트가 남는 일관성 결함.
+
+**Fix:** 저장 전 Trim() + 빈 제목 fallback('Untitled').
+
+**Evidence:** NoteEditor.razor SaveOnceAsync:522-529"
+Y,enhancement,1.0.0 배포 준비,높음,홈 체크박스에 '선택 삭제' 액션바 추가 (일괄 삭제 미노출),"**Severity:** 높음
+
+**Problem:** 일괄 삭제 트리거가 물리 Delete 키밖에 없음. 행별 체크박스와 전체선택은 렌더되는데 '선택 삭제' 버튼/액션바가 없어 사용자는 기능이 고장난 것처럼 느낌. Delete 키를 눌러야 한다는 걸 알 방법이 없음.
+
+**Fix:** 체크된 항목이 있으면 나타나는 액션바('N개 삭제') 추가.
+
+**Evidence:** Home.razor:70-91, 269, 424"
+,enhancement,1.0.0 배포 준비,중간,계층 재귀 확장 또는 트리 사이드바,"**Severity:** 중간
+
+**Problem:** 계층이 한 단계만 인라인 확장. 손자 노트는 +N 뱃지로만 표시되고 인라인 확장 불가, 전체 트리뷰 없음. '개발자용 계층 노트'라는 핵심 가치가 얕게 구현됨.
+
+**Fix:** 재귀 확장 또는 별도 트리 사이드바.
+
+**Evidence:** Home.razor:187-190"
+,bug,1.0.0 배포 준비,중간,보드 추가 노트 라벨 결과 확인,"**Severity:** 중간
+
+**Problem:** 보드 추가노트도 라벨 결과를 무시. 라벨 실패 시 노트가 어느 컬럼에도 안 들어가고 사라진 것처럼 보임.
+
+**Fix:** 라벨 POST 결과 확인 후 실패 처리.
+
+**Evidence:** Board.razor ConfirmAddNote:338"
+,enhancement,1.0.0 배포 준비,낮음,보드 카테고리 요약 로드 상한/가상 스크롤,"**Severity:** 낮음
+
+**Problem:** 보드는 카테고리 전체 요약을 페이지네이션 없이 로드. 개인용이라 당장은 무방하나 노트가 쌓이면 무한정 커짐.
+
+**Fix:** 상한 또는 가상 스크롤 도입.
+
+**Evidence:** Board.razor:197"
+,enhancement,1.0.0 배포 준비,중간,퀵 네비게이션 포커스 트랩 + listbox ARIA 추가,"**Severity:** 중간
+
+**Problem:** role=""dialog"" aria-modal은 선언했으나 focusTrap 미적용 → Tab이 뒤 페이지로 샘. 결과 목록에 role=""listbox/option""/aria-activedescendant가 없어 화살표 선택이 스크린리더에 안 보임. 키보드 우선 워크플로우가 핵심인데 정작 팔레트의 키보드 접근성이 샘.
+
+**Fix:** Board의 focus-trap.js 재사용 + listbox ARIA 적용.
+
+**Evidence:** QuickNavDialog.razor:11-16"
+Y,bug,1.0.0 배포 준비,높음,공유 페이지 Mermaid 렌더 호출 (원본 코드 노출),"**Severity:** 높음
+
+**Problem:** 공유 페이지가 Mermaid 다이어그램을 원본 코드로 노출. (MarkupString)Content만 덤프하고 renderMermaidIn 호출이 없음. '다이어그램 중심 기록'이 타깃인데 공유 링크 수신자는 날것의 <pre> 코드를 봄.
+
+**Fix:** 익명 페이지에서도 Mermaid 렌더 interop 호출.
+
+**Evidence:** Share.razor:29"
+,enhancement,1.0.0 배포 준비,중간,공유 뷰 깨진 이미지 onerror placeholder 처리,"**Severity:** 중간
+
+**Problem:** 이미지/첨부가 인증 엔드포인트라 익명 뷰어에게 브라우저 기본 깨진-이미지 아이콘으로 표시. onerror fallback이 없어 '고장난 페이지'로 보임. 알려진 제약이나 시각적 처리가 없음.
+
+**Fix:** onerror placeholder('이미지는 공유 뷰에서 볼 수 없습니다') 처리; 근본책은 익명 asset 프록시(설계상 out of scope).
+
+**Evidence:** Share.razor"
+,enhancement,1.0.0 배포 준비,낮음,아카이브/휴지통 다중 선택 벌크 액션,"**Severity:** 낮음
+
+**Problem:** 일괄 액션 없음 — 전부 행별. '휴지통 비우기'만 유일한 벌크 액션.
+
+**Fix:** 다중 선택 복원/영구삭제 추가.
+
+**Evidence:** Archive.razor:53-56, RecycleBin.razor:58-61"
+,enhancement,1.0.0 배포 준비,낮음,아카이브 삭제에 Undo 추가,"**Severity:** 낮음
+
+**Problem:** 아카이브에서 삭제 시 Undo 없음. 홈/에디터는 Undo를 제공하는데 아카이브만 없어 일관성 결함.
+
+**Fix:** 일관성 위해 Undo 추가.
+
+**Evidence:** Archive.razor DeleteNote:137"
+,enhancement,1.0.0 배포 준비,중간,오프라인 상태 처리 (배너 + 저장 큐잉),"**Severity:** 중간
+
+**Problem:** 오프라인 처리 전무. 원격 API 의존 WASM SPA인데 navigator.onLine 체크·서비스워커·오프라인 배너가 없음. 네트워크 끊기면 모든 동작이 일반 'Failed to…' 스낵바로 실패하고 오프라인 상황임을 알려주지 않음.
+
+**Fix:** 온라인 상태 배너 + 오프라인 시 저장 큐잉.
+
+**Evidence:** 전반"
+,enhancement,1.0.0 배포 준비,중간,슬래시 커맨드 발견성 + 업로드 전 클라 크기/타입 가드,"**Severity:** 중간
+
+**Problem:** 슬래시 커맨드 발견성이 낮고 업로드 클라 사이드 크기/타입 가드가 없음. 빈 에디터 placeholder에 힌트가 없고 삽입 '+' 어포던스도 없음. 100MB 파일도 다 올라간 뒤 서버가 거절.
+
+**Fix:** placeholder에 '/ 입력해 블록 삽입' 힌트, 업로드 전 클라 크기/타입 체크.
+
+**Evidence:** interop.js:77, upload.js"
+,enhancement,1.0.0 배포 준비,중간,모바일/터치 지원,"**Severity:** 중간
+
+**Problem:** 모바일 미지원. 보드는 HTML5 draggable이라 터치 미발동, 버블/슬래시 메뉴는 포인터 전제, 터치 핸들러 전무. 셀프호스팅 개인 노트는 모바일에서 볼 일이 잦음.
+
+**Fix:** 최소 읽기/간단 편집만이라도 터치 대응.
+
+**Evidence:** Board.razor:70"
+,bug,1.0.0 배포 준비,낮음,텍스트 입력 중 전역 단축키 스킵 (Ctrl+N 오발동),"**Severity:** 낮음
+
+**Problem:** 전역 단축키가 입력 중에도 발동. keyboard-shortcuts.js는 bare 키만 스킵해서 Ctrl+N(새 노트)이 제목/검색 타이핑 중에도 페이지를 이탈시킴.
+
+**Fix:** 텍스트 필드 포커스 시 modifier 조합도 스킵.
+
+**Evidence:** keyboard-shortcuts.js:21-29, MainLayout.razor:93"
+Y,bug,1.0.0 배포 준비,치명,[사고대응] 커밋된 실 시크릿 즉시 로테이트 + 저장소에서 제거,"**Severity:** 치명
+
+**Problem:** 실 시크릿이 소스에 커밋됨. appsettings.Development.json에 실 원격 DB 접속문자열(Host=pg.smoh.kr;Port=55432;Password=…), 실 Auth:PasswordHash, JWT 시크릿. 호스트가 소유자 도메인(smoh.kr)과 일치 → repo 접근 = DB 접근. 공유 링크·저장소 유출 시 즉시 침해.
+
+**Fix:** DB 비밀번호 즉시 로테이트, 시크릿을 env/user-secrets로 이전, git 히스토리에서 제거(git filter-repo). CLAUDE.md의 '의도적 커밋' 방침 재검토. 이건 코드 수정이 아니라 사고 대응.
+
+**Evidence:** appsettings.Development.json:3,6,8"
+Y,bug,1.0.0 배포 준비,치명,커밋된 dev 비밀번호 해시를 600k 3-part 포맷으로 재생성,"**Severity:** 치명
+
+**Problem:** 커밋된 dev 비밀번호 해시가 2-part 레거시 포맷이라 Verify가 100k iterations로 검증되고 현행 600k가 아님. 실 자격증명을 하향된 반복수로 배포하는 상태.
+
+**Fix:** 600k 3-part 해시로 재생성.
+
+**Evidence:** appsettings.Development.json:8, PasswordHasher.cs:24,67"
+Y,bug,1.0.0 배포 준비,높음,프록시 신뢰 설정 (KnownProxies) — XFF 위조 rate-limit 우회 차단,"**Severity:** 높음
+
+**Problem:** X-Forwarded-For를 아무 출처에서나 신뢰. KnownIPNetworks/KnownProxies가 비어 위조 XFF를 허용하고 로그인 리미터가 그 IP로 파티션. 앱 포트가 프록시 외 직접 도달 가능하면 공격자가 XFF만 바꿔 IP당 새 10/min 버킷을 얻어 브루트포스 무력화. 보안이 전적으로 네트워크 격리에만 의존.
+
+**Fix:** KnownProxies에 실제 프록시를 지정(defense-in-depth).
+
+**Evidence:** Program.cs:42-43, 118-120"
+Y,bug,1.0.0 배포 준비,높음,로그인 계정 잠금/지수 백오프 추가,"**Severity:** 높음
+
+**Problem:** 계정 잠금/글로벌 스로틀 없음. 로그인은 IP당 10/min만 제한. 단일 비밀번호 + 분산 소스(또는 XFF 위조) 시 절대 상한·잠금이 없고 방어는 PBKDF2 600k뿐.
+
+**Fix:** 실패 누적 시 지수 백오프/일시 잠금 도입.
+
+**Evidence:** AuthController.cs:29-53, Program.cs:118-129"
+Y,bug,1.0.0 배포 준비,높음,CSP 헤더 추가 (저장 HTML XSS 2차 방어선),"**Severity:** 높음
+
+**Problem:** 저장 HTML XSS 방어가 sanitizer 단일 계층이고 CSP가 없음. SecurityHeadersMiddleware는 nosniff만 설정. sanitizer는 모든 data-* 보존. Ganss.Xss 우회가 하나라도 있거나 sanitize 이전/직접 DB write로 들어온 노트가 있으면 2차 방어선이 없고, 공유 페이지는 익명에게 노출됨.
+
+**Fix:** CSP 헤더 추가(인라인 스크립트 차단).
+
+**Evidence:** SecurityHeadersMiddleware.cs:13, HtmlSanitizerService.cs:38-42"
+,enhancement,1.0.0 배포 준비,중간,localStorage JWT 수명 단축 / httpOnly 쿠키 검토,"**Severity:** 중간
+
+**Problem:** localStorage JWT는 서버측 폐기 불가 + 24h 수명 + XSS 탈취 가능. XSS 하나면 하루짜리 토큰이 유출되고 폐기 수단이 없음.
+
+**Fix:** 수명 단축, 가능하면 httpOnly 쿠키 검토, 최소 CSP로 XSS 차단.
+
+**Evidence:** AuthController.cs:87-96"
+,bug,1.0.0 배포 준비,중간,text/plain·text/markdown 업로드 검증 강화,"**Severity:** 중간
+
+**Problem:** text/plain·text/markdown 업로드는 매직바이트 검사를 스킵하고 클라 Content-Type만 신뢰. 임의 바이트를 저장 후 text/plain으로 서빙(nosniff+Content-Disposition로 실행은 완화).
+
+**Fix:** 최소한의 크기/휴리스틱 검증 추가.
+
+**Evidence:** FilesController.cs:114-115"
+,bug,1.0.0 배포 준비,낮음,WebP 매직바이트 검증을 두 컨트롤러에서 통일,"**Severity:** 낮음
+
+**Problem:** WebP 매직바이트가 RIFF 접두만 검사하고 offset 8의 'WEBP'를 미검사 → AVI/WAV도 통과. ImagesController는 제대로 검사(불일치).
+
+**Fix:** 두 컨트롤러 검증 로직 통일.
+
+**Evidence:** FilesController.cs:111-112, ImagesController.cs:79-82"
+,enhancement,1.0.0 배포 준비,낮음,PAT 인증 경로 rate-limit + 로그에서 토큰 조각 제거,"**Severity:** 낮음
+
+**Problem:** PAT 인증 경로에 rate-limit이 없어 요청마다 DB 조회. 유니크 인덱스 해시라 추측은 불가하나 DB 플러드 제어가 없음. 거절 시 토큰 끝 4자를 로그에 남김.
+
+**Fix:** 리미터 추가, 로그에서 토큰 조각 제거.
+
+**Evidence:** ApiTokenAuthHandler.cs:27-67, 44-45"
+,enhancement,1.0.0 배포 준비,중간,파일 참조 스캔 인덱스화 (IsReferencedInAnyNoteAsync 풀스캔),"**Severity:** 중간
+
+**Problem:** IsReferencedInAnyNoteAsync가 파일마다 인덱스 없는 풀스캔(Content.ToLower().Contains). 트라이그램 인덱스는 ContentText에만 있고 Content엔 없음. 첨부·이미지 개당 순차 스캔이라 노트/파일이 늘면 일일 잡·삭제 비용이 급증.
+
+**Fix:** 참조 스캔 대상 컬럼에 인덱스 추가 또는 ContentText 기반으로 전환.
+
+**Evidence:** FileCleanupService.cs:217-223, 85,127,159,186, NoteDbContext.cs:46-49"
+,enhancement,1.0.0 배포 준비,중간,백링크/제목 전파 스캔 인덱스화,"**Severity:** 중간
+
+**Problem:** 백링크/제목 전파 스캔도 인덱스 미적용. GetBacklinks, UpdatePageLinkReferences, StripMentionReferencesAsync가 Content.Contains(""data-note-id=…"") LIKE로 코퍼스 크기에 비례하는 순차 스캔.
+
+**Fix:** 참조 관계 정규화 테이블 또는 인덱스 도입.
+
+**Evidence:** NoteService.cs:583, 394, 1010"
+Y,enhancement,1.0.0 배포 준비,높음,최소 CI(GitHub Actions) + 스모크 E2E 도입,"**Severity:** 높음
+
+**Problem:** 테스트 커버리지 공백 + CI 없음. NoteService 수준 xUnit(SQLite in-memory)만 있고 Web 프로젝트 테스트 0, CI 워크플로우 0. 라벨 무시·다이얼로그 데이터손실·공유 Mermaid 같은 UX 회귀가 전부 테스트로 못 잡히는 영역이고 트라이그램 등 PG 전용 동작은 수동 검증뿐.
+
+**Fix:** 최소 스모크 E2E(Playwright) + GitHub Actions로 dotnet build + dotnet test 자동화.
+
+**Evidence:** 전반"
+,bug,1.0.0 배포 준비,중간,강제저장을 명시적 파라미터/엔드포인트로 분리 (동시성 우회),"**Severity:** 중간
+
+**Problem:** 동시성 강제저장 우회가 클라/PAT로 가능. clientVersion == default이면 낙관적 동시성을 완전 우회(last-write-wins로 동시 편집 무음 덮어쓰기). 'force save'가 서버 인가 액션이 아니라 클라가 0 버전만 보내면 트리거됨.
+
+**Fix:** 강제저장은 명시적 별도 파라미터/엔드포인트로 분리.
+
+**Evidence:** NoteService.cs:367-368"
+,enhancement,1.0.0 배포 준비,낮음,no-op 마이그레이션 정리,"**Severity:** 낮음
+
+**Problem:** no-op 마이그레이션 커밋(Up/Down 비어있음). 무해하나 마이그레이션 로그 노이즈.
+
+**Fix:** 정리 검토.
+
+**Evidence:** 20260709082457_AddNoteConcurrencyToken.cs"
