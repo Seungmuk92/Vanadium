@@ -33,14 +33,14 @@ builder.Host.UseSerilog((context, services, config) =>
 // TLS terminates at an upstream reverse proxy (nginx etc.); the app itself
 // serves HTTP inside the container. Trust the proxy's X-Forwarded-For /
 // X-Forwarded-Proto so the real client IP and request scheme are restored
-// (also fixes the login rate limiter's per-IP partitioning). KnownNetworks /
-// KnownProxies are cleared because the proxy's container IP is not stable or
-// known ahead of time — the app port must only be reachable by the proxy.
+// (also fixes the login rate limiter's per-IP partitioning). Which proxies are
+// trusted is controlled by ForwardedHeaders:KnownProxies / KnownNetworks — see
+// ForwardedHeadersConfigurator for why unconfigured means "keep loopback defaults"
+// rather than "trust every hop" (issue #197).
 builder.Services.Configure<ForwardedHeadersOptions>(options =>
 {
     options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
-    options.KnownIPNetworks.Clear();
-    options.KnownProxies.Clear();
+    ForwardedHeadersConfigurator.Configure(options, builder.Configuration);
 });
 
 var allowedOrigins = builder.Configuration["Cors:AllowedOrigins"]

@@ -12,6 +12,11 @@ services:
       Seq__ServerUrl: ${SEQ_URL:-}
       Seq__ApiKey: ${SEQ_API_KEY:-}
       RecycleBin__RetentionDays: ${RECYCLE_BIN_RETENTION_DAYS:-30}
+      # Trust X-Forwarded-For ONLY from the reverse proxy that fronts this service,
+      # so a client reaching the app port directly cannot forge its IP and bypass the
+      # login rate limiter. Set the proxy's IP/subnet (leave unset to trust none):
+      #   ForwardedHeaders__KnownProxies__0: "172.20.0.5"      # a specific proxy IP
+      #   ForwardedHeaders__KnownNetworks__0: "172.16.0.0/12"  # or the proxy's subnet (CIDR)
     volumes:
       # Persist uploaded files across container recreation/redeploys.
       - vanadium_uploads:/app/uploads
