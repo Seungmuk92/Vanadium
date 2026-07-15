@@ -169,6 +169,15 @@ builder.Services.AddHttpClient<IPwnedPasswordsClient, PwnedPasswordsClient>(clie
 });
 builder.Services.AddScoped<IPasswordValidator, PasswordValidator>();
 
+// Global (IP-independent) login backoff. Complements the per-IP "login" rate limiter:
+// the singleton throttle shares one failure counter across all sources so distributed
+// IPs / forged X-Forwarded-For (issue #197) cannot dodge the cap. TimeProvider.System is
+// injected so the throttle's clock is fake-able in unit tests.
+builder.Services.Configure<LoginLockoutOptions>(
+    builder.Configuration.GetSection(LoginLockoutOptions.SectionName));
+builder.Services.AddSingleton(TimeProvider.System);
+builder.Services.AddSingleton<ILoginThrottle, LoginThrottle>();
+
 builder.Services.AddHostedService<OrphanFileCleanupJob>();
 builder.Services.AddHostedService<RecycleBinPurgeJob>();
 builder.Services.AddEndpointsApiExplorer();

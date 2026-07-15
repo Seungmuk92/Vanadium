@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.IdentityModel.Tokens;
+using System.Globalization;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Text;
@@ -21,6 +22,7 @@ public class AuthController(
     IConfiguration config,
     IWebHostEnvironment env,
     IPasswordValidator passwordValidator,
+    ILoginThrottle loginThrottle,
     ILogger<AuthController> logger) : ControllerBase
 {
     /// <summary>Fixed principal name for the single owner (used for logs/UI only).</summary>
@@ -31,6 +33,19 @@ public class AuthController(
     public IActionResult Login([FromBody] LoginRequest request)
     {
         logger.LogInformation("Login attempt.");
+
+        // Global backoff gate: unlike the per-IP fixed-window limiter, this counter is shared
+        // across every source, so distributed IPs or forged X-Forwarded-For cannot slip past it.
+        // Attempts arriving during an active lockout are rejected without touching the password.
+        if (loginThrottle.IsLocked(out var retryAfter))
+        {
+            var seconds = (int)Math.Ceiling(retryAfter.TotalSeconds);
+            Response.Headers.RetryAfter = seconds.ToString(CultureInfo.InvariantCulture);
+            logger.LogWarning("Login rejected by global lockout; {Seconds}s remaining.", seconds);
+            return Problem(
+                detail: "Too many failed login attempts. Try again later.",
+                statusCode: StatusCodes.Status429TooManyRequests);
+        }
 
         var storedHash = config["Auth:PasswordHash"];
         if (string.IsNullOrEmpty(storedHash))
@@ -43,10 +58,12 @@ public class AuthController(
 
         if (!PasswordHasher.Verify(request.Password, storedHash))
         {
+            loginThrottle.RegisterFailure();
             logger.LogWarning("Failed login attempt.");
             return Problem(detail: "Invalid password.", statusCode: StatusCodes.Status401Unauthorized);
         }
 
+        loginThrottle.RegisterSuccess();
         var token = GenerateJwtToken();
         logger.LogInformation("Owner authenticated successfully.");
         return Ok(new { token });
