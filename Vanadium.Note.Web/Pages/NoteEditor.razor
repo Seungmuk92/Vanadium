@@ -522,10 +522,17 @@
 
     private async Task<NoteItem?> SaveOnceAsync()
     {
+        // Normalize the title before saving so a whitespace-only or empty title
+        // never lands in the list. Mirrors the Board create path (which trims) and
+        // falls back to "Untitled" for an empty result (#203).
+        var normalizedTitle = title.Trim();
+        if (normalizedTitle.Length == 0)
+            normalizedTitle = "Untitled";
+
         var note = new NoteItem
         {
             Id = Id ?? Guid.Empty,
-            Title = title,
+            Title = normalizedTitle,
             Content = content,
             ParentNoteId = parentNoteId,
             UpdatedAt = _serverUpdatedAt
