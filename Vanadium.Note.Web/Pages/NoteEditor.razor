@@ -585,8 +585,7 @@
 
         if (isNew && !_isDisposing)
         {
-            foreach (var label in noteLabels.ToList())
-                await LabelService.AddLabelToNoteAsync(saved.Id, label.Id);
+            await PersistNewNoteLabelsAsync(saved.Id);
             // Set _currentId/_currentParentId before navigating so OnParametersSetAsync
             // treats this as a same-note transition and skips the full state reset,
             // preserving any content the user typed during the network round-trip.
@@ -650,8 +649,7 @@
         // the new note's labels and navigated — don't repeat that work here.
         if (isNew && !joinedInFlight)
         {
-            foreach (var label in noteLabels.ToList())
-                await LabelService.AddLabelToNoteAsync(saved.Id, label.Id);
+            await PersistNewNoteLabelsAsync(saved.Id);
         }
         Nav.NavigateTo(BackUrl);
     }
@@ -958,6 +956,32 @@
             }
         }
         noteLabels.RemoveAll(l => l.Id == labelId);
+    }
+
+    // A new note's labels are chosen locally (while Id is null) and only POSTed once the
+    // note exists. Each POST can fail independently; ignoring the result left the label
+    // showing in the UI while it was never saved, so it "vanished" on refresh (#202).
+    // Roll every failed label back out of the local list and alert the user so the UI
+    // matches the real server state.
+    private async Task PersistNewNoteLabelsAsync(Guid noteId)
+    {
+        var failed = new List<Label>();
+        foreach (var label in noteLabels.ToList())
+        {
+            var result = await LabelService.AddLabelToNoteAsync(noteId, label.Id);
+            if (!result.IsSuccess)
+                failed.Add(label);
+        }
+        if (failed.Count == 0)
+            return;
+
+        var failedIds = failed.Select(l => l.Id).ToHashSet();
+        noteLabels.RemoveAll(l => failedIds.Contains(l.Id));
+        Snackbar.Add(
+            failed.Count == 1
+                ? $"Failed to save label \"{failed[0].Name}\"."
+                : $"Failed to save {failed.Count} labels.",
+            Severity.Warning);
     }
 
     private async Task CreateLabel()
