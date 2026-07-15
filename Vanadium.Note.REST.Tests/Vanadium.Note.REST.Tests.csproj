@@ -24,6 +24,12 @@
     </PackageReference>
   </ItemGroup>
 
+  <!-- Needed to reference ASP.NET Core config types (e.g. ForwardedHeadersOptions) in unit tests;
+       does not flow transitively from the web project's ProjectReference. -->
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
   <ItemGroup>
     <ProjectReference Include="..\Vanadium.Note.REST\Vanadium.Note.REST.csproj" />
   </ItemGroup>
