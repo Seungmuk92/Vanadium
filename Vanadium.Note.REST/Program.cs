@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.OpenApi;
 using Microsoft.IdentityModel.Tokens;
 using Serilog;
+using System.Net;
 using System.Text;
 using Microsoft.AspNetCore.RateLimiting;
 using System.Threading.RateLimiting;
@@ -33,14 +34,51 @@ builder.Host.UseSerilog((context, services, config) =>
 // TLS terminates at an upstream reverse proxy (nginx etc.); the app itself
 // serves HTTP inside the container. Trust the proxy's X-Forwarded-For /
 // X-Forwarded-Proto so the real client IP and request scheme are restored
-// (also fixes the login rate limiter's per-IP partitioning). KnownNetworks /
-// KnownProxies are cleared because the proxy's container IP is not stable or
-// known ahead of time — the app port must only be reachable by the proxy.
+// (also fixes the login rate limiter's per-IP partitioning).
+//
+// Only proxies/networks listed in ForwardedHeaders:KnownProxies (individual IPs)
+// and ForwardedHeaders:KnownNetworks (CIDR) are trusted. This is defense-in-depth:
+// when BOTH lists are empty ASP.NET Core trusts EVERY forwarded hop, so a client
+// that reaches the app port directly could forge X-Forwarded-For and mint a fresh
+// login rate-limit bucket per spoofed IP, defeating brute-force protection. When
+// nothing is configured we therefore KEEP the framework's loopback-only defaults
+// rather than clearing them, so an untrusted origin's XFF is never honored and can
+// never partition the rate limiter. Configure the real proxy's IP/subnet in
+// production (e.g. ForwardedHeaders:KnownNetworks:0 = "10.0.0.0/8") to restore the
+// client IP through it.
 builder.Services.Configure<ForwardedHeadersOptions>(options =>
 {
     options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
-    options.KnownIPNetworks.Clear();
-    options.KnownProxies.Clear();
+
+    var knownProxies = builder.Configuration
+        .GetSection("ForwardedHeaders:KnownProxies").Get<string[]>() ?? [];
+    var knownNetworks = builder.Configuration
+        .GetSection("ForwardedHeaders:KnownNetworks").Get<string[]>() ?? [];
+
+    if (knownProxies.Length > 0 || knownNetworks.Length > 0)
+    {
+        // Explicit trust list configured — replace the loopback defaults with it.
+        options.KnownProxies.Clear();
+        options.KnownIPNetworks.Clear();
+
+        foreach (var proxy in knownProxies)
+        {
+            if (IPAddress.TryParse(proxy, out var ip))
+                options.KnownProxies.Add(ip);
+            else
+                throw new InvalidOperationException(
+                    $"ForwardedHeaders:KnownProxies contains an invalid IP address: '{proxy}'.");
+        }
+
+        foreach (var network in knownNetworks)
+        {
+            if (System.Net.IPNetwork.TryParse(network, out var net))
+                options.KnownIPNetworks.Add(net);
+            else
+                throw new InvalidOperationException(
+                    $"ForwardedHeaders:KnownNetworks contains an invalid CIDR network: '{network}'.");
+        }
+    }
 });
 
 var allowedOrigins = builder.Configuration["Cors:AllowedOrigins"]
