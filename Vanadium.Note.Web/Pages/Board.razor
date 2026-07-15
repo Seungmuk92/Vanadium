@@ -335,7 +335,20 @@
             var saveResult = await NoteService.SaveAsync(note);
             if (saveResult.IsSuccess)
             {
-                await LabelService.AddLabelToNoteAsync(saveResult.Value!.Id, dialogLabel.Id);
+                // The board places a new note into a column purely via its label. Ignoring the
+                // label POST result left a saved-but-labelless note showing in no column, so it
+                // looked like it vanished (#205). Detect the failure and tell the user the note
+                // exists but was not added to the column.
+                var labelResult = await LabelService.AddLabelToNoteAsync(saveResult.Value!.Id, dialogLabel.Id);
+                if (!labelResult.IsSuccess)
+                {
+                    Logger.LogError(
+                        "Note {NoteId} created but failed to add label '{LabelName}' from board dialog.",
+                        saveResult.Value!.Id, dialogLabel.Name);
+                    Snackbar.Add(
+                        $"Note saved, but couldn't be added to \"{dialogLabel.Name}\". It won't appear on the board.",
+                        Severity.Warning);
+                }
                 await LoadNotesForCurrentCategory();
                 showDialog = false;
                 dialogLabel = null;
