@@ -9,6 +9,7 @@
 @inject ISnackbar Snackbar
 @inject ILogger<SubNoteDialog> Logger
 @inject KeyboardShortcutService ShortcutService
+@inject DraftStore DraftStore
 
 <MudDialog>
     <TitleContent>
@@ -63,9 +64,39 @@
     private IAsyncDisposable? _ctrlSOverride;
     private readonly AutoSaveDebouncer _autoSave = new();
     private bool _hasPendingChanges = false;
+    private bool _hasConflict = false;
     private bool _isSaving = false;
     private bool _editorMounted = false;
     private bool _contentJustLoaded = false;
+
+    /// <summary>
+    /// Whether the dialog holds edits not yet persisted to the server. Setting it
+    /// also arms/disarms a browser <c>beforeunload</c> guard so that closing or
+    /// reloading the tab during the auto-save debounce window warns the user
+    /// instead of silently dropping the change — parity with the full-page editor
+    /// (issue #192, mirrors <c>NoteEditor.HasPendingChanges</c>).
+    /// </summary>
+    private bool HasPendingChanges
+    {
+        get => _hasPendingChanges;
+        set
+        {
+            if (_hasPendingChanges == value) return;
+            _hasPendingChanges = value;
+            _ = SyncUnsavedChangesGuardAsync(value);
+        }
+    }
+
+    private async Task SyncUnsavedChangesGuardAsync(bool armed)
+    {
+        try
+        {
+            await JS.InvokeVoidAsync(
+                armed ? "unsavedChangesInterop.enable" : "unsavedChangesInterop.disable");
+        }
+        catch (JSException) { }
+        catch (InvalidOperationException) { }
+    }
 
     protected override async Task OnInitializedAsync()
     {
@@ -85,6 +116,23 @@
             Snackbar.Add("Failed to load note.", Severity.Error);
             MudDialog.Close();
             return;
+        }
+
+        // Restore any unsaved draft stashed when a prior edit of this note failed to
+        // save (409 conflict, auth-expiry 401, network error). The draft is keyed by
+        // note id so it only fires for this note; archived notes are read-only and
+        // cannot hold pending edits (issue #192, mirrors NoteEditor).
+        if (!_isArchived)
+        {
+            var draft = await DraftStore.GetAsync(NoteId);
+            if (draft is not null)
+            {
+                title = draft.Title;
+                content = draft.Content;
+                _contentJustLoaded = true;
+                HasPendingChanges = true;
+                Snackbar.Add("Restored your unsaved changes.", Severity.Info);
+            }
         }
 
         var labelsResult = await LabelService.GetLabelsAsync();
@@ -180,7 +228,11 @@
     private void ScheduleAutoSave()
     {
         if (_isArchived) return; // archived notes are read-only
-        _hasPendingChanges = true;
+        // After a 409 the note is stale; further auto-saves would just re-409, so stop
+        // scheduling and let the draft backup carry the edits (issue #192). The latest
+        // content still lives in the `content`/`title` fields for the close/dispose stash.
+        if (_hasConflict) return;
+        HasPendingChanges = true;
         saveStatusText = "Unsaved changes";
         saveStatusCss = "status-pending";
         StateHasChanged();
@@ -206,7 +258,24 @@
         if (result.IsSuccess)
         {
             _serverUpdatedAt = result.Value!.UpdatedAt;
-            _hasPendingChanges = false;
+            HasPendingChanges = false;
+            await DraftStore.ClearAsync();
+        }
+        else if (result.IsConflict)
+        {
+            // Optimistic-concurrency clash: the save can never succeed against this stale
+            // snapshot, so record it (this stops ScheduleAutoSave from re-firing and the
+            // dispose flush from repeating the failing save) and back the edit up to a
+            // draft that a reopen / full-page restore recovers (issue #192).
+            _hasConflict = true;
+            await DraftStore.SaveAsync(NoteId, title, content);
+        }
+        else if (!result.IsForbidden)
+        {
+            // Transient/auth failure (e.g. 401 → login redirect). Stash the draft so the
+            // in-progress edit survives and is restored on return (issue #192). Archived
+            // (Forbidden) notes are read-only and never hold a pending edit to stash.
+            await DraftStore.SaveAsync(NoteId, title, content);
         }
         return result;
     }
@@ -272,8 +341,16 @@
         // Cancel the pending debounce, then flush any unsaved edit before the dialog goes away so
         // the last <1.5s of typing is not silently discarded.
         _autoSave.Cancel();
-        if (_hasPendingChanges && !_isArchived)
-            await DoAutoSave();
+        if (!_isArchived && HasPendingChanges)
+        {
+            if (_hasConflict)
+                // The snapshot is stale — a save can only 409 again — so back the edit up to a
+                // draft that a reopen / full-page restore recovers instead of losing it (#192).
+                await DraftStore.SaveAsync(NoteId, title, content);
+            else
+                // A normal flush; DoAutoSave → SaveCoreAsync itself stashes a draft if it fails.
+                await DoAutoSave();
+        }
         MudDialog.Close(DialogResult.Ok(title));
     }
 
@@ -327,8 +404,21 @@
         // Esc/backdrop closes bypass Close() and only reach here, so flush pending edits on this
         // path too. Use SaveCoreAsync (no StateHasChanged) since the component is being disposed.
         _autoSave.Dispose();
-        if (_hasPendingChanges && !_isArchived)
-            await SaveCoreAsync();
+        if (!_isArchived && HasPendingChanges)
+        {
+            if (_hasConflict)
+                // On a 409 the save can never win against this stale snapshot; re-issuing it here
+                // is exactly the loop that used to silently drop the edit. Back it up instead (#192).
+                await DraftStore.SaveAsync(NoteId, title, content);
+            else
+                await SaveCoreAsync();
+        }
+
+        // Release the beforeunload guard if this dialog still holds it (an unresolved conflict, or
+        // a flush that couldn't persist, leaves HasPendingChanges armed). Disarm exactly once so the
+        // reference-counted guard stays balanced with a concurrently-open full-page editor (#192).
+        if (_hasPendingChanges)
+            await SyncUnsavedChangesGuardAsync(false);
 
         _objRef?.Dispose();
         if (_editorMounted)
