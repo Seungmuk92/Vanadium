@@ -2,6 +2,7 @@
 @layout ShareLayout
 @attribute [AllowAnonymous]
 @inject NoteService NoteService
+@inject IJSRuntime JS
 
 <PageTitle>@(_note is not null ? DisplayTitle : "Shared note")</PageTitle>
 
@@ -26,7 +27,7 @@
             </header>
 
             @* Content is sanitized server-side before storage, so rendering it as markup is safe. *@
-            <div class="shared-note-content">@((MarkupString)_note.Content)</div>
+            <div class="shared-note-content" @ref="_contentRef">@((MarkupString)_note.Content)</div>
 
             <footer class="shared-note-footer">
                 Shared via Vanadium. Embedded images or attachments may not be visible in this view.
@@ -41,6 +42,8 @@
     private SharedNote? _note;
     private bool _loading = true;
     private string? _loadedToken;
+    private ElementReference _contentRef;
+    private bool _mermaidRendered;
 
     private string DisplayTitle =>
         string.IsNullOrWhiteSpace(_note?.Title) ? "(Untitled)" : _note!.Title;
@@ -51,9 +54,28 @@
         _loadedToken = Token;
         _loading = true;
         _note = null;
+        _mermaidRendered = false;
 
         var result = await NoteService.GetSharedNoteAsync(Token);
         _note = result.IsSuccess ? result.Value : null;
         _loading = false;
+    }
+
+    // Shared content is dumped as raw markup, so Tiptap's node views never run.
+    // Render any Mermaid code blocks in place once the content is in the DOM,
+    // mirroring the read-only render the editor performs via the same interop.
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (_note is null || _mermaidRendered) return;
+        _mermaidRendered = true;
+        try
+        {
+            await JS.InvokeVoidAsync("tiptapInterop.renderMermaidIn", _contentRef);
+        }
+        catch (JSException ex)
+        {
+            // Read-only page: a diagram render failure must not break the note.
+            Console.Error.WriteLine($"Failed to render shared Mermaid diagrams: {ex.Message}");
+        }
     }
 }
