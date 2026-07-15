@@ -29,4 +29,37 @@ public class SecurityHeadersMiddlewareTests
         Assert.True(called);
         Assert.Equal("nosniff", context.Response.Headers["X-Content-Type-Options"]);
     }
+
+    [Fact]
+    public async Task InvokeAsync_SetsLockedDownCspOnApiPaths()
+    {
+        var context = new DefaultHttpContext();
+        context.Request.Path = "/api/notes";
+        var middleware = new SecurityHeadersMiddleware(_ => Task.CompletedTask);
+
+        await middleware.InvokeAsync(context);
+
+        var csp = context.Response.Headers["Content-Security-Policy"].ToString();
+        Assert.Contains("default-src 'none'", csp);
+        Assert.Contains("frame-ancestors 'none'", csp);
+        Assert.Contains("base-uri 'none'", csp);
+        // The locked-down API policy must never permit script execution.
+        Assert.DoesNotContain("script-src", csp);
+        Assert.DoesNotContain("unsafe-inline", csp);
+    }
+
+    [Fact]
+    public async Task InvokeAsync_SkipsCspForSwaggerUi()
+    {
+        var context = new DefaultHttpContext();
+        context.Request.Path = "/swagger/index.html";
+        var middleware = new SecurityHeadersMiddleware(_ => Task.CompletedTask);
+
+        await middleware.InvokeAsync(context);
+
+        // Swagger UI serves an inline bundle; a 'none' CSP would break it.
+        Assert.False(context.Response.Headers.ContainsKey("Content-Security-Policy"));
+        // Baseline headers still apply everywhere.
+        Assert.Equal("nosniff", context.Response.Headers["X-Content-Type-Options"]);
+    }
 }
