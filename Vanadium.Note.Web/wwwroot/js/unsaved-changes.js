@@ -13,18 +13,25 @@
         return '';
     }
 
-    let _armed = false;
+    // Reference-counted: NoteEditor and SubNoteDialog can be armed at the same
+    // time (a page-link/mention click opens the dialog on top of an editor that
+    // still holds unsaved changes). A single boolean would let the dialog's
+    // disable() strip the listener the editor still needs, so track how many
+    // callers want the guard and only remove the listener when the last one
+    // disarms (issue #192).
+    let _armedCount = 0;
 
     window.unsavedChangesInterop = {
         enable() {
-            if (_armed) return;
-            _armed = true;
-            window.addEventListener('beforeunload', _handler);
+            _armedCount++;
+            if (_armedCount === 1)
+                window.addEventListener('beforeunload', _handler);
         },
         disable() {
-            if (!_armed) return;
-            _armed = false;
-            window.removeEventListener('beforeunload', _handler);
+            if (_armedCount === 0) return;
+            _armedCount--;
+            if (_armedCount === 0)
+                window.removeEventListener('beforeunload', _handler);
         }
     };
 })();
