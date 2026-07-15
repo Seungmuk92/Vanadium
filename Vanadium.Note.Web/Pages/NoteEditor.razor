@@ -290,6 +290,9 @@
     private Task<NoteItem?>? _saveInFlight;
     private bool _isDisposing = false;
     private bool _hasConflict = false;
+    // Tracks whether the current auto-save failure episode already raised a snackbar,
+    // so repeated failing auto-saves don't spam the user with duplicate alerts (#201).
+    private bool _autoSaveErrorNotified = false;
     private bool _loadFailed = false;
     private bool _editorInitFailed = false;
     private DateTime _serverUpdatedAt;
@@ -566,9 +569,19 @@
         if (saved is null)
         {
             SetStatus(_hasConflict ? "Conflict" : IsArchived ? "Archived" : "Save failed", "status-error");
+            // Promote a genuine auto-save failure to a snackbar so it is as visible as a
+            // manual-save failure (#201). Conflict/archived have their own dedicated UI.
+            // Raise it only once per failure episode to avoid spamming on every retry.
+            if (!_hasConflict && !IsArchived && !_autoSaveErrorNotified)
+            {
+                Snackbar.Add("Failed to auto-save note.", Severity.Error);
+                _autoSaveErrorNotified = true;
+            }
             StateHasChanged();
             return;
         }
+        // A save succeeded — reset the failure-notified guard so a later failure alerts again.
+        _autoSaveErrorNotified = false;
 
         if (isNew && !_isDisposing)
         {
