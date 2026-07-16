@@ -2,6 +2,10 @@
     'use strict';
 
     const _active = new Set();
+    // Shortcuts that must keep working while a text field is focused (command
+    // palette, save). Every other shortcut — bare keys AND modifier combos such
+    // as Ctrl+N — is skipped while typing so it can't hijack the input (#214).
+    const _inputSafe = new Set(['ctrl+k', 'ctrl+s']);
     let _ref = null;
 
     function _buildKey(e) {
@@ -17,9 +21,10 @@
         const key = _buildKey(e);
         if (!_active.has(key)) return;
 
-        // For bare keys (no Ctrl/Alt/Meta), skip when a text field has focus
-        const hasModifier = e.ctrlKey || e.metaKey || e.altKey;
-        if (!hasModifier) {
+        // Skip when a text field has focus, unless the shortcut is explicitly
+        // input-safe. This covers modifier combos (e.g. Ctrl+N) too, not just
+        // bare keys, so typing in a title/search field is never hijacked (#214).
+        if (!_inputSafe.has(key)) {
             const el = document.activeElement;
             const isTextField =
                 (el?.tagName === 'INPUT' && el?.type !== 'checkbox') ||
