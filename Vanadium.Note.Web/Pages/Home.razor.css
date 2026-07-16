@@ -252,6 +252,48 @@ button.col-title.sortable {
     color: var(--vn-note-header-color);
 }
 
+/* ── Selection action bar ───────────────────────────────────────────────────
+   Appears above the note table only while one or more rows are checked, giving
+   the row checkboxes a visible bulk-delete affordance (the Delete-key shortcut
+   alone was undiscoverable). */
+
+.selection-actionbar {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    margin-bottom: 0.6rem;
+    padding: 0.4rem 0.75rem;
+    border: 1px solid var(--mud-palette-divider);
+    border-radius: 6px;
+    background-color: var(--mud-palette-surface);
+}
+
+.selection-count {
+    font-size: 0.8rem;
+    font-weight: 600;
+    opacity: 0.7;
+}
+
+.selection-delete-btn {
+    height: 28px;
+    padding: 0 0.75rem;
+    border: 1px solid var(--mud-palette-error);
+    border-radius: 4px;
+    background: transparent;
+    color: var(--mud-palette-error);
+    cursor: pointer;
+    font-size: 0.8rem;
+    font-weight: 600;
+    line-height: 1;
+    transition: background-color 0.12s, color 0.12s;
+}
+
+.selection-delete-btn:hover {
+    background-color: var(--mud-palette-error);
+    color: #fff;
+}
+
 /* ── Label filter bar ───────────────────────────────────────────────────── */
 
 .label-filter-bar {
