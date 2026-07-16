@@ -56,6 +56,9 @@
             {
                 var columnLabel = label;
                 var notesForLabel = GetNotesForLabel(columnLabel.Id);
+                var isExpanded = expandedColumns.Contains(columnLabel.Id);
+                var visibleNotes = isExpanded ? notesForLabel : notesForLabel.Take(CardsPerColumnLimit).ToList();
+                var hiddenCount = notesForLabel.Count - visibleNotes.Count;
 
                 <div class="board-column"
                      data-label-id="@columnLabel.Id">
@@ -64,7 +67,7 @@
                         <span class="board-column-count">@notesForLabel.Count</span>
                     </div>
                     <div class="board-column-cards">
-                        @foreach (var note in notesForLabel)
+                        @foreach (var note in visibleNotes)
                         {
                             var capturedNote = note;
                             <div class="board-card"
@@ -99,6 +102,14 @@
                             </div>
                         }
                     </div>
+                    @if (hiddenCount > 0)
+                    {
+                        <div class="board-column-showmore">
+                            <button class="board-showmore-btn" @onclick="() => ShowMore(columnLabel.Id)">
+                                Show @hiddenCount more
+                            </button>
+                        </div>
+                    }
                     <div class="board-column-footer">
                         <button class="board-add-btn" @onclick="() => OpenAddDialog(columnLabel)">
                             + Add a note
@@ -149,10 +160,17 @@
 }
 
 @code {
+    // Cap the cards initially rendered per column so a category with many notes
+    // does not grow the board's DOM/render cost without bound (#206). The rest
+    // stay reachable behind a per-column "Show more" toggle.
+    private const int CardsPerColumnLimit = 50;
+
     private IReadOnlyList<NoteSummary> notes = [];
     private List<LabelCategory> categories = [];
     private Guid? selectedCategoryId;
     private bool isLoading = false;
+    // Label ids whose column has been expanded past CardsPerColumnLimit.
+    private readonly HashSet<Guid> expandedColumns = [];
     private DotNetObjectReference<Board>? _dotNetRef;
 
     // ── Dialog state ──────────────────────────────────────────────────────────
@@ -185,6 +203,8 @@
 
     private async Task LoadNotesForCurrentCategory()
     {
+        // A fresh load collapses every column back to the cap.
+        expandedColumns.Clear();
         if (selectedCategory is null || !selectedCategory.Labels.Any())
         {
             notes = [];
@@ -289,6 +309,8 @@
         notes.Where(n => n.Labels.Any(l => l.Id == labelId))
              .OrderByDescending(n => n.UpdatedAt)
              .ToList();
+
+    private void ShowMore(Guid labelId) => expandedColumns.Add(labelId);
 
     private async Task SelectCategory(Guid catId)
     {
