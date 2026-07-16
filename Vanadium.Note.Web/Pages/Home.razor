@@ -65,6 +65,15 @@
     }
     else
     {
+        @if (selectedIds.Count > 0)
+        {
+            <div class="selection-actionbar">
+                <span class="selection-count">@selectedIds.Count selected</span>
+                <button class="selection-delete-btn" @onclick="DeleteSelectedAsync">
+                    Delete @selectedIds.Count
+                </button>
+            </div>
+        }
         <div class="note-table">
             <div class="note-row note-header">
                 <div class="col-check">
@@ -266,7 +275,7 @@
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         if (firstRender)
-            await ShortcutService.RegisterAsync("delete", "Delete selected notes", () => InvokeAsync(OnDeleteKeyPressed));
+            await ShortcutService.RegisterAsync("delete", "Delete selected notes", () => InvokeAsync(DeleteSelectedAsync));
     }
 
     private async Task LoadNotes(bool includeLabels = false)
@@ -421,7 +430,9 @@
         await LoadNotes();
     }
 
-    private async Task OnDeleteKeyPressed()
+    // Shared by the Delete-key shortcut and the selection action bar's Delete button
+    // so both paths produce the identical soft-delete + Undo result.
+    private async Task DeleteSelectedAsync()
     {
         if (selectedIds.Count == 0) return;
 
