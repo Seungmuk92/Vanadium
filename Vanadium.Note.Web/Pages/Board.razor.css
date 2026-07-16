@@ -139,6 +139,30 @@
     gap: 0.4rem;
 }
 
+.board-column-showmore {
+    padding: 0.35rem 0.5rem 0;
+    flex-shrink: 0;
+}
+
+.board-showmore-btn {
+    width: 100%;
+    background: none;
+    border: 1px solid var(--mud-palette-divider);
+    cursor: pointer;
+    font-size: 0.78rem;
+    color: inherit;
+    opacity: 0.6;
+    padding: 0.3rem 0.5rem;
+    border-radius: 4px;
+    text-align: center;
+    transition: opacity 0.15s, background-color 0.15s;
+}
+
+.board-showmore-btn:hover {
+    opacity: 1;
+    background-color: var(--vn-note-hover-bg);
+}
+
 .board-column-footer {
     padding: 0.35rem 0.5rem;
     border-top: 1px solid var(--mud-palette-divider);
