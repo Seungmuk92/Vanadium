@@ -48,6 +48,17 @@ public class NoteDbContext(DbContextOptions<NoteDbContext> options) : DbContext(
             .HasMethod("GIN")
             .HasOperators("gin_trgm_ops", "gin_trgm_ops");
 
+        // Orphan-file reference scan (FileCleanupService.IsReferencedInAnyNoteAsync) probes
+        // for /api/files/{guid} and /api/images/{guid} substrings that live in HTML *attribute*
+        // values of Content. StripHtml drops attribute text, so those references never reach
+        // ContentText and its trigram index cannot serve the scan. A separate gin_trgm_ops
+        // index on Content lets the per-file substring (I)LIKE probe use the index instead of
+        // a full corpus scan (issue #219).
+        modelBuilder.Entity<NoteItem>()
+            .HasIndex(n => n.Content)
+            .HasMethod("GIN")
+            .HasOperators("gin_trgm_ops");
+
         // Recycle Bin: hide soft-deleted notes from every query by default.
         // Recycle Bin-aware paths (recycle bin listing, restore, purge, orphan-file scans,
         // account wipe) must opt out explicitly via IgnoreQueryFilters().
