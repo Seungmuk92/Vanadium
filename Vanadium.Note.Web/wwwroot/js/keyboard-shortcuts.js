@@ -9,6 +9,11 @@
     let _ref = null;
 
     function _buildKey(e) {
+        // Some synthetic keydown events (e.g. browser credential autofill on the
+        // login form) have no `key`, so guard against a falsy value instead of
+        // calling toLowerCase() on undefined (#237).
+        if (!e.key) return null;
+
         const mods = [];
         if (e.ctrlKey || e.metaKey) mods.push('ctrl');
         if (e.altKey) mods.push('alt');
@@ -19,7 +24,7 @@
 
     function _onKeyDown(e) {
         const key = _buildKey(e);
-        if (!_active.has(key)) return;
+        if (!key || !_active.has(key)) return;
 
         // Skip when a text field has focus, unless the shortcut is explicitly
         // input-safe. This covers modifier combos (e.g. Ctrl+N) too, not just
