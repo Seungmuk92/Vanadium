@@ -131,9 +131,15 @@ public class FilesController(IWebHostEnvironment env, NoteDbContext db, ILogger<
 
     private static async Task<bool> HasValidMagicBytesAsync(IFormFile file, string contentType)
     {
-        var buffer = new byte[8];
+        var buffer = new byte[12];
         await using var stream = file.OpenReadStream();
         var read = await stream.ReadAsync(buffer);
+
+        return HasValidMagicBytes(buffer, read, contentType);
+    }
+
+    internal static bool HasValidMagicBytes(ReadOnlySpan<byte> buffer, int read, string contentType)
+    {
         if (read < 4) return false;
 
         return contentType switch
@@ -157,8 +163,13 @@ public class FilesController(IWebHostEnvironment env, NoteDbContext db, ILogger<
             "image/jpeg" => buffer[0] == 0xFF && buffer[1] == 0xD8 && buffer[2] == 0xFF,
             "image/png"  => buffer[0] == 0x89 && buffer[1] == 0x50 && buffer[2] == 0x4E && buffer[3] == 0x47,
             "image/gif"  => buffer[0] == 0x47 && buffer[1] == 0x49 && buffer[2] == 0x46 && buffer[3] == 0x38,
-            "image/webp" => read >= 8 && buffer[0] == 0x52 && buffer[1] == 0x49 &&
-                            buffer[2] == 0x46 && buffer[3] == 0x46,
+
+            // RIFF container (offset 0) + WEBP signature (offset 8). Matching only the
+            // RIFF prefix would also accept AVI/WAV, so the offset-8 check is required —
+            // this mirrors ImagesController.DetectImageTypeAsync.
+            "image/webp" => read >= 12 &&
+                            buffer[0] == 0x52 && buffer[1] == 0x49 && buffer[2] == 0x46 && buffer[3] == 0x46 &&
+                            buffer[8] == 0x57 && buffer[9] == 0x45 && buffer[10] == 0x42 && buffer[11] == 0x50,
 
             // text/plain and text/markdown are validated separately by IsLikelyTextAsync.
             _ => false
