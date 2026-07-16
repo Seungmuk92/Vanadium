@@ -407,6 +407,46 @@ window.tiptapInterop = {
         }
     },
 
+    // Replace authenticated media that anonymous viewers cannot load with an
+    // inline placeholder (for the read-only Share page). Embedded images and
+    // file attachments reference authenticated endpoints (/api/images/*,
+    // /api/files/*) that return 401 without a JWT, so images render as the
+    // browser's broken-image icon and attachment links download nothing. Swap
+    // those for a friendly placeholder / notice. Pass a CSS selector string or
+    // a DOM element reference. Runs after the sanitized content is in the DOM,
+    // mirroring renderMermaidIn.
+    applySharedPlaceholders(root) {
+        const el = typeof root === 'string' ? document.querySelector(root) : root;
+        if (!el) return;
+
+        // Images: swap on load failure, and immediately for any that already
+        // finished loading and failed before this handler was attached.
+        for (const img of el.querySelectorAll('img')) {
+            const replace = () => {
+                if (!img.isConnected) return;
+                const placeholder = document.createElement('div');
+                placeholder.className = 'shared-media-placeholder';
+                placeholder.textContent = 'Image not available in shared view';
+                img.replaceWith(placeholder);
+            };
+            img.addEventListener('error', replace, { once: true });
+            if (img.complete && img.naturalWidth === 0) replace();
+        }
+
+        // Attachments cannot be downloaded anonymously — disable the link and
+        // append an explicit notice so the reader is not left clicking a dead link.
+        for (const link of el.querySelectorAll('a.file-attachment')) {
+            link.classList.add('shared-attachment-unavailable');
+            link.removeAttribute('href');
+            link.removeAttribute('download');
+            link.setAttribute('aria-disabled', 'true');
+            const note = document.createElement('span');
+            note.className = 'shared-attachment-note';
+            note.textContent = ' (not available in shared view)';
+            link.appendChild(note);
+        }
+    },
+
     destroy(elementId) {
         const entry = _editors[elementId];
         if (entry) {
