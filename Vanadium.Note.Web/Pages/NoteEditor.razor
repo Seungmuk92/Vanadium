@@ -296,6 +296,10 @@
     private bool _loadFailed = false;
     private bool _editorInitFailed = false;
     private DateTime _serverUpdatedAt;
+    // One-shot flag: the user pressed "Force Save" in the conflict banner, so the
+    // next save must send the explicit force opt-in (#221). Consumed and reset by
+    // the save entry point — a default/zero version alone no longer force-saves.
+    private bool _forceNextSave;
     private string saveStatusText = string.Empty;
     private string saveStatusCss = string.Empty;
 
@@ -537,7 +541,10 @@
             ParentNoteId = parentNoteId,
             UpdatedAt = _serverUpdatedAt
         };
-        var result = await NoteService.SaveAsync(note);
+        // Consume the one-shot force flag so only this save bypasses the check.
+        var force = _forceNextSave;
+        _forceNextSave = false;
+        var result = await NoteService.SaveAsync(note, force);
         if (result.IsConflict)
         {
             _hasConflict = true;
@@ -663,7 +670,11 @@
 
     private async Task ForceSave()
     {
-        _serverUpdatedAt = default;
+        // Signal an explicit force-save rather than zeroing the version: the server
+        // now bypasses the concurrency check only for an explicit force opt-in, not
+        // for a default/zero version (#221). The last-known version still rides
+        // along in the payload; the server ignores it when forcing.
+        _forceNextSave = true;
         _hasConflict = false;
         HasPendingChanges = true;
         await DoAutoSave();
