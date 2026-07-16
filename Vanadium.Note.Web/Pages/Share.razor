@@ -77,5 +77,18 @@
             // Read-only page: a diagram render failure must not break the note.
             Console.Error.WriteLine($"Failed to render shared Mermaid diagrams: {ex.Message}");
         }
+
+        try
+        {
+            // Images/attachments reference authenticated endpoints an anonymous
+            // viewer cannot load, so replace broken images with a placeholder and
+            // mark attachment links as unavailable instead of leaving dead icons.
+            await JS.InvokeVoidAsync("tiptapInterop.applySharedPlaceholders", _contentRef);
+        }
+        catch (JSException ex)
+        {
+            // Cosmetic fallback only — never break the note over it.
+            Console.Error.WriteLine($"Failed to apply shared media placeholders: {ex.Message}");
+        }
     }
 }
