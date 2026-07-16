@@ -61,6 +61,14 @@
         _loading = false;
     }
 
+    // The Tiptap interop module (js/tiptap-editor.js) resolves its dependencies
+    // from a CDN and installs window.tiptapInterop only once they load. The
+    // anonymous share page never initializes an editor, so on a cold first
+    // render the module may not be ready yet. Wait (bounded) for it to appear
+    // before touching it rather than racing the load (issue #242).
+    private const int InteropReadyMaxAttempts = 100;
+    private const int InteropReadyDelayMs = 50;
+
     // Shared content is dumped as raw markup, so Tiptap's node views never run.
     // Render any Mermaid code blocks in place once the content is in the DOM,
     // mirroring the read-only render the editor performs via the same interop.
@@ -68,6 +76,16 @@
     {
         if (_note is null || _mermaidRendered) return;
         _mermaidRendered = true;
+
+        if (!await WaitForInteropReadyAsync())
+        {
+            // The interop module never became available. The note body is
+            // already rendered, so leave it as-is rather than breaking the
+            // read-only page.
+            Console.Error.WriteLine("Tiptap interop did not become ready for the shared view.");
+            return;
+        }
+
         try
         {
             await JS.InvokeVoidAsync("tiptapInterop.renderMermaidIn", _contentRef);
@@ -90,5 +108,26 @@
             // Cosmetic fallback only — never break the note over it.
             Console.Error.WriteLine($"Failed to apply shared media placeholders: {ex.Message}");
         }
+    }
+
+    // Poll the tiptapInterop.ready() gate until the module is installed (the
+    // gate itself only exists once the entry module has run) or the bounded
+    // attempts are exhausted. Returns true once the interop is available.
+    private async Task<bool> WaitForInteropReadyAsync()
+    {
+        for (var attempt = 0; attempt < InteropReadyMaxAttempts; attempt++)
+        {
+            try
+            {
+                return await JS.InvokeAsync<bool>("tiptapInterop.ready");
+            }
+            catch (JSException)
+            {
+                // tiptapInterop (or its ready gate) is not installed yet — the
+                // module is still loading. Wait briefly and retry.
+                await Task.Delay(InteropReadyDelayMs);
+            }
+        }
+        return false;
     }
 }
