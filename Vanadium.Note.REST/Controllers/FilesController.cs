@@ -48,9 +48,9 @@ public class FilesController(IWebHostEnvironment env, NoteDbContext db, ILogger<
             return Problem(detail: $"File type '{request.File.ContentType}' is not allowed.", statusCode: StatusCodes.Status400BadRequest);
         }
 
-        if (!await HasValidMagicBytesAsync(request.File, request.File.ContentType))
+        if (!await IsContentValidAsync(request.File))
         {
-            logger.LogWarning("File upload rejected: magic bytes mismatch for '{ContentType}' ('{FileName}')",
+            logger.LogWarning("File upload rejected: content validation failed for '{ContentType}' ('{FileName}')",
                 request.File.ContentType, request.File.FileName);
             return Problem(detail: "File content does not match the declared file type.", statusCode: StatusCodes.Status400BadRequest);
         }
@@ -78,6 +78,55 @@ public class FilesController(IWebHostEnvironment env, NoteDbContext db, ILogger<
 
         logger.LogInformation("File saved: {FileId} ('{FileName}')", id, originalName);
         return Ok(new { url = $"/api/files/{id}", filename = originalName });
+    }
+
+    private static readonly HashSet<string> TextContentTypes = ["text/plain", "text/markdown"];
+
+    // Number of leading bytes sampled for the text/binary heuristic. A prefix is
+    // enough to catch obvious binary payloads without buffering the whole upload.
+    private const int TextSampleSize = 8192;
+
+    // Reject if more than this fraction of sampled bytes are suspicious control
+    // characters. Real text/markdown stays well under this; binary blobs blow past it.
+    private const double MaxControlCharRatio = 0.10;
+
+    private static Task<bool> IsContentValidAsync(IFormFile file) =>
+        TextContentTypes.Contains(file.ContentType)
+            ? IsLikelyTextAsync(file)
+            : HasValidMagicBytesAsync(file, file.ContentType);
+
+    // text/plain and text/markdown have no reliable magic bytes, so instead of
+    // trusting the client Content-Type we sniff a prefix and reject obvious binary
+    // (NUL bytes or a high ratio of non-whitespace control characters).
+    private static async Task<bool> IsLikelyTextAsync(IFormFile file)
+    {
+        var buffer = new byte[TextSampleSize];
+        await using var stream = file.OpenReadStream();
+        var read = await stream.ReadAsync(buffer);
+        if (read == 0) return false;
+
+        return IsLikelyText(buffer.AsSpan(0, read));
+    }
+
+    internal static bool IsLikelyText(ReadOnlySpan<byte> bytes)
+    {
+        if (bytes.IsEmpty) return false;
+
+        var suspicious = 0;
+        foreach (var b in bytes)
+        {
+            // A NUL byte is a strong binary signal (UTF-8/ASCII text never contains one).
+            if (b == 0x00) return false;
+
+            // Allow common text whitespace/control chars: tab, LF, VT, FF, CR.
+            var isAllowedWhitespace = b is 0x09 or 0x0A or 0x0B or 0x0C or 0x0D;
+            if ((b < 0x20 && !isAllowedWhitespace) || b == 0x7F)
+                suspicious++;
+        }
+
+        // High bytes (0x80–0xFF) are left uncounted so legitimate UTF-8 / Latin-1
+        // text passes; only control-character density drives the decision.
+        return suspicious <= bytes.Length * MaxControlCharRatio;
     }
 
     private static async Task<bool> HasValidMagicBytesAsync(IFormFile file, string contentType)
@@ -111,9 +160,7 @@ public class FilesController(IWebHostEnvironment env, NoteDbContext db, ILogger<
             "image/webp" => read >= 8 && buffer[0] == 0x52 && buffer[1] == 0x49 &&
                             buffer[2] == 0x46 && buffer[3] == 0x46,
 
-            // TXT / MD: no reliable magic bytes — trust Content-Type header
-            "text/plain" or "text/markdown" => true,
-
+            // text/plain and text/markdown are validated separately by IsLikelyTextAsync.
             _ => false
         };
     }
