@@ -327,7 +327,7 @@ public class NoteService(
         return note;
     }
 
-    public async Task<(NoteItem? Note, bool Conflict, bool Archived)> Update(Guid id, NoteItem note, CancellationToken ct = default)
+    public async Task<(NoteItem? Note, bool Conflict, bool Archived)> Update(Guid id, NoteItem note, bool forceSave = false, CancellationToken ct = default)
     {
         var existing = await db.Notes.FirstOrDefaultAsync(n => n.Id == id, ct);
         if (existing is null) return (null, false, false);
@@ -357,14 +357,20 @@ public class NoteService(
         existing.ParentNoteId = note.ParentNoteId;
         existing.UpdatedAt = UtcNowMicroseconds();
 
-        // Optimistic concurrency: when the client sent the version it last saw,
-        // pin it as the concurrency token's original value so EF enforces the
-        // check in the UPDATE's WHERE clause at the DB level — the DB, not an
-        // in-memory compare, decides the conflict, so a write racing between our
-        // read and save can no longer be lost. A default version is the
-        // force-save bypass: leave the token at the freshly-read DB value so the
-        // save proceeds (only a genuine mid-flight race can still conflict it).
-        if (clientVersion != default)
+        // Optimistic concurrency: pin the client's claimed version as the
+        // concurrency token's original value so EF enforces the check in the
+        // UPDATE's WHERE clause at the DB level — the DB, not an in-memory
+        // compare, decides the conflict, so a write racing between our read and
+        // save can no longer be lost. This runs for EVERY non-force save,
+        // including a default/zero version: a zero can never match a real row, so
+        // it conflicts instead of silently overwriting (#221) — a client can no
+        // longer bypass the check merely by omitting the version.
+        //
+        // Force-save is the only bypass and must be an explicit, server-authorized
+        // action (the `force` flag, wired from a dedicated endpoint parameter):
+        // leave the token at the freshly-read DB value so the save proceeds (only
+        // a genuine mid-flight race can still conflict it).
+        if (!forceSave)
             db.Entry(existing).Property(e => e.UpdatedAt).OriginalValue = clientVersion;
 
         try
