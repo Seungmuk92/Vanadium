@@ -96,15 +96,40 @@ public class NoteConcurrencyTests
         Assert.True(updated.UpdatedAt >= note.UpdatedAt);
     }
 
+    // ── #221: a default/zero version no longer bypasses the check on its own ──
+
     [Fact]
-    public async Task Update_DefaultVersion_ForceSaves_BypassingTheConflictCheck()
+    public async Task Update_DefaultVersion_WithoutForce_ReturnsConflict_AndLeavesNoteUnchanged()
     {
         using var h = new TestHost();
         var note = await h.CreateNoteAsync("Original", content: "<p>original</p>");
 
-        // A default UpdatedAt is the intentional force-save bypass.
+        // A default (zero) UpdatedAt used to silently force-save; it must now be
+        // pinned as the concurrency token like any other value. Zero matches no
+        // real row, so the save conflicts instead of overwriting (#221).
         var (updated, conflict, archived) = await h.Notes.Update(note.Id,
-            new NoteItem { Title = "Force", Content = "<p>f</p>", UpdatedAt = default });
+            new NoteItem { Title = "Sneaky force", Content = "<p>f</p>", UpdatedAt = default });
+
+        Assert.Null(updated);
+        Assert.True(conflict);
+        Assert.False(archived);
+
+        var fresh = await h.FindAsync(note.Id);
+        Assert.Equal("Original", fresh!.Title);
+    }
+
+    [Fact]
+    public async Task Update_ExplicitForce_BypassesConflictCheck_EvenWithStaleVersion()
+    {
+        using var h = new TestHost();
+        var note = await h.CreateNoteAsync("Original", content: "<p>original</p>");
+
+        // Even a stale version force-saves when the explicit force flag is set —
+        // the deliberate, server-authorized overwrite path.
+        var stale = note.UpdatedAt.AddSeconds(-5);
+        var (updated, conflict, archived) = await h.Notes.Update(note.Id,
+            new NoteItem { Title = "Force", Content = "<p>f</p>", UpdatedAt = stale },
+            forceSave: true);
 
         Assert.False(conflict);
         Assert.False(archived);

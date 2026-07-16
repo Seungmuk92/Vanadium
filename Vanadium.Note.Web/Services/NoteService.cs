@@ -98,13 +98,16 @@ public class NoteService(HttpClient http, ILogger<NoteService> logger)
         }
     }
 
-    public async Task<ServiceResult<NoteItem>> SaveAsync(NoteItem note)
+    public async Task<ServiceResult<NoteItem>> SaveAsync(NoteItem note, bool force = false)
     {
         try
         {
+            // force=true is the explicit force-save opt-in (#221): the server only
+            // bypasses the optimistic concurrency check when this flag is present,
+            // never merely because the version is default/zero.
             var response = note.Id == Guid.Empty
                 ? await http.PostAsJsonAsync("api/notes", note)
-                : await http.PutAsJsonAsync($"api/notes/{note.Id}", note);
+                : await http.PutAsJsonAsync($"api/notes/{note.Id}{(force ? "?force=true" : string.Empty)}", note);
 
             if (response.StatusCode == HttpStatusCode.Conflict)
                 return ServiceResult<NoteItem>.Conflict();
