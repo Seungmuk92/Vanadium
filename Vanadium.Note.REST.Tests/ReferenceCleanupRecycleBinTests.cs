@@ -68,10 +68,13 @@ public class ReferenceCleanupRecycleBinTests
             $"data-title=\"Old Title\">\U0001F4C4 Old Title</div>";
         var referencing = await AddSoftDeletedNoteAsync(h, pageLink);
 
-        // Rename the target (UpdatedAt=default → force-save, bypasses concurrency check).
+        // Rename the target via an explicit force-save so this reference-cleanup
+        // test does not depend on version bookkeeping (#221: a default version no
+        // longer bypasses the concurrency check on its own).
         var (updated, conflict, archived) = await h.Notes.Update(
             target.Id,
-            new NoteItem { Title = "New Title", Content = target.Content, UpdatedAt = default });
+            new NoteItem { Title = "New Title", Content = target.Content, UpdatedAt = default },
+            forceSave: true);
         Assert.NotNull(updated);
         Assert.False(conflict);
         Assert.False(archived);

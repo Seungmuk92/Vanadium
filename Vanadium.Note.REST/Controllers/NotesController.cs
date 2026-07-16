@@ -109,7 +109,7 @@ public class NotesController(NoteService noteService, LabelService labelService,
     }
 
     [HttpPut("{id:guid}")]
-    public async Task<ActionResult<NoteItem>> Update(Guid id, [FromBody] NoteItem note, CancellationToken ct)
+    public async Task<ActionResult<NoteItem>> Update(Guid id, [FromBody] NoteItem note, [FromQuery] bool force, CancellationToken ct)
     {
         if (note.ParentNoteId.HasValue)
         {
@@ -130,7 +130,10 @@ public class NotesController(NoteService noteService, LabelService labelService,
             }
         }
 
-        var (updated, conflict, archived) = await noteService.Update(id, note, ct);
+        // force=true is an explicit, opt-in force-save that bypasses the optimistic
+        // concurrency check. Without it, a client can no longer force-overwrite a
+        // concurrent edit merely by sending a default/zero version (#221).
+        var (updated, conflict, archived) = await noteService.Update(id, note, force, ct);
         if (archived)
             return Problem(
                 detail: "Note is archived and read-only.",

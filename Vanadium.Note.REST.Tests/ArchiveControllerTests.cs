@@ -55,7 +55,7 @@ public class ArchiveControllerTests
         var controller = CreateNotesController(h);
 
         var result = await controller.Update(note.Id,
-            new NoteItem { Title = "Changed", Content = "", UpdatedAt = default }, CancellationToken.None);
+            new NoteItem { Title = "Changed", Content = "", UpdatedAt = default }, force: false, CancellationToken.None);
 
         var objectResult = Assert.IsType<ObjectResult>(result.Result);
         Assert.Equal(StatusCodes.Status403Forbidden, objectResult.StatusCode);
@@ -111,7 +111,7 @@ public class ArchiveControllerTests
             Content = "",
             ParentNoteId = archivedParent.Id,
             UpdatedAt = default
-        }, CancellationToken.None);
+        }, force: false, CancellationToken.None);
 
         var objectResult = Assert.IsType<ObjectResult>(result.Result);
         Assert.Equal(StatusCodes.Status400BadRequest, objectResult.StatusCode);
