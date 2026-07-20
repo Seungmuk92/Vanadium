@@ -101,7 +101,10 @@ public class AuthController(
     {
         var secret = config["Auth:JwtSecret"]
             ?? throw new InvalidOperationException("Auth:JwtSecret is not configured.");
-        var expirationMinutes = config.GetValue<int>("Auth:JwtExpirationMinutes", 1440);
+        // Default kept intentionally short (8h). The JWT lives in browser localStorage and
+        // cannot be revoked server-side (no refresh tokens by design), so the token lifetime
+        // is the whole XSS-theft exposure window — see docs/plannings/jwt-lifetime-and-storage.md.
+        var expirationMinutes = config.GetValue<int>("Auth:JwtExpirationMinutes", 480);
 
         var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(secret));
         var credentials = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
