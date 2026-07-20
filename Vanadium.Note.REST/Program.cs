@@ -178,6 +178,15 @@ builder.Services.Configure<LoginLockoutOptions>(
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddSingleton<ILoginThrottle, LoginThrottle>();
 
+// Global (IP-independent) PAT authentication backoff. The PAT handler runs during
+// authentication and issues one ApiTokens lookup per request, and is not covered by the
+// per-IP "login" rate limiter, so a flood of invalid tokens could hammer the DB. The
+// singleton throttle shares one failure counter across all sources and, once locked,
+// short-circuits attempts before the DB lookup.
+builder.Services.Configure<ApiTokenThrottleOptions>(
+    builder.Configuration.GetSection(ApiTokenThrottleOptions.SectionName));
+builder.Services.AddSingleton<IApiTokenThrottle, ApiTokenThrottle>();
+
 builder.Services.AddHostedService<OrphanFileCleanupJob>();
 builder.Services.AddHostedService<RecycleBinPurgeJob>();
 builder.Services.AddEndpointsApiExplorer();
