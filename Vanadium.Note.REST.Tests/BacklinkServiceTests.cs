@@ -5,10 +5,11 @@ namespace Vanadium.Note.REST.Tests;
 
 /// <summary>
 /// Service-level tests for the backlink ("what links here") query (issue #141).
-/// The scan uses <c>Content.Contains</c> (SQL LIKE), which runs on the in-memory
-/// SQLite host — unlike the trigram <c>EF.Functions.ILike</c> search path — so the
-/// visibility rules (soft-delete exclusion, archive inclusion, self-exclusion) are
-/// verified directly here.
+/// The scan goes through the shared reference probe (<c>WhereReferencesNote</c>): an
+/// index-friendly <c>LIKE</c> on PostgreSQL (issue #220) and a case-sensitive
+/// <c>Content.Contains</c> fallback on the in-memory SQLite host, which is the branch
+/// exercised here — so the visibility rules (soft-delete exclusion, archive inclusion,
+/// self-exclusion) are verified directly.
 /// </summary>
 public class BacklinkServiceTests
 {
