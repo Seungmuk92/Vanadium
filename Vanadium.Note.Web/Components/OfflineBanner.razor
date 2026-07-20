@@ -1,0 +1,21 @@
+@implements IDisposable
+@inject NetworkStatusService Network
+
+@* Global connectivity indicator (issue #211). Hosted once in MainLayout so every
+   authenticated page gets it without opting in. aria-live announces the state change to
+   screen readers; role="status" keeps that announcement polite rather than interrupting. *@
+@if (!Network.IsOnline)
+{
+    <div class="offline-banner" role="status" aria-live="polite">
+        <span class="offline-banner-icon" aria-hidden="true">⚠</span>
+        <span>You're offline. Edits are kept on this device and sync when the connection returns.</span>
+    </div>
+}
+
+@code {
+    protected override void OnInitialized() => Network.OnChanged += OnNetworkChanged;
+
+    private void OnNetworkChanged() => InvokeAsync(StateHasChanged);
+
+    public void Dispose() => Network.OnChanged -= OnNetworkChanged;
+}

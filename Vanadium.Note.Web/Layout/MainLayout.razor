@@ -7,6 +7,9 @@
 @inject TokenStore TokenStore
 @inject NavigationManager Nav
 @inject ILogger<MainLayout> Logger
+@inject ISnackbar Snackbar
+@inject NetworkStatusService NetworkStatus
+@inject OfflineSaveQueue OfflineQueue
 @implements IAsyncDisposable
 
 <MudThemeProvider IsDarkMode="_isDarkMode" />
@@ -16,6 +19,8 @@
 
 <CascadingValue Value="_isDarkMode" Name="IsDarkMode">
     <CascadingValue Value="EventCallback.Factory.Create(this, ToggleDarkMode)" Name="ToggleDarkMode">
+        <OfflineBanner />
+
         <div class="page">
             <div class="sidebar">
                 <NavMenu />
@@ -65,6 +70,44 @@
         ThemeService.OnChanged += OnThemeServiceChanged;
         AuthStateProvider.AuthenticationStateChanged += OnAuthStateChanged;
         Nav.LocationChanged += OnLocationChanged;
+        NetworkStatus.OnChanged += OnNetworkChanged;
+    }
+
+    // Connectivity flipped. Going offline only needs a re-render (the banner reads the
+    // service directly); coming back online is what drains the offline save queue (#211).
+    private void OnNetworkChanged()
+    {
+        InvokeAsync(async () =>
+        {
+            StateHasChanged();
+            if (NetworkStatus.IsOnline)
+                await FlushOfflineQueueAsync();
+        });
+    }
+
+    private async Task FlushOfflineQueueAsync()
+    {
+        try
+        {
+            // Replaying without a token would 401, and AuthTokenHandler turns that into a
+            // redirect to /login — a jarring bounce for someone sitting on the login page.
+            // The queue is durable, so it simply waits until the next reconnect after login.
+            var state = await AuthStateProvider.GetAuthenticationStateAsync();
+            if (state.User.Identity?.IsAuthenticated != true)
+                return;
+
+            var flushed = await OfflineQueue.FlushAsync();
+            if (flushed > 0)
+                Snackbar.Add(
+                    $"Back online — synced {flushed} offline change{(flushed == 1 ? string.Empty : "s")}.",
+                    Severity.Success);
+        }
+        catch (Exception ex)
+        {
+            // Never let a flush failure tear down the layout; the entries that did not
+            // land stay queued and are retried on the next reconnect.
+            Logger.LogError(ex, "Failed to flush queued offline saves.");
+        }
     }
 
     // Never leave the palette overlay stuck across a route change (E10).
@@ -102,6 +145,11 @@
                 return Task.CompletedTask;
             }));
             await ShortcutService.RegisterAsync("ctrl+k", "Quick navigation", () => InvokeAsync(ToggleQuickNav));
+            await NetworkStatus.InitAsync();
+            // A save parked in a previous session (tab closed while offline) is still
+            // queued — drain it as soon as the app comes up online (#211).
+            if (NetworkStatus.IsOnline)
+                await FlushOfflineQueueAsync();
         }
     }
 
@@ -196,6 +244,7 @@
         ThemeService.OnChanged -= OnThemeServiceChanged;
         AuthStateProvider.AuthenticationStateChanged -= OnAuthStateChanged;
         Nav.LocationChanged -= OnLocationChanged;
+        NetworkStatus.OnChanged -= OnNetworkChanged;
         await ShortcutService.UnregisterManyAsync("ctrl+n", "ctrl+/", "ctrl+k");
     }
 }

@@ -1,0 +1,16 @@
+.offline-banner {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem 1rem;
+    background: var(--mud-palette-warning);
+    color: var(--mud-palette-warning-text);
+    font-size: 0.88rem;
+    text-align: center;
+    justify-content: center;
+}
+
+.offline-banner-icon {
+    font-size: 1rem;
+    line-height: 1;
+}
