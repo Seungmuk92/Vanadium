@@ -33,14 +33,20 @@ export function createBubbleMenu(editorId) {
             const btn = document.createElement('button');
             btn.textContent = item.label;
             btn.title = item.title;
-            btn.addEventListener('mousedown', (e) => {
+            // preventDefault keeps the editor selection from collapsing when the
+            // button takes focus. Bind touchstart too so taps fire immediately and
+            // reliably on mobile; preventDefault there also suppresses the emulated
+            // mousedown, so the handler never runs twice for one tap.
+            const activate = (e) => {
                 e.preventDefault();
                 if (item.cmd === 'link') {
                     showLinkPopover(editorId);
                 } else {
                     runCommand(_editors[editorId]?.editor, item.cmd);
                 }
-            });
+            };
+            btn.addEventListener('mousedown', activate);
+            btn.addEventListener('touchstart', activate, { passive: false });
             menu.appendChild(btn);
         }
     }

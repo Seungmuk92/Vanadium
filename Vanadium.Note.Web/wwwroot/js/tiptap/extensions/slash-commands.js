@@ -69,10 +69,15 @@ export function createSlashCommandsExtension(dotnetRef) {
                                 const row = document.createElement('div');
                                 row.className = 'slash-menu-item' + (i === selectedIndex ? ' slash-menu-item-active' : '');
                                 row.innerHTML = `<span class="slash-menu-icon">${item.icon}</span><div class="slash-menu-text"><span class="slash-menu-label">${item.label}</span><span class="slash-menu-desc">${item.desc}</span></div>`;
-                                row.addEventListener('mousedown', e => {
+                                // Bind touchstart alongside mousedown so a tap selects
+                                // the command on mobile; preventDefault on touchstart also
+                                // suppresses the emulated mousedown, avoiding a double fire.
+                                const pick = e => {
                                     e.preventDefault();
                                     currentCommand?.(item);
-                                });
+                                };
+                                row.addEventListener('mousedown', pick);
+                                row.addEventListener('touchstart', pick, { passive: false });
                                 menu.appendChild(row);
                             });
                             menu.querySelector('.slash-menu-item-active')
