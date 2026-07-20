@@ -204,22 +204,32 @@ public class FileCleanupService(
     /// Returns whether any note still references <paramref name="id"/> in its content,
     /// queried per-GUID against the DB so the full note corpus is never loaded into memory.
     /// <para>
-    /// IgnoreQueryFilters: content of soft-deleted (recycle-bin) notes still counts as a
-    /// live file reference until the recycle bin purge actually deletes the note — their
-    /// attachments must NOT be treated as orphans early.
+    /// IgnoreQueryFilters: content of soft-deleted (recycle-bin) and archived notes still
+    /// counts as a live file reference until the recycle bin purge actually deletes the note —
+    /// their attachments must NOT be treated as orphans early.
     /// </para>
     /// <para>
-    /// The content side is lowered before matching so this reproduces the previous
-    /// in-memory <see cref="StringComparison.OrdinalIgnoreCase"/> <c>Contains</c> semantics
-    /// (<see cref="Guid.ToString()"/> is already lowercase, and GUIDs are ASCII hex).
+    /// On PostgreSQL the probe is an <c>ILIKE '%guid%'</c> substring match, which the
+    /// <c>gin_trgm_ops</c> index on <c>Content</c> accelerates (issue #219) — it scans
+    /// <c>Content</c> rather than <c>ContentText</c> because file/image references live in HTML
+    /// attribute values that <see cref="NoteService"/>'s <c>StripHtml</c> discards. A GUID never
+    /// contains a LIKE wildcard, so the pattern needs no escaping. Other providers (the SQLite
+    /// test host, which cannot translate <c>ILIKE</c>) fall back to a case-insensitive in-SQL
+    /// <c>Contains</c> that preserves the same match semantics.
     /// </para>
     /// </summary>
     private Task<bool> IsReferencedInAnyNoteAsync(Guid id, CancellationToken ct)
     {
+        var notes = db.Notes.IgnoreQueryFilters();
+
+        if (db.Database.IsNpgsql())
+        {
+            var pattern = $"%{id}%";
+            return notes.AnyAsync(n => EF.Functions.ILike(n.Content, pattern), ct);
+        }
+
         var needle = id.ToString();
-        return db.Notes
-                 .IgnoreQueryFilters()
-                 .AnyAsync(n => n.Content.ToLower().Contains(needle), ct);
+        return notes.AnyAsync(n => n.Content.ToLower().Contains(needle), ct);
     }
 
     private void DeletePhysicalFile(string path)
