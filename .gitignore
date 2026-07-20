@@ -8,6 +8,8 @@
 
 # ASP.NET Core environment-specific settings (may contain secrets)
 appsettings.Development.json
+# Frontend dev config holds only a non-secret ApiBaseUrl and is tracked intentionally
+!Vanadium.Note.Web/wwwroot/appsettings.Development.json
 
 # User-specific files
 *.rsuser
