@@ -5,11 +5,13 @@
 @inject NavigationManager Nav
 @inject IDialogService DialogService
 @inject IJSRuntime JS
+@implements IAsyncDisposable
 
 @if (Open)
 {
     <div class="quicknav-backdrop" @onclick="Close">
-        <div class="quicknav-panel"
+        <div @ref="_panel"
+             class="quicknav-panel"
              role="dialog"
              aria-modal="true"
              aria-label="Quick note navigation"
@@ -20,6 +22,11 @@
                    placeholder="Search notes…"
                    autocomplete="off"
                    spellcheck="false"
+                   role="combobox"
+                   aria-expanded="@(HasResults ? "true" : "false")"
+                   aria-controls="@ListboxId"
+                   aria-autocomplete="list"
+                   aria-activedescendant="@ActiveOptionId"
                    value="@_query"
                    @oninput="OnInput"
                    @onkeydown="OnKeyDown" />
@@ -52,12 +59,18 @@
                         {
                             <div class="quicknav-section-label">Recent</div>
                         }
-                        <ul class="quicknav-results">
+                        <ul class="quicknav-results"
+                            id="@ListboxId"
+                            role="listbox"
+                            aria-label="Note results">
                             @for (var i = 0; i < _rows.Count; i++)
                             {
                                 var idx = i;
                                 var row = _rows[i];
                                 <li class="quicknav-item @(idx == _selected ? "is-selected" : "")"
+                                    id="@OptionId(idx)"
+                                    role="option"
+                                    aria-selected="@(idx == _selected ? "true" : "false")"
                                     @onmouseenter="() => _selected = idx"
                                     @onclick="() => OpenRow(row)">
                                     <div class="quicknav-item-head">
@@ -108,7 +121,10 @@
     private record QuickNavRow(Guid Id, string Title, string Snippet, bool IsArchived);
     private record HighlightSegment(string Text, bool Match);
 
+    private const string ListboxId = "quicknav-listbox";
+
     private ElementReference _input;
+    private ElementReference _panel;
     private string _query = string.Empty;
     private int _selected;
     private string[] _terms = [];
@@ -118,13 +134,28 @@
     private bool _wasOpen;
     private bool _focusQueued;
     private bool _scrollQueued;
+    private bool _trapQueued;
+    private bool _trapActive;
+
+    /// <summary>True while the results listbox is actually rendered (see the render switch),
+    /// which is what the combobox ARIA attributes must reflect.</summary>
+    private bool HasResults =>
+        _rows.Count > 0 && _mode is QuickNavMode.Results or QuickNavMode.Recents;
+
+    private string? ActiveOptionId =>
+        HasResults && _selected >= 0 && _selected < _rows.Count ? OptionId(_selected) : null;
+
+    private static string OptionId(int index) => $"quicknav-option-{index}";
 
     protected override async Task OnParametersSetAsync()
     {
         if (Open && !_wasOpen)
             await OnOpened();
         else if (!Open && _wasOpen)
+        {
             _searchCts?.Cancel();
+            await ReleaseFocusTrap();
+        }
         _wasOpen = Open;
     }
 
@@ -136,11 +167,22 @@
         _searchCts?.Cancel();
         await LoadRecents();
         _mode = QuickNavMode.Recents;
+        _trapQueued = true;
         _focusQueued = true;
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
+        if (_trapQueued)
+        {
+            _trapQueued = false;
+            try
+            {
+                await JS.InvokeVoidAsync("focusTrap.activate", _panel);
+                _trapActive = true;
+            }
+            catch { /* palette may have closed before the panel rendered */ }
+        }
         if (_focusQueued)
         {
             _focusQueued = false;
@@ -263,6 +305,23 @@
         _searchCts?.Cancel();
         if (Open)
             await OpenChanged.InvokeAsync(false);
+    }
+
+    /// <summary>Releases the focus trap, which also restores focus to whatever was focused
+    /// before the palette opened. Safe to call when no trap is active.</summary>
+    private async Task ReleaseFocusTrap()
+    {
+        _trapQueued = false;
+        if (!_trapActive) return;
+        _trapActive = false;
+        try { await JS.InvokeVoidAsync("focusTrap.deactivate"); } catch { /* page may be tearing down */ }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        _searchCts?.Cancel();
+        _searchCts?.Dispose();
+        await ReleaseFocusTrap();
     }
 
     /// <summary>Splits text into matched/unmatched segments for safe client-side highlighting.
