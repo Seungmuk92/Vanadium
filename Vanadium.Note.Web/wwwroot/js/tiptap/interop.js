@@ -30,7 +30,7 @@ import { AccordionGroup } from './nodes/accordion.js'
 import { createBubbleMenu } from './ui/bubble-menu.js'
 import { createLinkPopover, showLinkPopover } from './ui/link-popover.js'
 import { showCalloutEmojiPicker, hideCalloutPicker } from './ui/callout-picker.js'
-import { uploadWithProgress, createProgressToast } from './upload.js'
+import { uploadWithProgress, createProgressToast, validateUpload, showUploadNotice } from './upload.js'
 import { resolveAuthenticatedImages } from './images.js'
 
 // ── Public API ───────────────────────────────────────────────────────────────
@@ -74,7 +74,7 @@ window.tiptapInterop = {
                     includeChildren: true,
                     showOnlyCurrent: false,
                     placeholder: ({ node }) =>
-                        node.type.name === 'toggleSummary' ? 'Toggle summary' : 'Write something...',
+                        node.type.name === 'toggleSummary' ? 'Toggle summary' : "Write something, or type '/' for commands",
                 }),
                 Link.configure({
                     autolink: true,
@@ -138,6 +138,15 @@ window.tiptapInterop = {
                     e.preventDefault();
                     const file = item.getAsFile();
                     if (!file) return;
+
+                    // Guard before uploading — reject unsupported/oversized images
+                    // client-side so the paste fails fast (server stays authoritative).
+                    const notice = validateUpload(file, 'image');
+                    if (notice) {
+                        showUploadNotice(notice);
+                        console.warn('[tiptap] Paste image rejected by client guard', { file: file.name, type: file.type, size: file.size });
+                        break;
+                    }
 
                     const formData = new FormData();
                     formData.append('file', file);
@@ -235,12 +244,23 @@ window.tiptapInterop = {
             const headers = authToken ? { 'Authorization': `Bearer ${authToken}` } : {};
 
             for (const file of files) {
+                // Images route to /api/images (10 MB, image types), everything
+                // else to /api/files (100 MB, whitelist). Guard against each
+                // endpoint's real limits before uploading; server stays authoritative.
+                const isImage = file.type.startsWith('image/');
+                const notice = validateUpload(file, isImage ? 'image' : 'file');
+                if (notice) {
+                    showUploadNotice(notice);
+                    console.warn('[tiptap] Dropped file rejected by client guard', { file: file.name, type: file.type, size: file.size });
+                    continue;
+                }
+
                 const formData = new FormData();
                 formData.append('file', file);
                 const toast = createProgressToast(file.name);
 
                 try {
-                    if (file.type.startsWith('image/')) {
+                    if (isImage) {
                         // Image files are inserted as inline images
                         const { url } = await uploadWithProgress(
                             `${apiBaseUrl}/api/images`, formData, headers,
