@@ -113,6 +113,11 @@ public class NoteService(HttpClient http, ILogger<NoteService> logger)
                 return ServiceResult<NoteItem>.Conflict();
             if (response.StatusCode == HttpStatusCode.Forbidden)
                 return ServiceResult<NoteItem>.Forbidden();
+            // Distinguished from a generic failure so the offline save queue can tell a
+            // permanently-deleted note (drop the parked save) from a transient error
+            // (keep retrying) — otherwise its entry is retried on every reconnect forever (#211).
+            if (response.StatusCode == HttpStatusCode.NotFound)
+                return ServiceResult<NoteItem>.NotFound("The note no longer exists.");
             if (!response.IsSuccessStatusCode)
                 return ServiceResult<NoteItem>.Fail("Failed to save note.");
 
