@@ -2,15 +2,20 @@
 @inject NetworkStatusService Network
 
 @* Global connectivity indicator (issue #211). Hosted once in MainLayout so every
-   authenticated page gets it without opting in. aria-live announces the state change to
-   screen readers; role="status" keeps that announcement polite rather than interrupting. *@
-@if (!Network.IsOnline)
-{
-    <div class="offline-banner" role="status" aria-live="polite">
-        <span class="offline-banner-icon" aria-hidden="true">⚠</span>
-        <span>You're offline. Edits are kept on this device and sync when the connection returns.</span>
-    </div>
-}
+   authenticated page gets it without opting in. The live region is rendered
+   UNCONDITIONALLY and only its contents toggle: most screen readers do not announce a
+   region that is inserted into the DOM together with its text, so a conditionally
+   rendered banner would go silent for exactly the users it exists for.
+   role="status" keeps the announcement polite rather than interrupting. *@
+<div role="status" aria-live="polite">
+    @if (!Network.IsOnline)
+    {
+        <div class="offline-banner">
+            <span class="offline-banner-icon" aria-hidden="true">⚠</span>
+            <span>You're offline. Edits are kept on this device and sync when the connection returns.</span>
+        </div>
+    }
+</div>
 
 @code {
     protected override void OnInitialized() => Network.OnChanged += OnNetworkChanged;

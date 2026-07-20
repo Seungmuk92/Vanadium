@@ -1,8 +1,14 @@
+/* `flex: 1` rather than `height: 100%`: the offline banner (#211) is a sibling above
+   this element inside the flex-column `#app`, so a fixed full-height page would add up
+   to banner + 100vh with `body { overflow: hidden }` clipping the bottom of the app
+   beyond reach. Absorbing the remaining space keeps the layout exact with or without
+   the banner, at both breakpoints. */
 .page {
     position: relative;
     display: flex;
     flex-direction: column;
-    height: 100%;
+    flex: 1;
+    min-height: 0;
 }
 
 main {
@@ -103,9 +109,11 @@ kbd {
         flex-direction: row;
     }
 
+    /* `100%` (of .page), not `100vh` — with the offline banner shown, a viewport-height
+       sidebar would overflow past the bottom of the screen (#211). */
     .sidebar {
         width: 250px;
-        height: 100vh;
+        height: 100%;
         position: sticky;
         top: 0;
     }
