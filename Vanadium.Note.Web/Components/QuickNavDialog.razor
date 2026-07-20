@@ -24,7 +24,7 @@
                    spellcheck="false"
                    role="combobox"
                    aria-expanded="@(HasResults ? "true" : "false")"
-                   aria-controls="@ListboxId"
+                   aria-controls="@(HasResults ? ListboxId : null)"
                    aria-autocomplete="list"
                    aria-activedescendant="@ActiveOptionId"
                    value="@_query"

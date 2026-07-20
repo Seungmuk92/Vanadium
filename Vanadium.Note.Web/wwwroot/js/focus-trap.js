@@ -1,10 +1,20 @@
 // Keyboard focus trap for custom (non-MudBlazor) dialogs.
 // Keeps Tab / Shift+Tab focus cycling within a container element while it is
 // active, and restores focus to the previously focused element on release.
-// Only one trap is active at a time (the app never stacks these dialogs).
+//
+// Traps nest: the quick-navigation palette (Ctrl+K) can open on top of an
+// already-trapped dialog (e.g. Board's add-note dialog), so activate/deactivate
+// maintain a stack. Only the top entry traps Tab; releasing it restores both
+// focus and the trap underneath, instead of leaving the lower dialog untrapped.
+// Release is LIFO — deactivate() always releases the most recent trap, which
+// holds because a nested dialog covers the one below it.
 window.focusTrap = (function () {
-    let activeElement = null;
-    let previouslyFocused = null;
+    // [{ element, previouslyFocused }] — last entry is the active trap.
+    const stack = [];
+
+    function currentTrap() {
+        return stack.length > 0 ? stack[stack.length - 1] : null;
+    }
 
     const FOCUSABLE_SELECTOR = [
         'a[href]',
@@ -21,8 +31,10 @@ window.focusTrap = (function () {
     }
 
     function onKeyDown(e) {
-        if (e.key !== 'Tab' || activeElement === null) return;
+        const active = currentTrap();
+        if (e.key !== 'Tab' || active === null) return;
 
+        const activeElement = active.element;
         const focusable = getFocusable(activeElement);
         if (focusable.length === 0) {
             // Nothing focusable inside — keep focus pinned to the container.
@@ -49,18 +61,22 @@ window.focusTrap = (function () {
 
     return {
         activate: function (element) {
-            if (element === null || element === activeElement) return;
-            previouslyFocused = document.activeElement;
-            activeElement = element;
-            document.addEventListener('keydown', onKeyDown, true);
+            if (element === null) return;
+            const active = currentTrap();
+            if (active !== null && active.element === element) return;
+            stack.push({ element: element, previouslyFocused: document.activeElement });
+            // One shared listener serves the whole stack; only attach it once.
+            if (stack.length === 1) document.addEventListener('keydown', onKeyDown, true);
         },
         deactivate: function () {
-            document.removeEventListener('keydown', onKeyDown, true);
-            activeElement = null;
+            const released = stack.pop();
+            if (released === undefined) return;
+            if (stack.length === 0) document.removeEventListener('keydown', onKeyDown, true);
+
+            const previouslyFocused = released.previouslyFocused;
             if (previouslyFocused && typeof previouslyFocused.focus === 'function') {
                 try { previouslyFocused.focus(); } catch { /* element may be gone */ }
             }
-            previouslyFocused = null;
         }
     };
 })();
