@@ -16,6 +16,8 @@
 @inject KeyboardShortcutService ShortcutService
 @inject QuickNavService QuickNav
 @inject DraftStore DraftStore
+@inject NetworkStatusService Network
+@inject OfflineSaveQueue OfflineQueue
 @implements IAsyncDisposable
 
 <PageTitle>@(isNew ? "New Note" : "Edit Note")</PageTitle>
@@ -293,6 +295,9 @@
     // Tracks whether the current auto-save failure episode already raised a snackbar,
     // so repeated failing auto-saves don't spam the user with duplicate alerts (#201).
     private bool _autoSaveErrorNotified = false;
+    // Set by the save path when a failure happened while the browser was offline, so the
+    // status badge and snackbar can say "offline" instead of a generic "save failed" (#211).
+    private bool _lastSaveWasOffline = false;
     private bool _loadFailed = false;
     private bool _editorInitFailed = false;
     private DateTime _serverUpdatedAt;
@@ -322,9 +327,28 @@
     private Guid? NewLabelCategoryId =>
         Guid.TryParse(newLabelCategoryStr, out var g) && g != Guid.Empty ? g : null;
 
+    protected override void OnInitialized() => Network.OnChanged += OnNetworkChanged;
+
+    // Back online with an edit this editor could not send: retry it here. This editor
+    // claims its note, so MainLayout's queue flush deliberately skips it and leaves the
+    // retry to whoever holds the freshest content — which is this component (#211).
+    private void OnNetworkChanged()
+    {
+        if (!Network.IsOnline) return;
+        InvokeAsync(() =>
+        {
+            if (HasPendingChanges && !_hasConflict && !IsArchived && !_loadFailed && !_isDisposing)
+                ScheduleAutoSave();
+            StateHasChanged();
+        });
+    }
+
     protected override async Task OnParametersSetAsync()
     {
         if (_currentId == Id && _currentParentId == ParentId) return;
+        // Hand the note we were editing back to the offline queue before switching away.
+        if (_currentId is { } previousId)
+            OfflineQueue.Release(previousId);
         _currentId = Id;
         _currentParentId = ParentId;
 
@@ -354,6 +378,10 @@
                 parentTitle = result.Value!.ParentTitle;
                 childCount = result.Value!.ChildCount;
                 _serverUpdatedAt = result.Value!.UpdatedAt;
+
+                // This editor now owns saves for this note; the queue flush must not
+                // race it with older parked content (#211).
+                OfflineQueue.Claim(Id.Value);
 
                 // Record the visit for Quick Navigation Recents (client-side only, FR-9/§6.6).
                 await QuickNav.PushRecentAsync(new RecentNote
@@ -544,6 +572,7 @@
         // Consume the one-shot force flag so only this save bypasses the check.
         var force = _forceNextSave;
         _forceNextSave = false;
+        _lastSaveWasOffline = false;
         var result = await NoteService.SaveAsync(note, force);
         if (result.IsConflict)
         {
@@ -562,11 +591,26 @@
             // The session may have expired (401 → redirect to login). Stash the draft
             // so the in-progress edit survives re-login and is restored on return (#117).
             await DraftStore.SaveAsync(Id, title, content);
+
+            // Offline: park the save so it lands on reconnect even if the user navigates
+            // away or closes the tab, and flag the failure so the UI names the real cause
+            // instead of a generic "save failed" (#211). Only an already-created note is
+            // queued — a new note has no id yet, and replaying it could duplicate it.
+            if (!Network.IsOnline && Id is { } existingId)
+            {
+                _lastSaveWasOffline = true;
+                await OfflineQueue.EnqueueAsync(
+                    new PendingSave(existingId, normalizedTitle, content, parentNoteId, _serverUpdatedAt));
+            }
             return null;
         }
         _serverUpdatedAt = result.Value!.UpdatedAt;
         HasPendingChanges = false;
         await DraftStore.ClearAsync();
+        // The server now holds content at least as new as anything parked for this note,
+        // so an earlier offline entry must not be replayed over it later (#211).
+        if (Id is { } savedId)
+            await OfflineQueue.DiscardAsync(savedId);
         return result.Value;
     }
 
@@ -582,13 +626,20 @@
         var saved = await SaveCoreAsync();
         if (saved is null)
         {
-            SetStatus(_hasConflict ? "Conflict" : IsArchived ? "Archived" : "Save failed", "status-error");
+            SetStatus(
+                _hasConflict ? "Conflict" : IsArchived ? "Archived" : _lastSaveWasOffline ? "Offline" : "Save failed",
+                _lastSaveWasOffline ? "status-offline" : "status-error");
             // Promote a genuine auto-save failure to a snackbar so it is as visible as a
             // manual-save failure (#201). Conflict/archived have their own dedicated UI.
             // Raise it only once per failure episode to avoid spamming on every retry.
             if (!_hasConflict && !IsArchived && !_autoSaveErrorNotified)
             {
-                Snackbar.Add("Failed to auto-save note.", Severity.Error);
+                // An offline failure is not a lost edit — say so, rather than alarming the
+                // user with the generic error they would otherwise get (#211).
+                if (_lastSaveWasOffline)
+                    Snackbar.Add("You're offline. This note will sync when the connection returns.", Severity.Warning);
+                else
+                    Snackbar.Add("Failed to auto-save note.", Severity.Error);
                 _autoSaveErrorNotified = true;
             }
             StateHasChanged();
@@ -646,9 +697,18 @@
         if (saved is null)
         {
             if (!_hasConflict && !IsArchived)
-                Snackbar.Add("Failed to save note.", Severity.Error);
+            {
+                // Offline saves are queued, not lost — name the cause so the user knows
+                // they can safely leave the page (#211).
+                if (_lastSaveWasOffline)
+                    Snackbar.Add("You're offline. This note will sync when the connection returns.", Severity.Warning);
+                else
+                    Snackbar.Add("Failed to save note.", Severity.Error);
+            }
             else
+            {
                 StateHasChanged();
+            }
             return;
         }
         // A joined save persisted the snapshot from when the in-flight save STARTED,
@@ -1066,9 +1126,15 @@
     {
         _isDisposing = true;
         _autoSave.Dispose();
+        Network.OnChanged -= OnNetworkChanged;
 
         if (HasPendingChanges && !_hasConflict && !IsArchived)
             await SaveCoreAsync();
+
+        // Release AFTER the final save: that save may itself park an offline entry, and
+        // releasing first would let a concurrent flush replay stale content over it (#211).
+        if (_currentId is { } ownedId)
+            OfflineQueue.Release(ownedId);
 
         // Tear down the beforeunload guard so it can never outlive this editor
         // instance (e.g. when an unresolved conflict left changes unsaved above).

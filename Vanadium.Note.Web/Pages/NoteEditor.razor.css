@@ -53,6 +53,11 @@
     color: #5cb85c;
 }
 
+/* Offline is a waiting state, not a failure — the edit is queued and will sync (#211). */
+.status-offline {
+    color: #d9a441;
+}
+
 .editor-actions {
     display: flex;
     gap: 0.5rem;
