@@ -134,7 +134,21 @@
             return;
         }
         Logger.LogInformation("Archived note moved to recycle bin from archive page.");
-        Snackbar.Add("Note moved to the Recycle Bin.", Severity.Normal);
+
+        // The note keeps its ArchivedAt while soft-deleted, so RestoreAsync returns it
+        // to the Archive (not the active list) — same Undo UX as Home.
+        var noteId = item.Id;
+        Snackbar.Add("Note moved to the Recycle Bin.", Severity.Normal, config =>
+        {
+            config.Action = "Undo";
+            config.ActionColor = Color.Primary;
+            config.OnClick = async _ =>
+            {
+                await NoteService.RestoreAsync(noteId);
+                await LoadPage(currentPage);
+                StateHasChanged();
+            };
+        });
         await ReloadAfterRemoval();
     }
 }
