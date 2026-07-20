@@ -463,6 +463,17 @@ body.dark-mode .hljs-deletion                       { color: #ffa198; }
 .upload-toast-error .upload-toast-bar { background: #dc3545; }
 .upload-toast-error .upload-toast-pct::after { content: ' Failed'; color: #dc3545; }
 
+/* Rejection notice — full wrapped message, no progress bar, red accent. */
+.upload-toast-notice {
+    border-left: 3px solid #dc3545;
+}
+
+.upload-toast-notice-msg {
+    flex: 1;
+    white-space: normal;
+    word-break: break-word;
+}
+
 /* File attachment link */
 a.file-attachment {
     display: inline-flex;
