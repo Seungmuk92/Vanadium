@@ -27,8 +27,22 @@
     }
     else
     {
+        @if (selected.Count > 0)
+        {
+            <div class="bulk-bar">
+                <span class="bulk-count">@selected.Count selected</span>
+                <button class="row-btn" @onclick="BulkUnarchive">Unarchive selected</button>
+                <button class="row-btn row-btn-danger" @onclick="BulkDelete">Delete selected</button>
+                <button class="row-btn" @onclick="ClearSelection">Clear</button>
+            </div>
+        }
+
         <div class="note-table">
             <div class="note-row note-header">
+                <div class="col-select">
+                    <input type="checkbox" aria-label="Select all notes on this page"
+                           checked="@AllSelected" @onchange="ToggleSelectAll" />
+                </div>
                 <div class="col-title">Title</div>
                 <div class="col-date">Archived</div>
                 <div class="col-actions"></div>
@@ -36,6 +50,11 @@
             @foreach (var item in items)
             {
                 <div class="note-row note-item">
+                    <div class="col-select">
+                        <input type="checkbox" aria-label="Select note"
+                               checked="@selected.Contains(item.Id)"
+                               @onchange="e => ToggleSelect(item.Id, e)" />
+                    </div>
                     <div class="col-title">
                         <div class="note-title-row">
                             <div class="note-title-text note-title-link" @onclick="() => OpenNote(item.Id)">
@@ -69,11 +88,14 @@
     private const int PageSize = 30;
 
     private List<ArchivedNoteSummary> items = [];
+    private readonly HashSet<Guid> selected = [];
     private int totalCount;
     private int currentPage = 1;
     private bool isLoading = true;
 
     private int TotalPages => Math.Max(1, (int)Math.Ceiling((double)totalCount / PageSize));
+
+    private bool AllSelected => items.Count > 0 && items.All(i => selected.Contains(i.Id));
 
     protected override async Task OnInitializedAsync() => await LoadPage(1);
 
@@ -81,6 +103,8 @@
     {
         currentPage = page;
         isLoading = true;
+        // Selection is per-visible-page; a page change or reload starts fresh.
+        selected.Clear();
 
         var result = await NoteService.GetArchiveAsync(page, PageSize);
         if (result.IsSuccess)
@@ -102,6 +126,75 @@
         if (items.Count <= 1 && page > 1)
             page--;
         await LoadPage(page);
+    }
+
+    // If every item on the current page was removed, step back a page.
+    private async Task ReloadAfterBulk(int removedCount)
+    {
+        var page = currentPage;
+        if (removedCount >= items.Count && page > 1)
+            page--;
+        await LoadPage(page);
+    }
+
+    private void ToggleSelect(Guid id, ChangeEventArgs e)
+    {
+        if (e.Value is true)
+            selected.Add(id);
+        else
+            selected.Remove(id);
+    }
+
+    private void ToggleSelectAll(ChangeEventArgs e)
+    {
+        selected.Clear();
+        if (e.Value is true)
+            foreach (var item in items)
+                selected.Add(item.Id);
+    }
+
+    private void ClearSelection() => selected.Clear();
+
+    private void ReportBulk(int ok, int total, string verb)
+    {
+        if (ok == total)
+            Snackbar.Add($"{ok} note(s) {verb}.", Severity.Success);
+        else
+            Snackbar.Add($"{ok} of {total} note(s) {verb}; {total - ok} failed.", Severity.Warning);
+    }
+
+    private async Task BulkUnarchive()
+    {
+        var ids = selected.ToList();
+        var ok = 0;
+        foreach (var id in ids)
+        {
+            var result = await NoteService.UnarchiveAsync(id);
+            if (result.IsSuccess)
+                ok++;
+        }
+        ReportBulk(ok, ids.Count, "unarchived");
+        await ReloadAfterBulk(ok);
+    }
+
+    private async Task BulkDelete()
+    {
+        var count = selected.Count;
+        var message = $"Move {count} selected note(s) and any sub-note(s) to the Recycle Bin? "
+                    + "Items in the Recycle Bin are deleted permanently after 30 days.";
+        if (!await Confirm.ConfirmAsync("Move to Recycle Bin", message, "Move to Recycle Bin")) return;
+
+        var ids = selected.ToList();
+        var ok = 0;
+        foreach (var id in ids)
+        {
+            var result = await NoteService.DeleteAsync(id);
+            if (result.IsSuccess)
+                ok++;
+        }
+        Logger.LogInformation("Bulk moved {Count} archived note(s) to the recycle bin.", ok);
+        ReportBulk(ok, ids.Count, "moved to the Recycle Bin");
+        await ReloadAfterBulk(ok);
     }
 
     private void OpenNote(Guid id) =>
