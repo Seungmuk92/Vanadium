@@ -48,11 +48,21 @@ namespace Vanadium.Note.Web
             builder.Services.AddScoped<DraftStore>();
             builder.Services.AddScoped<NetworkStatusService>();
             builder.Services.AddScoped<PendingSaveStore>();
+            builder.Services.AddScoped<NoteClaimStore>();
             builder.Services.AddScoped<OfflineSaveQueue>();
             builder.Services.AddScoped<ConfirmService>();
             builder.Services.AddMudServices();
 
-            await builder.Build().RunAsync();
+            var host = builder.Build();
+
+            // Resolve connectivity BEFORE the first render (#211). Initialising this from
+            // MainLayout's first OnAfterRenderAsync left a window — behind several interop
+            // round-trips — in which the service still reported its optimistic "online"
+            // default, so a save failing in that window was misclassified as a generic
+            // error and never parked in the offline queue.
+            await host.Services.GetRequiredService<NetworkStatusService>().InitAsync();
+
+            await host.RunAsync();
         }
     }
 }

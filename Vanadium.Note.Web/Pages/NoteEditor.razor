@@ -348,7 +348,7 @@
         if (_currentId == Id && _currentParentId == ParentId) return;
         // Hand the note we were editing back to the offline queue before switching away.
         if (_currentId is { } previousId)
-            OfflineQueue.Release(previousId);
+            await OfflineQueue.ReleaseAsync(previousId);
         _currentId = Id;
         _currentParentId = ParentId;
 
@@ -381,7 +381,24 @@
 
                 // This editor now owns saves for this note; the queue flush must not
                 // race it with older parked content (#211).
-                OfflineQueue.Claim(Id.Value);
+                await OfflineQueue.ClaimAsync(Id.Value);
+
+                // Take over any save parked for this note. A save made offline in an
+                // earlier session outlives its editor (the queue is localStorage, the
+                // draft is sessionStorage), so the content just loaded from the server
+                // does NOT contain it. Because the claim above makes the flush skip this
+                // note, the entry would otherwise be unreachable for as long as the editor
+                // stays open — and then destroyed by the next successful save (#211).
+                var parked = await OfflineQueue.AdoptAsync(Id.Value, _serverUpdatedAt);
+                if (parked is not null)
+                {
+                    title = parked.Title;
+                    content = parked.Content;
+                    Snackbar.Add("Restored an edit made while you were offline.", Severity.Info);
+                    // Marks the editor dirty, so this content is saved as soon as the
+                    // connection allows and the parked entry can then be discarded.
+                    ScheduleAutoSave();
+                }
 
                 // Record the visit for Quick Navigation Recents (client-side only, FR-9/§6.6).
                 await QuickNav.PushRecentAsync(new RecentNote
@@ -656,6 +673,11 @@
             // preserving any content the user typed during the network round-trip.
             _currentId = saved.Id;
             _currentParentId = null;
+            // Claim here too: setting _currentId above makes the re-entrant
+            // OnParametersSetAsync early-return, so its claim never runs for a note
+            // created in this editor — leaving the flush free to race this editor on
+            // exactly the note it owns (#211).
+            await OfflineQueue.ClaimAsync(saved.Id);
             Nav.NavigateTo($"/editor/{saved.Id}", replace: true);
         }
 
@@ -717,7 +739,15 @@
         // Skip for isNew: after the auto-save's create+navigate, Id isn't rebound yet, so
         // a second save here would create a duplicate note (creation is the auto-save's job).
         if (joinedInFlight && !isNew && HasPendingChanges && !_hasConflict)
-            saved = await SaveCoreAsync() ?? saved;
+        {
+            var flushedTail = await SaveCoreAsync();
+            // The tail save can fail offline after the first one succeeded. It is queued,
+            // not lost, but saying nothing would let the user leave believing everything
+            // landed — name the cause the same way the primary failure path does (#211).
+            if (flushedTail is null && _lastSaveWasOffline)
+                Snackbar.Add("You're offline. This note will sync when the connection returns.", Severity.Warning);
+            saved = flushedTail ?? saved;
+        }
 
         // When we joined an in-flight save, the originating auto-save already added
         // the new note's labels and navigated — don't repeat that work here.
@@ -1129,12 +1159,20 @@
         Network.OnChanged -= OnNetworkChanged;
 
         if (HasPendingChanges && !_hasConflict && !IsArchived)
+        {
             await SaveCoreAsync();
+            // SaveCoreAsync may have joined an in-flight save that captured its snapshot
+            // before the last keystrokes. SaveNote already compensates with a second save;
+            // do the same here, or those keystrokes are parked/persisted stale with no
+            // editor left to recover them (#211). Only runs when edits genuinely remain.
+            if (HasPendingChanges && !_hasConflict && !IsArchived)
+                await SaveCoreAsync();
+        }
 
         // Release AFTER the final save: that save may itself park an offline entry, and
         // releasing first would let a concurrent flush replay stale content over it (#211).
         if (_currentId is { } ownedId)
-            OfflineQueue.Release(ownedId);
+            await OfflineQueue.ReleaseAsync(ownedId);
 
         // Tear down the beforeunload guard so it can never outlive this editor
         // instance (e.g. when an unresolved conflict left changes unsaved above).

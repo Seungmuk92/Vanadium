@@ -96,11 +96,18 @@
             if (state.User.Identity?.IsAuthenticated != true)
                 return;
 
-            var flushed = await OfflineQueue.FlushAsync();
-            if (flushed > 0)
+            var result = await OfflineQueue.FlushAsync();
+            if (result.Flushed > 0)
                 Snackbar.Add(
-                    $"Back online — synced {flushed} offline change{(flushed == 1 ? string.Empty : "s")}.",
+                    $"Back online — synced {result.Flushed} offline change{(result.Flushed == 1 ? string.Empty : "s")}.",
                     Severity.Success);
+            // Dropping an entry destroys work the user did offline, so it must be visible
+            // rather than log-only — the success path already gets a snackbar (#211).
+            if (result.Dropped > 0)
+                Snackbar.Add(
+                    $"{result.Dropped} offline change{(result.Dropped == 1 ? " was" : "s were")} discarded: "
+                    + "the note changed elsewhere or no longer exists.",
+                    Severity.Warning);
         }
         catch (Exception ex)
         {
@@ -145,7 +152,8 @@
                 return Task.CompletedTask;
             }));
             await ShortcutService.RegisterAsync("ctrl+k", "Quick navigation", () => InvokeAsync(ToggleQuickNav));
-            await NetworkStatus.InitAsync();
+            // NetworkStatus is already initialized in Program.cs, before the first render,
+            // so no save can be misclassified while the layout is still booting (#211).
             // A save parked in a previous session (tab closed while offline) is still
             // queued — drain it as soon as the app comes up online (#211).
             if (NetworkStatus.IsOnline)

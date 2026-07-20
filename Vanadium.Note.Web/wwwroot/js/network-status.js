@@ -6,7 +6,11 @@
     function _notify() {
         if (!dotNetRef) return;
         try {
-            dotNetRef.invokeMethodAsync('SetOnline', navigator.onLine);
+            // invokeMethodAsync returns a promise, so a disposed .NET reference rejects
+            // ASYNCHRONOUSLY and would escape this try/catch as an unhandled rejection —
+            // the .catch is what actually swallows it. try/catch covers a synchronous
+            // throw from a reference that is already torn down.
+            dotNetRef.invokeMethodAsync('SetOnline', navigator.onLine).catch(() => { });
         } catch {
             /* the .NET reference went away mid-flight — nothing left to notify */
         }
