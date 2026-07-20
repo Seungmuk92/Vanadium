@@ -391,14 +391,38 @@ public class NoteService(
         return (existing, false, false);
     }
 
+    /// <summary>
+    /// Filters <paramref name="notes"/> to those whose HTML <c>Content</c> references note
+    /// <paramref name="id"/> via a <c>data-note-id="{id}"</c> attribute — the shared scan behind
+    /// backlinks, page-link title propagation and mention cleanup.
+    /// <para>
+    /// On PostgreSQL the probe is a case-sensitive <c>LIKE '%…%'</c> substring match, which the
+    /// <c>gin_trgm_ops</c> index on <c>Content</c> (issue #219) accelerates instead of a full
+    /// corpus scan (issue #220) — the reference lives in an HTML attribute value that
+    /// <c>StripHtml</c> discards, so it never reaches <c>ContentText</c> and that column's trigram
+    /// index cannot serve the scan. The needle is a fixed attribute name plus a GUID and never
+    /// contains a LIKE wildcard, so the pattern needs no escaping. Other providers (the SQLite
+    /// test host, which does not translate <c>LIKE</c> to an indexed probe) fall back to the
+    /// original case-sensitive <c>Contains</c>, preserving identical match semantics.
+    /// </para>
+    /// </summary>
+    private IQueryable<NoteItem> WhereReferencesNote(IQueryable<NoteItem> notes, Guid id)
+    {
+        var needle = $"data-note-id=\"{id}\"";
+        if (db.Database.IsNpgsql())
+        {
+            var pattern = $"%{needle}%";
+            return notes.Where(n => EF.Functions.Like(n.Content, pattern));
+        }
+        return notes.Where(n => n.Content.Contains(needle));
+    }
+
     private async Task UpdatePageLinkReferences(Guid noteId, string newTitle, CancellationToken ct = default)
     {
-        var idStr = noteId.ToString();
         // IgnoreQueryFilters so recycle-bin (soft-deleted) notes referencing this
         // note also get their page-link title refreshed — otherwise a restored note
         // keeps a stale title.
-        var referencingNotes = await db.Notes.IgnoreQueryFilters()
-            .Where(n => n.Content.Contains($"data-note-id=\"{idStr}\""))
+        var referencingNotes = await WhereReferencesNote(db.Notes.IgnoreQueryFilters(), noteId)
             .ToListAsync(ct);
 
         if (referencingNotes.Count == 0) return;
@@ -572,9 +596,10 @@ public class NoteService(
 
     /// <summary>
     /// "What links here": returns notes whose HTML content references the given note via a
-    /// <c>data-note-id="{id}"</c> attribute (mentions and page links). Reuses the same
-    /// <c>Content.Contains</c> scan as title propagation (<see cref="UpdatePageLinkReferences"/>);
-    /// a normalized reference table is intentionally out of scope (issue #141).
+    /// <c>data-note-id="{id}"</c> attribute (mentions and page links). Reuses the same indexed
+    /// reference probe (<see cref="WhereReferencesNote"/>) as title propagation
+    /// (<see cref="UpdatePageLinkReferences"/>); a normalized reference table is intentionally out
+    /// of scope (issue #141).
     /// Soft-deleted notes are excluded by the default global query filter (no
     /// <c>IgnoreQueryFilters()</c>); archived notes are INCLUDED and flagged via
     /// <see cref="BacklinkResult.IsArchived"/>, mirroring full-text/Quick Navigation search so
@@ -583,10 +608,9 @@ public class NoteService(
     public async Task<List<BacklinkResult>> GetBacklinks(Guid id, int limit = 50, CancellationToken ct = default)
     {
         limit = Math.Clamp(limit, 1, 200);
-        var needle = $"data-note-id=\"{id}\"";
 
-        var rows = await db.Notes
-            .Where(n => n.Id != id && n.Content.Contains(needle))
+        var rows = await WhereReferencesNote(db.Notes, id)
+            .Where(n => n.Id != id)
             .OrderByDescending(n => n.UpdatedAt)
             .Take(limit)
             .Select(n => new { n.Id, n.Title, n.ContentText, n.ArchivedAt })
@@ -1009,12 +1033,10 @@ public class NoteService(
 
     private async Task StripMentionReferencesAsync(Guid noteId, CancellationToken ct = default)
     {
-        var idStr = noteId.ToString();
         // IgnoreQueryFilters so recycle-bin (soft-deleted) notes referencing this
         // note also get their dead mention links stripped — otherwise a restored
         // note keeps a dead mention pointing at a permanently-deleted note.
-        var referencingNotes = await db.Notes.IgnoreQueryFilters()
-            .Where(n => n.Content.Contains($"data-note-id=\"{idStr}\""))
+        var referencingNotes = await WhereReferencesNote(db.Notes.IgnoreQueryFilters(), noteId)
             .ToListAsync(ct);
 
         foreach (var n in referencingNotes)
