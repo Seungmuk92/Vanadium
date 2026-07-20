@@ -5,6 +5,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using Vanadium.Note.REST.Controllers;
 using Vanadium.Note.REST.Data;
+using Vanadium.Note.REST.Security;
 using Vanadium.Note.REST.Services;
 
 namespace Vanadium.Note.REST.Auth;
@@ -19,7 +20,8 @@ public class ApiTokenAuthHandler(
     IOptionsMonitor<AuthenticationSchemeOptions> options,
     ILoggerFactory loggerFactory,
     UrlEncoder encoder,
-    NoteDbContext db)
+    NoteDbContext db,
+    IApiTokenThrottle throttle)
     : AuthenticationHandler<AuthenticationSchemeOptions>(options, loggerFactory, encoder)
 {
     public const string SchemeName = "vanadium-pat";
@@ -34,6 +36,14 @@ public class ApiTokenAuthHandler(
         if (!plaintext.StartsWith(ApiTokenService.TokenPrefix, StringComparison.Ordinal))
             return AuthenticateResult.NoResult();
 
+        // Reject before touching the DB while a lockout is active, so a flood of invalid
+        // tokens cannot keep issuing one ApiTokens query per request.
+        if (throttle.IsLocked(out _))
+        {
+            Logger.LogWarning("Rejected API token: authentication is throttled after repeated failures.");
+            return AuthenticateResult.Fail("Too many failed API token attempts.");
+        }
+
         var hash = ApiTokenService.HashToken(plaintext);
 
         var record = await db.ApiTokens
@@ -41,16 +51,21 @@ public class ApiTokenAuthHandler(
 
         if (record is null)
         {
-            Logger.LogWarning("Rejected unknown API token (suffix {Suffix})",
-                plaintext.Length >= 4 ? plaintext[^4..] : "????");
+            throttle.RegisterFailure();
+            Logger.LogWarning("Rejected unknown API token.");
             return AuthenticateResult.Fail("Invalid API token.");
         }
 
         if (record.ExpiresAt is { } expiry && expiry <= DateTime.UtcNow)
         {
+            throttle.RegisterFailure();
             Logger.LogWarning("Rejected expired API token {TokenId}", record.Id);
             return AuthenticateResult.Fail("API token has expired.");
         }
+
+        // A valid token clears any accumulated failures so a legitimate client is never
+        // caught behind a lockout that an attacker's invalid attempts triggered.
+        throttle.RegisterSuccess();
 
         // Record usage, but avoid a write on every single request.
         var now = DateTime.UtcNow;
