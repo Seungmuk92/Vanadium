@@ -180,8 +180,9 @@ button.col-title.sortable {
     background-color: var(--mud-palette-background);
 }
 
-.note-child-indent {
-    padding-left: 1rem;
+.note-child-loading {
+    opacity: 0.45;
+    font-size: 0.82rem;
 }
 
 .child-indicator {
@@ -189,13 +190,6 @@ button.col-title.sortable {
     font-size: 0.75rem;
     opacity: 0.35;
     margin-right: 0.1rem;
-}
-
-.child-count-badge {
-    flex-shrink: 0;
-    font-size: 0.65rem;
-    opacity: 0.45;
-    margin-left: 0.25rem;
 }
 
 .archived-badge {

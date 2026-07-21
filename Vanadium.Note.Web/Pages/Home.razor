@@ -10,6 +10,86 @@
 
 <PageTitle>Notes</PageTitle>
 
+@{
+    // Recursive fragment: renders a note's children and, for any expanded child, its own
+    // descendants — so the hierarchy expands to arbitrary depth. Children are loaded lazily
+    // via ToggleExpand (one GetChildren call per expanded node), so deep/large trees never
+    // inflate the initial page load. depth drives the staircase indentation (top-level
+    // children start at depth 1).
+    RenderFragment<(Guid parentId, int depth)> childBranch = null!;
+    childBranch = ctx =>
+    @<text>
+        @if (loadingChildrenIds.Contains(ctx.parentId))
+        {
+            <div class="note-row note-child-row">
+                <div class="col-check"></div>
+                <div class="col-title note-child-loading" style="padding-left:calc(@(ctx.depth)rem + 0.75rem)">Loading...</div>
+                <div class="col-date"></div>
+            </div>
+        }
+        else if (childrenCache.TryGetValue(ctx.parentId, out var children))
+        {
+            @foreach (var child in children)
+            {
+                <div class="note-row note-item note-child-row @(selectedIds.Contains(child.Id) ? "selected" : "")">
+                    <div class="col-check">
+                        <input type="checkbox"
+                               class="note-checkbox"
+                               checked="@selectedIds.Contains(child.Id)"
+                               @onchange="() => ToggleSelect(child.Id)"
+                               @onclick:stopPropagation="true" />
+                    </div>
+                    <div class="col-title" @onclick="() => EditNote(child.Id)">
+                        <div class="note-title-row" style="padding-left:@(ctx.depth)rem">
+                            @if (child.ChildCount > 0)
+                            {
+                                <button class="expand-btn @(expandedNoteIds.Contains(child.Id) ? "expanded" : "")"
+                                        @onclick:stopPropagation="true"
+                                        @onclick="() => ToggleExpand(child.Id)">
+                                    ▶
+                                </button>
+                            }
+                            else
+                            {
+                                <span class="child-indicator">└</span>
+                            }
+                            <a class="note-title-text"
+                               href="/editor/@child.Id"
+                               @onclick:stopPropagation="true">
+                                @(string.IsNullOrWhiteSpace(child.Title) ? "(No title)" : child.Title)
+                            </a>
+                        </div>
+                        @if (child.Labels?.Any() == true)
+                        {
+                            <div class="note-label-chips" style="padding-left:calc(@(ctx.depth)rem + 0.75rem)">
+                                @foreach (var label in child.Labels)
+                                {
+                                    <span class="note-label-chip @(label.CategoryId.HasValue ? "note-label-chip-cat" : "")"
+                                          @onclick:stopPropagation="true"
+                                          @onclick="() => ToggleFilter(label.Id)">
+                                        @if (label.CategoryId.HasValue)
+                                        {
+                                            <span class="note-label-cat-prefix">@label.CategoryName:</span>
+                                        }
+                                        @label.Name
+                                    </span>
+                                }
+                            </div>
+                        }
+                    </div>
+                    <div class="col-date" @onclick="() => EditNote(child.Id)">
+                        @child.UpdatedAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm")
+                    </div>
+                </div>
+                @if (expandedNoteIds.Contains(child.Id))
+                {
+                    @childBranch((child.Id, ctx.depth + 1))
+                }
+            }
+        }
+    </text>;
+}
+
 <div class="home-page">
     <div class="notes-header">
         <h1>Notes</h1>
@@ -165,63 +245,7 @@
 
                 @if (expandedNoteIds.Contains(note.Id))
                 {
-                    @if (loadingChildrenIds.Contains(note.Id))
-                    {
-                        <div class="note-row note-child-row">
-                            <div class="col-check"></div>
-                            <div class="col-title" style="opacity:0.45; font-size:0.82rem; padding-left:1.75rem;">Loading...</div>
-                            <div class="col-date"></div>
-                        </div>
-                    }
-                    else if (childrenCache.TryGetValue(note.Id, out var children))
-                    {
-                        @foreach (var child in children)
-                        {
-                            <div class="note-row note-item note-child-row @(selectedIds.Contains(child.Id) ? "selected" : "")">
-                                <div class="col-check">
-                                    <input type="checkbox"
-                                           class="note-checkbox"
-                                           checked="@selectedIds.Contains(child.Id)"
-                                           @onchange="() => ToggleSelect(child.Id)"
-                                           @onclick:stopPropagation="true" />
-                                </div>
-                                <div class="col-title" @onclick="() => EditNote(child.Id)">
-                                    <div class="note-title-row note-child-indent">
-                                        <span class="child-indicator">└</span>
-                                        <a class="note-title-text"
-                                           href="/editor/@child.Id"
-                                           @onclick:stopPropagation="true">
-                                            @(string.IsNullOrWhiteSpace(child.Title) ? "(No title)" : child.Title)
-                                        </a>
-                                        @if (child.ChildCount > 0)
-                                        {
-                                            <span class="child-count-badge">+@child.ChildCount</span>
-                                        }
-                                    </div>
-                                    @if (child.Labels?.Any() == true)
-                                    {
-                                        <div class="note-label-chips" style="padding-left:1.75rem;">
-                                            @foreach (var label in child.Labels)
-                                            {
-                                                <span class="note-label-chip @(label.CategoryId.HasValue ? "note-label-chip-cat" : "")"
-                                                      @onclick:stopPropagation="true"
-                                                      @onclick="() => ToggleFilter(label.Id)">
-                                                    @if (label.CategoryId.HasValue)
-                                                    {
-                                                        <span class="note-label-cat-prefix">@label.CategoryName:</span>
-                                                    }
-                                                    @label.Name
-                                                </span>
-                                            }
-                                        </div>
-                                    }
-                                </div>
-                                <div class="col-date" @onclick="() => EditNote(child.Id)">
-                                    @child.UpdatedAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm")
-                                </div>
-                            </div>
-                        }
-                    }
+                    @childBranch((note.Id, 1))
                 }
             }
         </div>
