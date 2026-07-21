@@ -11,7 +11,13 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="HtmlSanitizer" Version="9.0.892" />
+    <!-- Upgraded to patch GHSA-pgww-w46g-26qg (mXSS, AngleSharp < 1.5.0). The 9.0.x line
+         hard-pins the vulnerable AngleSharp 0.17.1 / AngleSharp.Css 0.17.0; 9.1.x is the first
+         release train that depends on the patched AngleSharp 1.5.2 (+ AngleSharp.Css 1.0.0-beta,
+         which has no stable 1.x). AngleSharp 1.x is a breaking API change vs 0.17.x, so pinning
+         AngleSharp alone against a 9.0.x HtmlSanitizer compiled for 0.17 is not runtime-safe
+         (NU1608); upgrading the sanitizer keeps the AngleSharp graph vendor-coherent. -->
+    <PackageReference Include="HtmlSanitizer" Version="9.1.966-beta" />
     <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.5" />
     <!-- Pinned to patch GHSA-v5pm-xwqc-g5wc; Swashbuckle.AspNetCore 10.1.7 pulls in the vulnerable 2.4.1 transitively. -->
     <PackageReference Include="Microsoft.OpenApi" Version="2.7.5" />
