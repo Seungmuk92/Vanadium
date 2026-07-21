@@ -1,0 +1,35 @@
+name: CI
+
+# Build the whole solution and run the test suite (unit + smoke E2E) on every
+# push to the default branch and on every pull request targeting it, so a broken
+# build or a failing test shows a red check before merge (issue #200).
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build-and-test:
+    name: Build & Test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Restore
+        run: dotnet restore Vanadium.slnx
+
+      - name: Build
+        run: dotnet build Vanadium.slnx --configuration Release --no-restore
+
+      # The smoke E2E test runs in-process against SQLite (see the test project's
+      # WebApplicationFactory), so no PostgreSQL service container is required.
+      - name: Test
+        run: dotnet test Vanadium.slnx --configuration Release --no-build --verbosity normal
