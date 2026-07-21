@@ -27,8 +27,23 @@
     }
     else
     {
+        @if (selected.Count > 0)
+        {
+            <div class="bulk-bar">
+                <span class="bulk-count">@selected.Count selected</span>
+                <button class="row-btn" disabled="@isBusy" @onclick="BulkRestore">Restore</button>
+                <button class="row-btn row-btn-danger" disabled="@isBusy" @onclick="BulkDeleteForever">Delete forever</button>
+                <button class="row-btn bulk-clear" disabled="@isBusy" @onclick="ClearSelection">Clear</button>
+            </div>
+        }
+
         <div class="note-table">
             <div class="note-row note-header">
+                <div class="col-select">
+                    <input type="checkbox" aria-label="Select all"
+                           checked="@AllOnPageSelected"
+                           @onchange="ToggleSelectAll" />
+                </div>
                 <div class="col-title">Title</div>
                 <div class="col-date">Deleted</div>
                 <div class="col-actions"></div>
@@ -36,6 +51,11 @@
             @foreach (var item in items)
             {
                 <div class="note-row note-item">
+                    <div class="col-select">
+                        <input type="checkbox" aria-label="Select note"
+                               checked="@selected.Contains(item.Id)"
+                               @onchange="e => ToggleSelection(item.Id, e)" />
+                    </div>
                     <div class="col-title">
                         <div class="note-title-row">
                             <div class="note-title-text">
@@ -75,11 +95,15 @@
     private const int PageSize = 30;
 
     private List<RecycleBinNoteSummary> items = [];
+    private readonly HashSet<Guid> selected = [];
     private int totalCount;
     private int currentPage = 1;
     private bool isLoading = true;
+    private bool isBusy;
 
     private int TotalPages => Math.Max(1, (int)Math.Ceiling((double)totalCount / PageSize));
+
+    private bool AllOnPageSelected => items.Count > 0 && items.All(i => selected.Contains(i.Id));
 
     protected override async Task OnInitializedAsync() => await LoadPage(1);
 
@@ -87,6 +111,7 @@
     {
         currentPage = page;
         isLoading = true;
+        selected.Clear();
 
         var result = await NoteService.GetRecycleBinAsync(page, PageSize);
         if (result.IsSuccess)
@@ -103,11 +128,11 @@
 
     private async Task ReloadAfterRemoval()
     {
-        // If the last item on the current page was removed, step back a page.
-        var page = currentPage;
-        if (items.Count <= 1 && page > 1)
-            page--;
-        await LoadPage(page);
+        // Reload the current page; if it emptied out (e.g. the whole page was
+        // removed in one bulk action), step back to the previous page.
+        await LoadPage(currentPage);
+        if (items.Count == 0 && currentPage > 1)
+            await LoadPage(currentPage - 1);
     }
 
     private static int DaysRemaining(DateTime deletedAtUtc)
@@ -115,6 +140,26 @@
         var remaining = deletedAtUtc.AddDays(RetentionDays) - DateTime.UtcNow;
         return Math.Max(0, (int)Math.Ceiling(remaining.TotalDays));
     }
+
+    private void ToggleSelection(Guid id, ChangeEventArgs e)
+    {
+        if (e.Value is true) selected.Add(id);
+        else selected.Remove(id);
+    }
+
+    private void ToggleSelectAll(ChangeEventArgs e)
+    {
+        if (e.Value is true)
+        {
+            foreach (var item in items) selected.Add(item.Id);
+        }
+        else
+        {
+            selected.Clear();
+        }
+    }
+
+    private void ClearSelection() => selected.Clear();
 
     private async Task RestoreNote(RecycleBinNoteSummary item)
     {
@@ -146,6 +191,37 @@
         await ReloadAfterRemoval();
     }
 
+    private async Task BulkRestore()
+    {
+        var ids = SelectedIdsOnPage();
+        if (ids.Count == 0) return;
+
+        isBusy = true;
+        var (ok, failed) = await RunBulk(ids, id => NoteService.RestoreAsync(id));
+        isBusy = false;
+
+        ReportBulk(ok, failed, "restored", "restore");
+        await ReloadAfterRemoval();
+    }
+
+    private async Task BulkDeleteForever()
+    {
+        var ids = SelectedIdsOnPage();
+        if (ids.Count == 0) return;
+
+        var message = $"Permanently delete {ids.Count} note(s) and their sub-note(s)? This cannot be undone.";
+        if (!await Confirm.ConfirmAsync("Delete forever", message, "Delete forever")) return;
+
+        isBusy = true;
+        var (ok, failed) = await RunBulk(ids, id => NoteService.DeletePermanentAsync(id));
+        isBusy = false;
+
+        if (ok > 0)
+            Logger.LogInformation("{Count} note(s) permanently deleted from recycle bin page.", ok);
+        ReportBulk(ok, failed, "permanently deleted", "delete");
+        await ReloadAfterRemoval();
+    }
+
     private async Task EmptyRecycleBin()
     {
         var message = $"Permanently delete all {totalCount} note(s) in the recycle bin? This cannot be undone.";
@@ -159,5 +235,31 @@
         }
         Snackbar.Add("Recycle bin emptied.", Severity.Success);
         await LoadPage(1);
+    }
+
+    private List<Guid> SelectedIdsOnPage() =>
+        items.Where(i => selected.Contains(i.Id)).Select(i => i.Id).ToList();
+
+    private static async Task<(int ok, int failed)> RunBulk(
+        List<Guid> ids, Func<Guid, Task<ServiceResult<bool>>> action)
+    {
+        int ok = 0, failed = 0;
+        foreach (var id in ids)
+        {
+            var result = await action(id);
+            if (result.IsSuccess) ok++;
+            else failed++;
+        }
+        return (ok, failed);
+    }
+
+    private void ReportBulk(int ok, int failed, string doneVerb, string failVerb)
+    {
+        if (failed == 0)
+            Snackbar.Add($"{ok} note(s) {doneVerb}.", Severity.Success);
+        else if (ok == 0)
+            Snackbar.Add($"Failed to {failVerb} {failed} note(s).", Severity.Error);
+        else
+            Snackbar.Add($"{ok} note(s) {doneVerb}, {failed} failed.", Severity.Warning);
     }
 }
