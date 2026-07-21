@@ -262,8 +262,13 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI();
 }
 
-using (var scope = app.Services.CreateScope())
+// Skip the relational migration step under the integration-test host: the smoke
+// E2E factory swaps the Npgsql provider for in-memory SQLite (which cannot run
+// Npgsql migrations) and creates the schema itself. Every real environment
+// (Development/Production) still migrates on startup as before.
+if (!app.Environment.IsEnvironment("Testing"))
 {
+    using var scope = app.Services.CreateScope();
     var startupLogger = scope.ServiceProvider.GetRequiredService<ILogger<Program>>();
     startupLogger.LogInformation("Applying database migrations...");
     scope.ServiceProvider.GetRequiredService<NoteDbContext>().Database.Migrate();
@@ -294,3 +299,7 @@ app.UseAuthorization();
 app.MapControllers();
 
 app.Run();
+
+// Exposes the implicit top-level Program class to the test assembly so the smoke
+// E2E WebApplicationFactory<Program> can bootstrap the real application pipeline.
+public partial class Program;
