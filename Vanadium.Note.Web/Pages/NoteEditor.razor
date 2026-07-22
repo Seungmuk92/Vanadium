@@ -575,6 +575,13 @@
         if (result.IsConflict)
         {
             _hasConflict = true;
+            // The save can never win against this stale snapshot, so back the in-progress edit up
+            // to a draft that a reopen / reload restores instead of dropping it — mirroring the
+            // SubNoteDialog conflict pattern (#192/#263). Continued typing rides the same draft on
+            // dispose/reload below. Key by startId, not Id: during an editor→editor navigation flush
+            // Id already points at the incoming note while title/content describe the outgoing one,
+            // so Id would stash the outgoing draft under the wrong note (#262/#263).
+            await DraftStore.SaveAsync(startId, title, content);
             return null;
         }
         if (result.IsForbidden)
@@ -588,7 +595,9 @@
             Logger.LogError("Save failed for note {NoteId}.", note.Id);
             // The session may have expired (401 → redirect to login). Stash the draft
             // so the in-progress edit survives re-login and is restored on return (#117).
-            await DraftStore.SaveAsync(Id, title, content);
+            // Key by startId (the saved note), not Id, for the same navigation-flush reason
+            // as the conflict branch above (#262/#263).
+            await DraftStore.SaveAsync(startId, title, content);
             return null;
         }
         // Only fold the save result back into editor state when we're still on the note this
@@ -741,6 +750,11 @@
     private async Task ReloadNote()
     {
         if (Id is null) { Nav.NavigateTo("/"); return; }
+        // Back up the local (conflicting) text to a draft before the server copy overwrites it, so
+        // 'Reload Latest' preserves the user's in-progress edits for recovery instead of discarding
+        // them without any backup (#263). A later successful save clears the draft.
+        if (HasPendingChanges)
+            await DraftStore.SaveAsync(Id, title, content);
         var result = await NoteService.GetAsync(Id.Value);
         if (!result.IsSuccess) { Nav.NavigateTo("/"); return; }
         title = result.Value!.Title;
@@ -1101,8 +1115,16 @@
         _isDisposing = true;
         _autoSave.Dispose();
 
-        if (HasPendingChanges && !_hasConflict && !IsArchived)
-            await SaveCoreAsync();
+        if (HasPendingChanges && !IsArchived)
+        {
+            if (_hasConflict)
+                // A save can only 409 again against this stale snapshot; back the edit up to a
+                // draft that a reopen restores instead of silently dropping it on teardown —
+                // mirroring SubNoteDialog (#263).
+                await DraftStore.SaveAsync(Id, title, content);
+            else
+                await SaveCoreAsync();
+        }
 
         // Tear down the beforeunload guard so it can never outlive this editor
         // instance (e.g. when an unresolved conflict left changes unsaved above).
