@@ -5,6 +5,9 @@ namespace Vanadium.Note.Web.Services;
 /// <c>sessionStorage</c> when a save fails mid-session (e.g. an auth-expiry 401),
 /// so the unsaved work can be restored when the same note is reopened after
 /// re-login (issue #117). <see cref="NoteId"/> is <c>null</c> for a new,
-/// not-yet-persisted note.
+/// not-yet-persisted note. <see cref="StashedAt"/> is the UTC instant the draft was
+/// stashed; the editor compares it against the server's <c>UpdatedAt</c> on restore so
+/// a stale draft from another device does not silently overwrite a newer server copy
+/// (issue #267).
 /// </summary>
-public record EditorDraft(Guid? NoteId, string Title, string Content);
+public record EditorDraft(Guid? NoteId, string Title, string Content, DateTime StashedAt);

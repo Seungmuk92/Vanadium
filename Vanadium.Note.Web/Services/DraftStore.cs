@@ -25,7 +25,9 @@ public class DraftStore(IJSRuntime js, ILogger<DraftStore> logger)
     {
         try
         {
-            var json = JsonSerializer.Serialize(new EditorDraft(noteId, title, content));
+            // Stamp the stash time (UTC) so the editor can compare it against the server's
+            // UpdatedAt on restore and avoid clobbering a newer server copy (issue #267).
+            var json = JsonSerializer.Serialize(new EditorDraft(noteId, title, content, DateTime.UtcNow));
             await js.InvokeVoidAsync("sessionStorage.setItem", StorageKey(noteId), json);
         }
         catch (Exception ex)
