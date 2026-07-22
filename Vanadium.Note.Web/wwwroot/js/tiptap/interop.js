@@ -511,6 +511,19 @@ window.tiptapInterop = {
                 const willOpen = toggle.getAttribute('data-open') === 'false';
                 toggle.setAttribute('data-open', willOpen ? 'true' : 'false');
                 arrow.setAttribute('aria-expanded', String(willOpen));
+                // Accordion parity: opening a toggle inside an accordion group collapses
+                // its siblings, mirroring the editor's one-open-at-a-time behavior (#274).
+                if (willOpen) {
+                    const group = toggle.closest('[data-type="accordion-group"]');
+                    if (group) {
+                        for (const sib of group.querySelectorAll(':scope > [data-type="toggle"]')) {
+                            if (sib === toggle) continue;
+                            sib.setAttribute('data-open', 'false');
+                            const sibArrow = sib.querySelector(':scope > .toggle-arrow');
+                            if (sibArrow) sibArrow.setAttribute('aria-expanded', 'false');
+                        }
+                    }
+                }
             };
             arrow.addEventListener('click', flip);
             // A read-only page can't edit the summary, so make the whole summary a
