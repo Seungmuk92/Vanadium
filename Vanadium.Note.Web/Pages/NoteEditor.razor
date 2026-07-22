@@ -888,15 +888,58 @@
     [JSInvokable]
     public async Task<PageLinkDto?> OnSlashCommandPage()
     {
-        if (!Id.HasValue) return null;
+        // A new, not-yet-persisted note has no id to parent a sub-page under. Rather than
+        // silently swallowing the command (the /page text just disappeared, #266), force-flush
+        // the first save so the note gets a real id, then create the child under it.
+        var parentId = _currentId;
+        if (!parentId.HasValue)
+        {
+            if (_hasConflict || IsArchived || _loadFailed)
+            {
+                Snackbar.Add("Save the note before adding a sub-page.", Severity.Warning);
+                return null;
+            }
+            parentId = await ForceFlushNewNoteAsync();
+            if (!parentId.HasValue)
+            {
+                // The flush couldn't persist the note (save failed / conflict). Surface it
+                // instead of leaving the user wondering why nothing happened.
+                Snackbar.Add("Couldn't save the note, so no sub-page was created.", Severity.Warning);
+                return null;
+            }
+        }
+
         var result = await NoteService.SaveAsync(new NoteItem
         {
             Id = Guid.Empty,
             Title = "Untitled",
-            ParentNoteId = Id,
+            ParentNoteId = parentId,
         });
-        if (!result.IsSuccess) return null;
+        if (!result.IsSuccess)
+        {
+            Snackbar.Add("Couldn't create the sub-page. Please try again.", Severity.Warning);
+            return null;
+        }
         return new PageLinkDto(result.Value!.Id, result.Value!.Title);
+    }
+
+    /// <summary>Persists the current new (unsaved) note so it gains a server id, mirroring the
+    /// new-note tail of <see cref="DoAutoSave"/> (persist labels, rebind <c>_currentId</c>, and
+    /// replace-navigate to <c>/editor/{id}</c> so the next save can't create a duplicate). Returns
+    /// the new id, or <c>null</c> if the save failed. Used by the <c>/page</c> command so a sub-page
+    /// can be created straight from a brand-new note (#266). Does not reuse DoAutoSave directly to
+    /// avoid its trailing cosmetic delay blocking the command.</summary>
+    private async Task<Guid?> ForceFlushNewNoteAsync()
+    {
+        _autoSave.Cancel();
+        var saved = await SaveCoreAsync();
+        if (saved is null)
+            return null;
+        await PersistNewNoteLabelsAsync(saved.Id);
+        _currentId = saved.Id;
+        _currentParentId = null;
+        Nav.NavigateTo($"/editor/{saved.Id}", replace: true);
+        return saved.Id;
     }
 
     [JSInvokable]
