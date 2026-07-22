@@ -481,6 +481,14 @@ window.tiptapInterop = {
         const el = typeof root === 'string' ? document.querySelector(root) : root;
         if (!el) return;
 
+        // The server sanitizer strips the `class` attribute from stored content, so the
+        // shared dump keeps `data-type`/`data-open` but loses `toggle-block`, `toggle-summary`,
+        // `toggle-content`, `accordion-group` — the exact classes app.css keys its folding,
+        // flex layout and arrow rotation on. Restore them here (data-* survives, so we can
+        // re-derive every class) so the existing CSS applies without touching the sanitizer (#274).
+        for (const group of el.querySelectorAll('[data-type="accordion-group"]'))
+            group.classList.add('accordion-group');
+
         for (const toggle of el.querySelectorAll('[data-type="toggle"]')) {
             // Defensive: skip anything already rebuilt (e.g. a double invocation).
             if (toggle.querySelector(':scope > .toggle-inner')) continue;
@@ -491,6 +499,11 @@ window.tiptapInterop = {
 
             const open = toggle.getAttribute('data-open') !== 'false';
             toggle.setAttribute('data-open', open ? 'true' : 'false');
+
+            // Restore the sanitizer-stripped classes the folding/layout CSS depends on.
+            toggle.classList.add('toggle-block');
+            summary.classList.add('toggle-summary');
+            content.classList.add('toggle-content');
 
             const arrow = document.createElement('button');
             arrow.type = 'button';
