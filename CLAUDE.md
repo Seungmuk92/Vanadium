@@ -207,6 +207,7 @@ A keyboard-first note switcher opened by `Ctrl+K` (Windows/Linux) / `Cmd+K` (mac
 
 - **Schema changes:** always create an EF Core migration (`dotnet ef migrations add <Name> --project Vanadium.Note.REST`). Never edit existing migration files.
 - **New API endpoint:** add (1) DTO in `Vanadium.Note.REST/Models`, (2) DTO mirror in `Vanadium.Note.Web/Models`, (3) HTTP client method in `NoteService`/`LabelService`/etc.
+- **API specification:** `docs/api-specification.md` is the reference contract for the REST API. Whenever a backend API changes — a new/removed endpoint, a changed route, request/response shape, auth requirement, or notable status code — update `docs/api-specification.md` in the **same** change so it never drifts from the controllers. The document is published in the public repo, so it must never contain secrets (connection strings, JWT secret, real password hashes).
 - **Tiptap editor changes:** all JS interop must go through `tiptapInterop.*` in `wwwroot/js/tiptap-editor.js` and be invoked only from `NoteEditor.razor`. Do not call interop from other components.
 - **File uploads:** orphan cleanup expects file references to appear as `/api/files/{guid}` (attachments) and `/api/images/{guid}` (images) substrings in note HTML. Changing either URL format requires updating `FileCleanupService`'s scan patterns.
 - **Label categories:** mutual exclusion within a category is enforced server-side in `NoteService`, not via DB constraint. Frontend should not assume DB will reject duplicates.
