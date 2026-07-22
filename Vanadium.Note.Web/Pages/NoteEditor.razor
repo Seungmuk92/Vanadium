@@ -371,6 +371,10 @@
         noteLabels = [];
         backlinks = [];
         _hasConflict = false;
+        // Drop any unresolved #267 draft-choice banner from the outgoing note so it can't leak
+        // onto the incoming note across this reused component instance (a stale _pendingDraft
+        // would show the wrong banner and Keep-my-draft would apply the wrong note's draft).
+        _pendingDraft = null;
         _loadFailed = false;
         _saveInFlight = null;
         _serverUpdatedAt = default;
