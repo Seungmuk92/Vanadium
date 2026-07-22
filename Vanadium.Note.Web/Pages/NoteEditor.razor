@@ -578,8 +578,10 @@
             // The save can never win against this stale snapshot, so back the in-progress edit up
             // to a draft that a reopen / reload restores instead of dropping it — mirroring the
             // SubNoteDialog conflict pattern (#192/#263). Continued typing rides the same draft on
-            // dispose/reload below.
-            await DraftStore.SaveAsync(Id, title, content);
+            // dispose/reload below. Key by startId, not Id: during an editor→editor navigation flush
+            // Id already points at the incoming note while title/content describe the outgoing one,
+            // so Id would stash the outgoing draft under the wrong note (#262/#263).
+            await DraftStore.SaveAsync(startId, title, content);
             return null;
         }
         if (result.IsForbidden)
@@ -593,7 +595,9 @@
             Logger.LogError("Save failed for note {NoteId}.", note.Id);
             // The session may have expired (401 → redirect to login). Stash the draft
             // so the in-progress edit survives re-login and is restored on return (#117).
-            await DraftStore.SaveAsync(Id, title, content);
+            // Key by startId (the saved note), not Id, for the same navigation-flush reason
+            // as the conflict branch above (#262/#263).
+            await DraftStore.SaveAsync(startId, title, content);
             return null;
         }
         // Only fold the save result back into editor state when we're still on the note this
