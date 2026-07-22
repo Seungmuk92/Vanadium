@@ -608,7 +608,11 @@
         {
             _serverUpdatedAt = result.Value!.UpdatedAt;
             HasPendingChanges = false;
-            await DraftStore.ClearAsync();
+            // Clear only the saved note's draft slot. Key by startId (the note this save
+            // targeted), not Id — a save that started for A but completes after navigating
+            // to B must clear A's draft, and must never touch a stash belonging to another
+            // note (#264, matching the startId keying of the stash paths above).
+            await DraftStore.ClearAsync(startId);
         }
         return result.Value;
     }

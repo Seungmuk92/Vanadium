@@ -259,7 +259,9 @@
         {
             _serverUpdatedAt = result.Value!.UpdatedAt;
             HasPendingChanges = false;
-            await DraftStore.ClearAsync();
+            // Clear only this note's draft slot so a successful save here never discards a
+            // draft stashed for a different note (#264).
+            await DraftStore.ClearAsync(NoteId);
         }
         else if (result.IsConflict)
         {
