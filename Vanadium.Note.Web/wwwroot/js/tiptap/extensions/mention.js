@@ -115,6 +115,10 @@ export function createMentionExtension(dotnetRef) {
                                 reposition(props.clientRect);
                             },
                             onKeyDown({ event }) {
+                                // Ignore keys fired during IME composition (e.g. Hangul).
+                                // The Enter that confirms a composition must not be consumed
+                                // as a menu selection (#279).
+                                if (event.isComposing || event.keyCode === 229) return false;
                                 if (event.key === 'ArrowUp') {
                                     if (!currentItems.length) return false;
                                     event.preventDefault();

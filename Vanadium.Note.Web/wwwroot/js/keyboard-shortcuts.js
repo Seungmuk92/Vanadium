@@ -23,6 +23,10 @@
     }
 
     function _onKeyDown(e) {
+        // Ignore keydown fired during IME composition (e.g. Hangul). The Enter
+        // that confirms a composition must not trigger a registered shortcut (#279).
+        if (e.isComposing || e.keyCode === 229) return;
+
         const key = _buildKey(e);
         if (!key || !_active.has(key)) return;
 
