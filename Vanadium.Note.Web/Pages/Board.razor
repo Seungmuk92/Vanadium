@@ -278,13 +278,15 @@
         Logger.LogInformation("Moving note {NoteId}: label {FromLabel} → {ToLabel}.",
             noteId, fromLabelId, toLabelId);
 
-        // Persist to server
-        var removeResult = await LabelService.RemoveLabelFromNoteAsync(noteId, fromLabelId);
-        var addResult = removeResult.IsSuccess
-            ? await LabelService.AddLabelToNoteAsync(noteId, toLabelId)
-            : ServiceResult<bool>.Fail("Remove failed");
+        // Persist to server with a SINGLE add. Board columns are labels of one category, so the
+        // server's category mutual-exclusion (adding a label removes any sibling in the same
+        // category, atomically in one SaveChanges) both drops the old label and adds the new one.
+        // A separate remove call would leave a window where a mid-move failure strips the note's
+        // label and drops it from every column; the single add has no such partial-failure mode —
+        // on failure the server is unchanged and the note keeps its original label (#271).
+        var addResult = await LabelService.AddLabelToNoteAsync(noteId, toLabelId);
 
-        if (!removeResult.IsSuccess || !addResult.IsSuccess)
+        if (!addResult.IsSuccess)
         {
             Logger.LogError(
                 "Failed to persist label move for note {NoteId} ({FromLabel} → {ToLabel}).",
