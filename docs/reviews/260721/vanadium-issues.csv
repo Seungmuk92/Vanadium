@@ -1,0 +1,358 @@
+﻿Create(Y),Label,Milestone,Severity,Title,Body
+Y,bug,1.0.0 배포 준비,높음,에디터→에디터(같은 라우트) 이동 시 미저장 편집 플러시 없이 소멸,"**Severity:** 높음
+
+**Problem:** OnParametersSetAsync가 _currentId != Id면 상태를 즉시 리셋 — HasPendingChanges 플러시도 _autoSave.Cancel()도 없음. DisposeAsync의 플러시는 다른 라우트로 나갈 때만 실행되고, 백링크 링크·브레드크럼 부모 링크는 같은 컴포넌트를 재사용. 타이핑 직후(≤1.5s) 백링크 클릭 시 경고 없이 편집분 소실. 부수 버그: (a) 리셋 후 발화하는 잔존 디바운스 타이머가 빈 content로 B에 PUT → 가짜 409 배너, (b) A의 in-flight 저장이 B 로드 후 완료되면 _serverUpdatedAt에 A의 타임스탬프가 덮여 B의 다음 저장이 409.
+
+**Fix:** 리셋 전에 이전 Id 문맥으로 _autoSave.Cancel(); if (HasPendingChanges) await SaveCoreAsync(); 실행. in-flight 완료 콜백에 '저장 시작 시점 Id == 현재 Id' 가드 추가.
+
+**Evidence:** NoteEditor.razor:325-337, 1070, 209, 30, 527-567"
+Y,bug,1.0.0 배포 준비,중간,충돌(409) 상태에서 계속 타이핑한 내용이 저장도 드래프트도 안 됨 + Reload가 백업 없이 파기,"**Severity:** 중간
+
+**Problem:** ScheduleAutoSave가 _hasConflict면 조기 리턴하고 DisposeAsync도 충돌 시 저장을 스킵 — 충돌 후 타이핑은 어디에도 보존되지 않음. 'Reload Latest'는 확인·백업 없이 로컬 텍스트를 서버 값으로 덮어씀. SubNoteDialog는 같은 상황에서 드래프트를 스태시해 비일관.
+
+**Fix:** 충돌 상태에서도 DraftStore.SaveAsync 지속 갱신(SubNoteDialog 패턴), ReloadNote 진입 시 드래프트 백업 후 리로드.
+
+**Evidence:** NoteEditor.razor:507-513, 707-721; SubNoteDialog.razor:346-349"
+Y,bug,1.0.0 배포 준비,중간,DraftStore 단일 슬롯 — 다른 노트 저장 성공이 남의 드래프트를 삭제,"**Severity:** 중간
+
+**Problem:** 드래프트 키가 vanadium.editor-draft.v1 하나뿐이고, 저장 성공 시 소유자 확인 없이 무조건 ClearAsync() 호출. A 편집 중 401 → 드래프트 스태시 → 재로그인 후 B를 먼저 열어 저장하면 A의 드래프트가 소리 없이 삭제됨. B 저장 실패 시엔 B 드래프트가 A 드래프트를 덮어씀.
+
+**Fix:** 키를 vanadium.editor-draft.{noteId}로 노트별 분리, 또는 ClearAsync(noteId)로 소유자 일치 시에만 삭제.
+
+**Evidence:** DraftStore.cs:15, NoteEditor.razor:569"
+Y,enhancement,1.0.0 배포 준비,중간,Ctrl+S를 flush-and-stay로 (현재 저장 후 목록으로 이탈),"**Severity:** 중간
+
+**Problem:** Ctrl+S가 SaveNote를 호출하고 SaveNote 끝에서 무조건 Nav.NavigateTo(BackUrl) — 키보드 중심 사용자가 습관적으로 Ctrl+S를 누를 때마다 에디터에서 튕겨 나감. SubNoteDialog의 Ctrl+S는 머무르는(flush-and-stay) 동작이라 같은 앱에서 단축키 의미가 화면마다 다름.
+
+**Fix:** Ctrl+S는 즉시 플러시 후 머무르기로, 'Save & close'는 별도 버튼으로 분리.
+
+**Evidence:** NoteEditor.razor:458, 668"
+Y,bug,1.0.0 배포 준비,중간,/page 슬래시 커맨드가 새(미저장) 노트에서 무반응 — 피드백 0,"**Severity:** 중간
+
+**Problem:** 새 노트(Id 없음)에서 /page 실행 시 if (!Id.HasValue) return null 후 slash-commands가 조용히 리턴 — /page 텍스트는 지워지고 아무 일도 일어나지 않음. 새 노트를 만들자마자 하위 페이지를 만드는 흔한 흐름에서 명령이 먹은 것처럼 사라짐.
+
+**Fix:** 스낵바 안내('먼저 노트가 저장되어야 합니다') 또는 첫 자동저장 강제 플러시 후 하위 페이지 생성.
+
+**Evidence:** NoteEditor.razor:828-831, slash-commands.js:151-153"
+Y,bug,1.0.0 배포 준비,낮음,드래프트 복원이 타임스탬프 비교 없이 무조건 적용,"**Severity:** 낮음
+
+**Problem:** 드래프트 복원에 스태시 시각/서버 UpdatedAt 비교가 없어, 다기기 사용 시 구본 드래프트가 최신 서버본을 덮을 수 있음(복원 후 자동저장이 방금 GET한 최신 버전으로 동시성 체크를 통과). 단일 기기에선 무해.
+
+**Fix:** 드래프트에 스태시 시각 저장, 서버 UpdatedAt이 더 최신이면 선택지 배너 제공.
+
+**Evidence:** NoteEditor.razor:400-407"
+Y,bug,1.0.0 배포 준비,높음,Settings의 Notes List 설정(정렬·페이지 크기)이 어디에도 적용되지 않음 (무음 no-op),"**Severity:** 높음
+
+**Problem:** Settings.razor는 DefaultSortBy/DefaultSortDir/DefaultPageSize를 편집·저장하지만 Home.razor는 하드코딩(PageSize=30, SortColumn.Date). SettingsService 소비처는 MainLayout(테마)뿐. 설정을 바꾸고 저장 성공 스낵바까지 봤는데 아무것도 변하지 않는 조용한 no-op — 설정 화면 전체의 신뢰를 무너뜨림.
+
+**Fix:** Home 초기화 시 SettingsService.GetAsync()로 초기값 주입. 그 전까진 해당 섹션을 Settings에서 제거하는 게 차라리 정직.
+
+**Evidence:** Settings.razor:40-83, Home.razor:274-280"
+Y,bug,1.0.0 배포 준비,중간,Ctrl+N은 Chromium 예약 단축키라 절대 동작 안 함 — 도움말에는 표시됨,"**Severity:** 중간
+
+**Problem:** Chromium 계열은 Ctrl+N/T/W를 웹 콘텐츠에 전달하지 않아 preventDefault가 실행될 기회 자체가 없음 — 새 브라우저 창만 뜸. Ctrl+/ 도움말에 'New note'로 표시되어 사용자는 앱 버그로 인식.
+
+**Fix:** alt+n 등 비예약 키로 교체.
+
+**Evidence:** MainLayout.razor:93, keyboard-shortcuts.js:41"
+Y,enhancement,1.0.0 배포 준비,낮음,검색/필터/페이지 변경 시 트리 확장 상태 보존,"**Severity:** 낮음
+
+**Problem:** LoadNotes 공통 경로에서 expandedNoteIds.Clear() + childrenCache.Clear() — 검색·필터·페이지 이동마다 확장 상태가 전부 리셋되어 탐색 맥락 상실.
+
+**Fix:** 캐시는 유지하고 결과에 존재하는 노트의 확장 상태는 보존.
+
+**Evidence:** Home.razor:356-357"
+Y,bug,1.0.0 배포 준비,중간,보드 카드 이동을 add 단일 호출로 원자화 (remove→add 중간 실패 시 노트 소실 체감),"**Severity:** 중간
+
+**Problem:** 카드 이동이 remove→add 2단계 — remove 성공 후 add 실패 시 노트가 라벨을 잃고 어느 컬럼에서도 사라짐. 서버가 카테고리 내 상호배제를 강제하므로 add 한 번이면 원자적으로 끝남에도 클라이언트가 이를 활용하지 않아 불필요한 실패 모드를 만듦.
+
+**Fix:** remove 호출 삭제, AddLabelToNoteAsync 단일 호출로 교체.
+
+**Evidence:** Board.razor:282-286"
+Y,enhancement,1.0.0 배포 준비,중간,보드에 미분류(라벨 없음) 노트 가시화,"**Severity:** 중간
+
+**Problem:** 선택 카테고리 라벨이 없는 노트는 보드에서 완전 비가시 — '미분류' 컬럼도 카운트 힌트도 없음. 카드 이동 실패와 결합하면 '노트가 사라졌다'로 체감.
+
+**Fix:** 'No label' 가상 컬럼 또는 '이 카테고리 라벨이 없는 노트 N개' 힌트 표시.
+
+**Evidence:** Board.razor:308-311"
+Y,enhancement,1.0.0 배포 준비,중간,보드 터치 대응 (HTML5 DnD는 터치 미발동),"**Severity:** 중간
+
+**Problem:** HTML5 dragstart/dragover/drop만 등록되어 터치에서 카드 이동 불가 — 모바일에서 보드는 읽기 전용이 됨.
+
+**Fix:** 터치 폴백으로 카드에 '라벨 이동' 컨텍스트 메뉴 제공(터치 DnD 라이브러리보다 저비용).
+
+**Evidence:** board-drag-drop.js:106-112"
+Y,bug,1.0.0 배포 준비,중간,공유 페이지에서 접힌 Toggle/Accordion을 펼칠 수 없음,"**Severity:** 중간
+
+**Problem:** 공유 콘텐츠는 (MarkupString) 원시 덤프라 Tiptap 노드뷰(토글 화살표 버튼)가 없음. data-open=""false""인 본문은 익명 뷰어가 영원히 읽을 수 없거나, CSS 스코프에 따라 화살표 없이 전부 펼쳐짐 — 어느 쪽이든 저하.
+
+**Fix:** 공유 페이지 전용 소형 JS로 [data-type=toggle]에 클릭 토글 부착, 또는 공유 응답 조립 시 data-open=""true""로 정규화.
+
+**Evidence:** Share.razor:30, toggle.js:74-96"
+Y,enhancement,1.0.0 배포 준비,낮음,공유 페이지 코드 블록 구문 강조,"**Severity:** 낮음
+
+**Problem:** lowlight 강조는 에디터 런타임 데코레이션이라 저장 HTML에는 class=""language-x""뿐 — 공유 뷰는 무강조 <pre>. 개발자 대상 공유에서 체감 큼.
+
+**Fix:** 공유 페이지에서만 highlight.js 지연 로드.
+
+**Evidence:** Share.razor, code-block.js"
+Y,enhancement,1.0.0 배포 준비,낮음,공유 뷰어에서 일시 장애와 revoke된 토큰 구분 + Retry,"**Severity:** 낮음
+
+**Problem:** 5xx/네트워크 실패와 revoke된 토큰이 같은 'This note isn't available' 화면 — IsNotFound 구분값을 받고도 UI에서 합쳐버림. 재시도 버튼도 없어 일시 장애를 영구 소멸로 오인.
+
+**Fix:** 상태 분리 + Retry 버튼 추가.
+
+**Evidence:** Share.razor:14-19, Web NoteService.cs:377-380"
+Y,enhancement,1.0.0 배포 준비,중간,퀵 네비게이션 팔레트에 포커스 트랩 적용,"**Severity:** 중간
+
+**Problem:** aria-modal=""true"" 선언에도 focusTrap 미적용 — Tab이 배경 페이지로 탈출. focus-trap.js 인프라는 이미 있고 Board 다이얼로그만 사용 중.
+
+**Fix:** 열릴 때 focusTrap.activate, 닫힐 때 deactivate 호출.
+
+**Evidence:** QuickNavDialog.razor:12-16, focus-trap.js"
+Y,enhancement,1.0.0 배포 준비,낮음,QuickNav Shift+Enter로 전체 페이지 바로 열기,"**Severity:** 낮음
+
+**Problem:** Enter가 항상 peek 다이얼로그(의도적)라 전체 페이지로 바로 가는 키가 없어 '열기'에 항상 2단계가 듦.
+
+**Fix:** Shift+Enter = 전체 페이지 바이패스 추가.
+
+**Evidence:** QuickNavDialog.razor:249-259"
+Y,bug,1.0.0 배포 준비,높음,한글 IME 조합 가드 추가 — 멘션/슬래시 메뉴가 조합 확정 Enter를 오소비,"**Severity:** 높음
+
+**Problem:** wwwroot/js 전체에 isComposing/compositionstart/keyCode 229 검사가 0건. mention.js와 slash-commands.js의 keydown 핸들러가 한글 조합 확정 Enter를 항목 선택으로 오소비 — @ 뒤에 한글 이름을 조합하다 Enter를 누르면 원치 않는 멘션 삽입·글자 유실/중복 발생. 부가로 조합 중간 음절('ㅅ','새','색')로 검색을 난사.
+
+**Fix:** 두 onKeyDown 첫 줄에 if (event.isComposing || event.keyCode === 229) return false; 추가(두 줄 수정). keyboard-shortcuts.js에도 동일 가드.
+
+**Evidence:** mention.js:132-136, slash-commands.js:134-137"
+Y,bug,1.0.0 배포 준비,중간,Blazor 값 바인딩 입력(제목/검색/팔레트)의 한글 조합 간섭 수동 검증,"**Severity:** 중간
+
+**Problem:** value=""@field"" + @oninput 패턴 — Blazor 재렌더가 조합 중 input value를 재설정하면 한글 조합이 끊기는 알려진 계열 이슈. 코드만으로 단정 불가하므로 한글 타이핑 수동 검증 필수, 재현 시 JS 미러 입력으로 교체.
+
+**Fix:** 한글로 제목/검색/팔레트 타이핑 수동 검증 → 재현 시 조합 중 재렌더를 피하는 JS 미러 입력으로 교체.
+
+**Evidence:** NoteEditor.razor:98-104, Home.razor:96-100, QuickNavDialog.razor:17-25"
+Y,enhancement,1.0.0 배포 준비,낮음,"Ctrl+K 의미 충돌 해소 (에디터 본문=링크, 그 외=팔레트)","**Severity:** 낮음
+
+**Problem:** 에디터 본문에서 Ctrl+K는 링크 팝오버(stopPropagation), 그 외에선 팔레트 — 도움말(Ctrl+/)에는 팔레트만 표기되어 본문 안 동작과 불일치.
+
+**Fix:** 링크는 Ctrl+Shift+K 등으로 분리하고 도움말 반영.
+
+**Evidence:** interop.js:121-130, bubble-menu.js:24, MainLayout.razor"
+Y,enhancement,1.0.0 배포 준비,낮음,Ctrl+/ 도움말에 슬래시 커맨드·에디터 내부 키 추가,"**Severity:** 낮음
+
+**Problem:** 슬래시 커맨드 목록과 에디터 내부 키(Mod-Enter 접기, Tab 들여쓰기)가 도움말 오버레이에 없어 커스텀 블록 발견성이 낮음.
+
+**Fix:** 도움말에 에디터 섹션 추가.
+
+**Evidence:** MainLayout.razor:35-56"
+Y,enhancement,1.0.0 배포 준비,낮음,로그인 비밀번호 입력 autofocus,"**Severity:** 낮음
+
+**Problem:** 비밀번호 입력에 autofocus가 없어 키보드 중심 앱에서 첫 클릭을 강요.
+
+**Fix:** autofocus 부여.
+
+**Evidence:** Login.razor"
+Y,bug,1.0.0 배포 준비,낮음,/login?returnUrl= 오픈 리다이렉트 검증,"**Severity:** 낮음
+
+**Problem:** Nav.NavigateTo(Uri.UnescapeDataString(ReturnUrl))가 returnUrl을 검증하지 않음 — /login?returnUrl=https://evil.example로 유도된 소유자가 로그인 직후 외부로 이탈. 단일 사용자라 표면은 작지만 수정 비용이 0에 가까움.
+
+**Fix:** target이 /로 시작하고 //로 시작하지 않는지 검증, 아니면 /로 폴백.
+
+**Evidence:** Login.razor:63-65"
+Y,enhancement,1.0.0 배포 준비,낮음,아카이브 삭제에 Undo 추가 (Home/Editor와 비일관),"**Severity:** 낮음
+
+**Problem:** 아카이브에서 휴지통 이동 시 Undo 없음 — Home과 NoteEditor는 같은 동작에 Undo 액션을 붙임.
+
+**Fix:** 일관성 위해 Undo 스낵바 추가.
+
+**Evidence:** Archive.razor:182"
+Y,enhancement,1.0.0 배포 준비,낮음,아카이브/휴지통 벌크 작업 병렬화 + 진행 표시,"**Severity:** 낮음
+
+**Problem:** 벌크 작업이 순차 HTTP 루프(foreach await)라 항목이 많으면 체감이 느리고, isBusy로 버튼만 비활성화될 뿐 진행률 표시가 없음.
+
+**Fix:** 병렬 처리(또는 서버 벌크 엔드포인트) + 진행 표시.
+
+**Evidence:** Archive.razor:221-232, RecycleBin.razor:243-254"
+Y,bug,1.0.0 배포 준비,낮음,clipboard.writeText 실패 처리 (비보안 컨텍스트에서 미처리 JSException),"**Severity:** 낮음
+
+**Problem:** http로 접근하는 배포에선 navigator.clipboard가 undefined → 복사 버튼 클릭 시 미처리 JSException.
+
+**Fix:** try/catch 후 실패 스낵바 + 수동 선택 폴백.
+
+**Evidence:** Settings.razor:277, ShareDialog.razor:127"
+Y,bug,1.0.0 배포 준비,낮음,백링크 로드 실패 시 틀린 빈 상태 표시,"**Severity:** 낮음
+
+**Problem:** 백링크 로드 실패 시 backlinks = []로 'No other notes link here yet.'라는 틀린 빈 상태를 표시 — 에러와 빈 결과가 구분되지 않음.
+
+**Fix:** 실패 시 에러 상태/재시도 표시로 분리.
+
+**Evidence:** NoteEditor.razor:428"
+Y,bug,1.0.0 배포 준비,높음,DELETE /api/settings/all-data를 JWT 전용 + 비밀번호 재확인으로 잠금,"**Severity:** 높음
+
+**Problem:** 가장 파괴적인 전체 데이터 삭제 엔드포인트가 [Authorize] Smart 스킴(JWT 또는 PAT)이라 PAT로도 호출 가능하고 재인증이 없음. ApiTokensController는 PAT 오남용을 막으려 JWT 전용으로 제한해 놓고 정작 이 엔드포인트는 열어둠. CI 등에 심어둔 PAT 하나가 유출되면 요청 한 방으로 전 데이터 비가역 삭제 — 백업 스토리도 없어 복구 불가.
+
+**Fix:** ApiTokensController처럼 JwtBearer 전용 제한 + 요청 본문에 비밀번호를 받아 PasswordHasher.Verify 재확인. (선택) 삭제 전 dump 생성.
+
+**Evidence:** SettingsController.cs:8, 33-38; ApiTokensController.cs:14"
+Y,bug,1.0.0 배포 준비,높음,컴포즈 기본 배포 안전화 — REST 평문 직노출 제거 + XFF 신뢰 기본 활성화,"**Severity:** 높음
+
+**Problem:** ports: ""5000:8080""으로 REST가 평문 HTTP 직노출되고 API_BASE_URL 기본이 http://localhost:5000 — 기본 컴포즈엔 TLS 프록시가 없어 JWT·비밀번호가 평문 전송. ForwardedHeaders 신뢰 설정은 주석 처리된 예시뿐이라 프록시를 세워도 per-IP 로그인 리미터가 단일 버킷으로 퇴화. 어느 쪽으로도 기본값이 안전하지 않음.
+
+**Fix:** REST 포트를 expose로 내리고 TLS 종단 프록시를 컴포즈에 포함, XFF 신뢰 서브넷 기본 활성화. 최소한 기동 로그에 미설정 경고.
+
+**Evidence:** docker-compose.yml:5-6, 15-19, 33; ForwardedHeadersConfigurator.cs:43-44"
+Y,bug,1.0.0 배포 준비,중간,전역 로그인 락아웃이 소유자 로그인 DoS 벡터 (락 중 검증 스킵),"**Severity:** 중간
+
+**Problem:** 락 중이면 비밀번호 검증 없이 429를 반환하고, 락 만료 후 실패 1회마다 지수 갱신(캡 900s) — 인터넷 노출 인스턴스에서 공격자가 15분마다 오답 1개만 보내면 소유자는 올바른 비밀번호로도 영구 로그인 불가. PAT 스로틀도 동일 패턴(락 중 유효 토큰 거부 — 주석과 동작 불일치).
+
+**Fix:** 락 중에도 검증은 수행 — 성공이면 락 해제+통과, 실패만 429(PBKDF2 부하는 per-IP 리미터가 캡). ApiTokenAuthHandler도 동일 패턴으로 수정.
+
+**Evidence:** AuthController.cs:40-48, LoginThrottle.cs:63-74, ApiTokenAuthHandler.cs:41-45"
+Y,bug,1.0.0 배포 준비,중간,공유 노트가 비공유 노트의 제목·GUID 유출 (page-link/mention 마크업),"**Severity:** 중간
+
+**Problem:** page-link/mention 마크업(data-note-id, data-title, 표시 텍스트)이 공유 응답에 그대로 포함 — 부모 노트 하나를 공유하면 참조된 개인 노트들의 제목과 내부 GUID가 익명 뷰어에게 전부 보임.
+
+**Fix:** 공유 응답 조립 시 data-note-id/data-title 속성 제거 + page-link/mention을 일반 텍스트(또는 '🔒 private page')로 치환.
+
+**Evidence:** page-link.js:25-33, ShareController.cs:36-42"
+Y,enhancement,1.0.0 배포 준비,중간,CSP script-src에서 esm.sh/jsdelivr 제거 (2차 방어선 복원),"**Severity:** 중간
+
+**Problem:** CSP script-src가 esm.sh/jsdelivr 전체 + 'unsafe-eval'을 허용 — esm.sh는 임의 npm 패키지를 서빙하므로 sanitizer를 우회한 <script src=""https://esm.sh/…"">가 CSP를 통과. '2차 방어선'이 사실상 sanitizer 단일 계층으로 수렴하고 익명 공유 페이지도 같은 CSP를 씀.
+
+**Fix:** 에디터 의존성 self-host 번들 후 script-src 'self' 'wasm-unsafe-eval'로 축소(CDN self-host 이슈와 동일 해법). 최소한 /share/*에 별도 엄격 CSP.
+
+**Evidence:** nginx.conf:24"
+Y,enhancement,1.0.0 배포 준비,중간,공유 응답 재-sanitize + 레거시 콘텐츠 백필,"**Severity:** 중간
+
+**Problem:** sanitize는 Create/Update 시점뿐이고 공유는 MarkupString 직주입 — sanitizer 도입 이전 저장분 백필 여부 미확인. 레거시 행에 스크립트가 남아 있다면 익명 뷰어에게 그대로 서빙되고 CSP의 esm.sh 허용과 결합해 실행 가능.
+
+**Fix:** GetSharedByToken 반환 직전 sanitize 1회(싱글턴, 비용 미미) + 일회성 백필 마이그레이션.
+
+**Evidence:** NoteService.cs:311, 354; Share.razor:30"
+Y,bug,1.0.0 배포 준비,높음,[방침 재고] 커밋된 실 자격증명 — dev DB 사설망 한정 + 비밀번호 로테이트,"**Severity:** 높음
+
+**Problem:** appsettings.Development.json의 DB 접속정보가 루프백이 아니라 외부 도달 가능한 실 도메인(pg.smoh.kr:55432). '의도적 커밋' 방침은 인지하나 throwaway가 아닌 실 DB 비밀번호라 방침의 전제가 성립하지 않음 — repo 접근 = dev DB 접근, 리포 공개·유출 시 즉시 침해.
+
+**Fix:** 이 파일에 한해 방침 폐기: dev DB를 로컬/사설망으로 한정하고 비밀번호 로테이트.
+
+**Evidence:** appsettings.Development.json:3,6,8"
+Y,enhancement,1.0.0 배포 준비,낮음,운영 환경 비밀번호 변경/회전 경로 제공,"**Severity:** 낮음
+
+**Problem:** /api/auth/hash가 dev 전용(운영은 404)이라 운영 인스턴스만 굴리는 소유자는 해시를 만들 공식 경로가 없어 회전을 미루게 됨(유출 대응 지연).
+
+**Fix:** dotnet CLI 툴/--hash-password 기동 플래그 제공, 또는 현재 비밀번호 검증 조건으로 운영에서도 허용.
+
+**Evidence:** AuthController.cs:80-83"
+Y,bug,1.0.0 배포 준비,높음,JWT payload base64url 디코드 수정 (간헐적으로 Settings/Logout 버튼 소실),"**Severity:** 높음
+
+**Problem:** JWT payload를 표준 base64(Convert.FromBase64String)로 디코드 — JWT는 base64url이라 -/_ 포함 토큰(exp/iat 바이트에 따라 무작위 발생)이면 FormatException → 빈 클레임. authenticationType은 있어 로그인은 되는데 username이 null → NavMenu의 Settings/Logout 버튼이 간헐적으로 사라짐. 재현 불가 버그의 정체.
+
+**Fix:** '-'→'+', '_'→'/' 치환 후 디코드(또는 Base64UrlEncoder 사용). 겸사겸사 exp 클레임 검사로 만료 토큰 플래시 로그인도 제거.
+
+**Evidence:** JwtAuthenticationStateProvider.cs:62, NavMenu.razor:51-65"
+Y,bug,1.0.0 배포 준비,높음,제목 변경 전파가 다른 노트를 동시성 검사 없이 덮어씀,"**Severity:** 높음
+
+**Problem:** UpdatePageLinkReferences가 참조 노트들을 로드·치환·저장하는데 UpdatedAt 갱신도 충돌 검사도 없음 — 전파 도중 사용자가 그 노트를 편집 중이면 최근 편집이 조용히 유실되고, UpdatedAt을 안 바꿔 그 노트의 다음 저장이 거짓 409를 볼 수도 있음. 본 노트 저장 경로의 견고한 동시성과 극명한 대비.
+
+**Fix:** 전파 대상도 마이크로초 UpdatedAt 갱신 + 충돌 시 스킵/재시도. 근본책은 참조 정규화 테이블(#141)로 콘텐츠 재작성 자체를 제거.
+
+**Evidence:** NoteService.cs:420-443"
+Y,bug,1.0.0 배포 준비,중간,제목의 $가 정규식 치환 그룹으로 해석되어 참조 마크업 손상,"**Severity:** 중간
+
+**Problem:** Regex.Replace의 replacement에 HtmlEncode된 제목을 직접 삽입 — HtmlEncode는 $를 인코딩하지 않으므로 제목에 $1 등이 있으면 치환 그룹으로 해석되어 깨진 마크업 삽입. 'Cost is $100' 같은 제목을 참조하는 모든 노트의 링크가 손상.
+
+**Fix:** encodedTitle.Replace(""$"", ""$$"") 또는 델리게이트 치환으로 교체(456/485행 포함).
+
+**Evidence:** NoteService.cs:486, 456, 485"
+Y,bug,1.0.0 배포 준비,중간,업로드 매직바이트 검증의 partial read 취약 (정상 파일 간헐 거부),"**Severity:** 중간
+
+**Problem:** stream.ReadAsync(buffer)는 요청 바이트 수를 보장하지 않음 — 첫 read가 짧으면 정상 파일도 거부(WebP는 12바이트 필요). 청크 경계에 따라 정상 업로드가 간헐 실패하는 재현 안 되는 오류.
+
+**Fix:** ReadAtLeastAsync(buffer, 12, throwOnEndOfStream:false) 또는 루프로 채운 뒤 검증.
+
+**Evidence:** FilesController.cs:132-138, ImagesController.cs:68-71"
+Y,bug,1.0.0 배포 준비,중간,고아 파일 GC grace를 업로드 시각이 아닌 미참조 확인 누적 기준으로,"**Severity:** 중간
+
+**Problem:** grace(60분)가 업로드/생성 시각 기준이고 참조 판정은 커밋된 노트 콘텐츠만 봄 — 이미지를 붙여넣고 60분 넘게 초안 상태(자동저장 실패·오프라인·방치)면 스캔이 자산을 삭제해 이후 저장 시 깨진 이미지. 엣지가 정확히 '저장이 실패하고 있던' 최악의 순간과 겹침.
+
+**Fix:** 미참조 실패 누적 기준 GC 또는 첨부에 draft/pending 플래그를 두고 명시적으로만 GC.
+
+**Evidence:** FileCleanupService.cs:89, 132, 71-72"
+Y,enhancement,1.0.0 배포 준비,낮음,Archive/RecycleBin 그룹 판정을 타임스탬프 동일성 대신 전용 GroupId로,"**Severity:** 낮음
+
+**Problem:** 그룹 판정이 ArchivedAt/DeletedAt 타임스탬프 동일성 기반 — 마이크로초 충돌 시 그룹 오분류(단일 사용자에선 사실상 발생 불가하나 타임스탬프를 그룹 식별자로 쓰는 설계 자체가 취약).
+
+**Fix:** 전용 GroupId(Guid) 컬럼 도입.
+
+**Evidence:** NoteService.cs:856-858, 1011-1015"
+Y,enhancement,1.0.0 배포 준비,중간,키 입력마다 editor.getHTML() 전체 직렬화 제거 (JS 측 디바운스/pull),"**Severity:** 중간
+
+**Problem:** onUpdate마다 문서 전체를 HTML로 직렬화해 WASM 경계로 마샬링 — 디바운스는 .NET 쪽(1.5s)에만 있고 직렬화 자체는 매 키스트로크. 수백 KB 노트면 키 입력당 수백 KB 복사로 타이핑 레이턴시의 주범이 됨.
+
+**Fix:** JS 쪽 300-500ms 디바운스 후 1회 전송, 또는 저장 시점에 .NET이 pull하는 방식으로 역전.
+
+**Evidence:** interop.js:114-117"
+Y,enhancement,1.0.0 배포 준비,중간,고아 스캔 N+1 제거 — 참조 GUID 집합 1회 추출로 역전,"**Severity:** 중간
+
+**Problem:** 고아 스캔이 첨부·이미지마다 개별 ILIKE '%guid%' 쿼리(N+1 GC) — 파일 수천 개면 24h 잡이 수천 쿼리 + 저선택도 trigram 스캔.
+
+**Fix:** 노트 콘텐츠에서 참조 GUID 집합을 정규식으로 1회 추출 → 디스크 파일 집합과 차집합.
+
+**Evidence:** FileCleanupService.cs:83-127, 221-233"
+Y,enhancement,1.0.0 배포 준비,낮음,조상/자손 순회를 재귀 CTE로 단일화,"**Severity:** 낮음
+
+**Problem:** HasCircularReference/CollectDescendants BFS가 깊이(레벨)당 DB 왕복 — 개인 노트 규모에선 무시 가능(기록용).
+
+**Fix:** PostgreSQL WITH RECURSIVE로 단일 쿼리화.
+
+**Evidence:** NoteService.cs:496-509, 1017-1032"
+Y,enhancement,1.0.0 배포 준비,높음,정규식 기반 HTML 재작성을 참조 정규화 테이블(#141)로 대체,"**Severity:** 높음
+
+**Problem:** 제목 전파·참조 strip·page-link 제거가 전부 Regex.Replace 기반 — 콘텐츠 무결성의 단일 실패점. $ 치환 버그가 이 취약성의 실례이고, 중첩 구조·속성 순서 변화에 조용히 오작동하며 테스트도 어려움.
+
+**Fix:** #141 참조 정규화 테이블로 이행해 콘텐츠 문자열 재작성 자체를 제거. 과도기에는 AngleSharp 등 HTML 파서로 DOM 조작.
+
+**Evidence:** NoteService.cs:445-490, 1054-1063"
+Y,enhancement,1.0.0 배포 준비,중간,에디터 의존성 self-host 번들링 (CDN 런타임 의존 제거),"**Severity:** 중간
+
+**Problem:** 에디터 스택 전체가 esm.sh/jsdelivr 런타임 로드에 의존(버전 핀도 @2 메이저 범위) — 셀프호스팅 앱인데 CDN이 죽으면 편집 불가, CSP의 esm.sh 허용 구멍을 강제하며, CDN 쪽 마이너 업데이트로 조용히 깨질 수 있음. 보안·가용성·CSP 세 문제를 단일 작업으로 해결하는 최고 가성비 항목.
+
+**Fix:** 의존성 번들 self-host → CSP script-src 'self' 'wasm-unsafe-eval'로 축소.
+
+**Evidence:** interop.js:1-13, mermaid.js:7-8, nginx.conf:24"
+Y,enhancement,1.0.0 배포 준비,중간,Web 프로젝트 테스트 도입 (bUnit 스모크 + Playwright 시나리오 3종),"**Severity:** 중간
+
+**Problem:** Web 프로젝트 테스트 0 — 이번에 발견된 프론트 버그 전부(base64url, 같은 라우트 유실, 설정 no-op, IME)가 테스트 사각지대. 백엔드 테스트는 SQLite 폴백이라 trigram·rate limiter 실경로 미커버.
+
+**Fix:** bUnit 스모크 + Playwright 시나리오 3개(만료 중 저장, 두 탭 충돌, 한글 멘션)로 최악 경로 커버.
+
+**Evidence:** Vanadium.Note.Web (테스트 프로젝트 부재)"
+Y,bug,1.0.0 배포 준비,낮음,link-popover의 document mousedown 리스너 미해제 누수,"**Severity:** 낮음
+
+**Problem:** createLinkPopover가 에디터 인스턴스마다 document에 mousedown 리스너를 등록하는데 destroy는 popover.remove()만 수행 — 노트를 100번 열고 닫으면 mousedown마다 100개의 죽은 클로저가 실행(옵셔널 체이닝 덕에 오동작은 없으나 순수 누수).
+
+**Fix:** 핸들러 참조를 반환하고 destroy에서 removeEventListener.
+
+**Evidence:** link-popover.js:61-66, interop.js:470-482"
+Y,enhancement,1.0.0 배포 준비,낮음,_inputSafe 단축키 목록 이중 소스 제거,"**Severity:** 낮음
+
+**Problem:** input-safe 단축키 목록이 JS에 하드코딩(Set(['ctrl+k','ctrl+s']))인데 등록은 C# ShortcutService — 새 input-safe 단축키를 C#에서 추가하면 JS 수정을 잊기 쉬움.
+
+**Fix:** register API에 inputSafe 플래그를 전달해 단일 소스화.
+
+**Evidence:** keyboard-shortcuts.js:8"
+Y,enhancement,1.0.0 배포 준비,낮음,NoteService 분리 (48KB 단일 클래스),"**Severity:** 낮음
+
+**Problem:** NoteService가 CRUD·검색·공유·라이프사이클·HTML재작성을 전부 담당하는 48KB 단일 클래스 — 단일 책임 초과.
+
+**Fix:** NoteLifecycleService(archive/recycle/purge), NoteShareService, NoteReferenceRewriter로 분리.
+
+**Evidence:** NoteService.cs 전체"
+Y,enhancement,1.0.0 배포 준비,낮음,동시성 토큰 등 의미 필드의 Web DTO 기본값 가드,"**Severity:** 낮음
+
+**Problem:** Web NoteItem.UpdatedAt 기본값이 DateTime.UtcNow였던 탓에 'every save 409s' 버그가 실재했음(주석 흔적). DTO 중복 유지가 정책이라면 동시성 토큰 같은 의미 필드는 기본값을 default로 통일하는 가드 필요.
+
+**Fix:** 의미 필드 기본값 default 통일 + 회귀 테스트.
+
+**Evidence:** SubNoteDialog.razor:247-248"
