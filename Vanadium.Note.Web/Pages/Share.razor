@@ -108,6 +108,19 @@
             // Cosmetic fallback only — never break the note over it.
             Console.Error.WriteLine($"Failed to apply shared media placeholders: {ex.Message}");
         }
+
+        try
+        {
+            // The raw dump has no Tiptap node view, so Toggle/Accordion blocks lack
+            // the arrow + click handler and render broken. Rebuild them so collapsed
+            // bodies can be expanded and read on the anonymous page (#274).
+            await JS.InvokeVoidAsync("tiptapInterop.enableSharedToggles", _contentRef);
+        }
+        catch (JSException ex)
+        {
+            // Read-only page: a toggle-enhancement failure must not break the note.
+            Console.Error.WriteLine($"Failed to enable shared toggles: {ex.Message}");
+        }
     }
 
     // Poll the tiptapInterop.ready() gate until the module is installed (the
