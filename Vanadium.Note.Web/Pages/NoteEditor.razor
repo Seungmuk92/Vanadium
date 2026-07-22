@@ -48,7 +48,8 @@
         }
         @if (!IsArchived)
         {
-            <button class="btn btn-primary" @onclick="SaveNote">Save</button>
+            <button class="btn btn-outline-primary" @onclick="DoAutoSave">Save</button>
+            <button class="btn btn-primary" @onclick="SaveAndClose">Save &amp; close</button>
         }
     </div>
 </div>
@@ -474,7 +475,11 @@
             {
                 await JS.InvokeVoidAsync("tiptapInterop.init", _editorId, _objRef, content, apiBase, !IsArchived && !_loadFailed);
                 _editorMounted = true;
-                await ShortcutService.RegisterAsync("ctrl+s", "Save note", () => InvokeAsync(SaveNote));
+                // Ctrl+S flushes the current edit and STAYS in the editor (flush-and-stay),
+                // matching SubNoteDialog's Ctrl+S (OnSaveShortcut → DoAutoSave). Leaving to the
+                // list is the separate "Save & close" button, so a habitual Ctrl+S no longer
+                // ejects keyboard users from the editor (#265).
+                await ShortcutService.RegisterAsync("ctrl+s", "Save note", () => InvokeAsync(DoAutoSave));
             }
             catch (Exception ex)
             {
@@ -682,7 +687,10 @@
         saveStatusCss = css;
     }
 
-    private async Task SaveNote()
+    /// <summary>Flushes any pending edit and then navigates back to the list — the
+    /// explicit "Save &amp; close" action. Ctrl+S and the plain "Save" button use the
+    /// flush-and-stay <see cref="DoAutoSave"/> path instead and never leave the editor (#265).</summary>
+    private async Task SaveAndClose()
     {
         _autoSave.Cancel();
 
