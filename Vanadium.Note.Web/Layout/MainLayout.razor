@@ -90,7 +90,10 @@
             await LoadThemeAsync();
             await TokenStore.InitAsync();
             await ShortcutService.InitAsync();
-            await ShortcutService.RegisterAsync("ctrl+n", "New note", () => InvokeAsync(() =>
+            // Alt+N, not Ctrl+N: Chromium-family browsers reserve Ctrl+N (new window) and never
+            // deliver it to page content, so preventDefault has no chance to run and the shortcut
+            // could never open a note. Alt+N is not browser-reserved and actually reaches us (#269).
+            await ShortcutService.RegisterAsync("alt+n", "New note", () => InvokeAsync(() =>
             {
                 Nav.NavigateTo("/editor");
                 return Task.CompletedTask;
@@ -196,6 +199,6 @@
         ThemeService.OnChanged -= OnThemeServiceChanged;
         AuthStateProvider.AuthenticationStateChanged -= OnAuthStateChanged;
         Nav.LocationChanged -= OnLocationChanged;
-        await ShortcutService.UnregisterManyAsync("ctrl+n", "ctrl+/", "ctrl+k");
+        await ShortcutService.UnregisterManyAsync("alt+n", "ctrl+/", "ctrl+k");
     }
 }
