@@ -325,6 +325,25 @@
     protected override async Task OnParametersSetAsync()
     {
         if (_currentId == Id && _currentParentId == ParentId) return;
+
+        // Blazor reuses this component instance across editor→editor navigations (backlink,
+        // breadcrumb parent link, peek dialog "open in full page"). Flush the OUTGOING note's
+        // unsaved edits before the reset below wipes them: at this point _currentId/title/content/
+        // _serverUpdatedAt still describe the outgoing note (the Id *parameter* already points at
+        // the incoming note, which is why the flush targets _currentId — SaveOnceAsync builds its
+        // payload from _currentId, not Id). Cancelling the debounce timer also stops a stray
+        // pending save from PUTting empty content to the newly-loaded note (a false 409); an armed
+        // timer always implies HasPendingChanges (#262).
+        //
+        // This must run here, NOT in a SetParametersAsync override: a ParameterView cannot be read
+        // after an await, so awaiting the flush there and then calling base.SetParametersAsync
+        // throws "The ParameterView instance can no longer be read because it has expired".
+        if (_currentId is not null && HasPendingChanges && !_hasConflict && !IsArchived)
+        {
+            _autoSave.Cancel();
+            await SaveCoreAsync();
+        }
+
         _currentId = Id;
         _currentParentId = ParentId;
 
@@ -526,6 +545,14 @@
 
     private async Task<NoteItem?> SaveOnceAsync()
     {
+        // The note this save targets, captured before the awaited PUT. Uses _currentId (the note
+        // the editor currently represents), not the Id route parameter: during an editor→editor
+        // navigation the flush in OnParametersSetAsync runs this while Id already points at the
+        // incoming note but _currentId still points at the outgoing one. If the user navigates
+        // away while the request is in flight, the completion callback below must not fold this
+        // save's result into the now-current note's state (#262).
+        var startId = _currentId;
+
         // Normalize the title before saving so a whitespace-only or empty title
         // never lands in the list. Mirrors the Board create path (which trims) and
         // falls back to "Untitled" for an empty result (#203).
@@ -535,7 +562,7 @@
 
         var note = new NoteItem
         {
-            Id = Id ?? Guid.Empty,
+            Id = startId ?? Guid.Empty,
             Title = normalizedTitle,
             Content = content,
             ParentNoteId = parentNoteId,
@@ -564,9 +591,16 @@
             await DraftStore.SaveAsync(Id, title, content);
             return null;
         }
-        _serverUpdatedAt = result.Value!.UpdatedAt;
-        HasPendingChanges = false;
-        await DraftStore.ClearAsync();
+        // Only fold the save result back into editor state when we're still on the note this
+        // save targeted. A save that started for note A but completes after the user navigated
+        // to note B must not overwrite B's _serverUpdatedAt — doing so makes B's next save a
+        // false 409 (#262).
+        if (startId == _currentId)
+        {
+            _serverUpdatedAt = result.Value!.UpdatedAt;
+            HasPendingChanges = false;
+            await DraftStore.ClearAsync();
+        }
         return result.Value;
     }
 
