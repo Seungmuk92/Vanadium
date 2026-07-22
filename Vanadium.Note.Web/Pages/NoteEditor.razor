@@ -75,6 +75,17 @@
     </div>
 }
 
+@if (_pendingDraft is not null)
+{
+    <div class="conflict-banner">
+        <span>⚠ This note changed on the server after your unsaved draft was stashed. Keep which version?</span>
+        <div class="conflict-banner-actions">
+            <button class="btn btn-sm btn-primary" @onclick="KeepDraft">Keep my draft</button>
+            <button class="btn btn-sm btn-outline-secondary" @onclick="DiscardDraft">Use server version</button>
+        </div>
+    </div>
+}
+
 @if (_loadFailed)
 {
     <div class="load-error-banner">
@@ -297,6 +308,9 @@
     private bool _loadFailed = false;
     private bool _editorInitFailed = false;
     private DateTime _serverUpdatedAt;
+    // A draft that was NOT auto-restored because the server copy is newer than the draft's
+    // stash time (#267). Non-null drives the "keep my draft vs use server version" banner.
+    private EditorDraft? _pendingDraft;
     // One-shot flag: the user pressed "Force Save" in the conflict banner, so the
     // next save must send the explicit force opt-in (#221). Consumed and reset by
     // the save entry point — a default/zero version alone no longer force-saves.
@@ -420,10 +434,24 @@
             var draft = await DraftStore.GetAsync(Id);
             if (draft is not null)
             {
-                title = draft.Title;
-                content = draft.Content;
-                HasPendingChanges = true;
-                Snackbar.Add("Restored your unsaved changes.", Severity.Info);
+                // Multi-device guard (#267): if the server copy was updated AFTER this draft was
+                // stashed, another device saved in the meantime. Auto-restoring would let the stale
+                // draft's next autosave — riding the freshly-GET'd _serverUpdatedAt — pass the
+                // concurrency check and silently clobber the newer server copy. Offer a choice
+                // banner instead, keeping the just-loaded server content on screen until the user
+                // decides. New notes (no server version) and the single-device case (server not
+                // newer) fall through to the unconditional restore below, unchanged.
+                if (Id is not null && AsUtc(_serverUpdatedAt) > AsUtc(draft.StashedAt))
+                {
+                    _pendingDraft = draft;
+                }
+                else
+                {
+                    title = draft.Title;
+                    content = draft.Content;
+                    HasPendingChanges = true;
+                    Snackbar.Add("Restored your unsaved changes.", Severity.Info);
+                }
             }
         }
 
@@ -779,6 +807,40 @@
         await JS.InvokeVoidAsync("tiptapInterop.setContent", _editorId, content);
         StateHasChanged();
     }
+
+    /// <summary>Resolves the #267 draft-choice banner by keeping the local draft: applies the
+    /// stashed title/content over the server copy on screen and marks it pending so the next save
+    /// (a deliberate overwrite the user chose) persists it. Mirrors <see cref="ReloadNote"/>'s
+    /// setContent push into the mounted editor.</summary>
+    private async Task KeepDraft()
+    {
+        if (_pendingDraft is null) return;
+        title = _pendingDraft.Title;
+        content = _pendingDraft.Content;
+        _pendingDraft = null;
+        HasPendingChanges = true;
+        if (_editorMounted)
+            await JS.InvokeVoidAsync("tiptapInterop.setContent", _editorId, content);
+        StateHasChanged();
+    }
+
+    /// <summary>Resolves the #267 draft-choice banner by discarding the local draft: keeps the
+    /// already-loaded server copy on screen and clears the stale draft so it won't prompt again.</summary>
+    private async Task DiscardDraft()
+    {
+        if (_pendingDraft is null) return;
+        _pendingDraft = null;
+        await DraftStore.ClearAsync(Id);
+        StateHasChanged();
+    }
+
+    // Normalizes a DateTime to UTC for ordering. Server UpdatedAt and the draft's StashedAt are
+    // both UTC by construction; an Unspecified-kind value (e.g. from JSON without an offset) is
+    // treated as already-UTC rather than shifted through the local zone (#267).
+    private static DateTime AsUtc(DateTime value) =>
+        value.Kind == DateTimeKind.Unspecified
+            ? DateTime.SpecifyKind(value, DateTimeKind.Utc)
+            : value.ToUniversalTime();
 
     private async Task DeleteNote()
     {
