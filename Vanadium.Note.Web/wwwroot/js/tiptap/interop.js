@@ -467,6 +467,88 @@ window.tiptapInterop = {
         }
     },
 
+    // Make Toggle / Accordion blocks interactive in a read-only shared view. The
+    // shared content is a raw HTML dump, so the Tiptap node view never runs: toggles
+    // have no arrow, no `.toggle-inner` wrapper (which the folding CSS keys off of),
+    // and no click handler, leaving a collapsed body broken and unreadable (issue
+    // #274). Rebuild the exact node-view DOM structure so the existing app.css rules
+    // apply (arrow rotation + `[data-open="false"] > .toggle-inner >
+    // [data-type="toggle-content"] { display:none }`) and wire a click to flip
+    // data-open. Accordions are just groups of toggle blocks, so they are covered
+    // too; the editor-only "one open at a time" constraint is intentionally not
+    // enforced on this read-only page. Pass a CSS selector string or a DOM element.
+    enableSharedToggles(root) {
+        const el = typeof root === 'string' ? document.querySelector(root) : root;
+        if (!el) return;
+
+        // The server sanitizer strips the `class` attribute from stored content, so the
+        // shared dump keeps `data-type`/`data-open` but loses `toggle-block`, `toggle-summary`,
+        // `toggle-content`, `accordion-group` — the exact classes app.css keys its folding,
+        // flex layout and arrow rotation on. Restore them here (data-* survives, so we can
+        // re-derive every class) so the existing CSS applies without touching the sanitizer (#274).
+        for (const group of el.querySelectorAll('[data-type="accordion-group"]'))
+            group.classList.add('accordion-group');
+
+        for (const toggle of el.querySelectorAll('[data-type="toggle"]')) {
+            // Defensive: skip anything already rebuilt (e.g. a double invocation).
+            if (toggle.querySelector(':scope > .toggle-inner')) continue;
+
+            const summary = toggle.querySelector(':scope > [data-type="toggle-summary"]');
+            const content = toggle.querySelector(':scope > [data-type="toggle-content"]');
+            if (!summary || !content) continue;
+
+            const open = toggle.getAttribute('data-open') !== 'false';
+            toggle.setAttribute('data-open', open ? 'true' : 'false');
+
+            // Restore the sanitizer-stripped classes the folding/layout CSS depends on.
+            toggle.classList.add('toggle-block');
+            summary.classList.add('toggle-summary');
+            content.classList.add('toggle-content');
+
+            const arrow = document.createElement('button');
+            arrow.type = 'button';
+            arrow.className = 'toggle-arrow';
+            arrow.setAttribute('aria-expanded', String(open));
+            arrow.setAttribute('aria-label', 'Toggle section');
+            arrow.textContent = '▸'; // ▸
+
+            // Wrap summary + content in `.toggle-inner` and prepend the arrow,
+            // matching the editor node view so the existing CSS layout/folding works.
+            const inner = document.createElement('div');
+            inner.className = 'toggle-inner';
+            inner.append(summary, content);
+            toggle.prepend(arrow);
+            toggle.append(inner);
+
+            const flip = () => {
+                const willOpen = toggle.getAttribute('data-open') === 'false';
+                toggle.setAttribute('data-open', willOpen ? 'true' : 'false');
+                arrow.setAttribute('aria-expanded', String(willOpen));
+                // Accordion parity: opening a toggle inside an accordion group collapses
+                // its siblings, mirroring the editor's one-open-at-a-time behavior (#274).
+                if (willOpen) {
+                    const group = toggle.closest('[data-type="accordion-group"]');
+                    if (group) {
+                        for (const sib of group.querySelectorAll(':scope > [data-type="toggle"]')) {
+                            if (sib === toggle) continue;
+                            sib.setAttribute('data-open', 'false');
+                            const sibArrow = sib.querySelector(':scope > .toggle-arrow');
+                            if (sibArrow) sibArrow.setAttribute('aria-expanded', 'false');
+                        }
+                    }
+                }
+            };
+            arrow.addEventListener('click', flip);
+            // A read-only page can't edit the summary, so make the whole summary a
+            // click target too (except real links inside it) for an easier hit area.
+            summary.style.cursor = 'pointer';
+            summary.addEventListener('click', e => {
+                if (e.target.closest('a')) return;
+                flip();
+            });
+        }
+    },
+
     destroy(elementId) {
         const entry = _editors[elementId];
         if (entry) {
