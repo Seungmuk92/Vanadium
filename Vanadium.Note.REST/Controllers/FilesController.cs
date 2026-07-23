@@ -131,9 +131,17 @@ public class FilesController(IWebHostEnvironment env, NoteDbContext db, ILogger<
 
     private static async Task<bool> HasValidMagicBytesAsync(IFormFile file, string contentType)
     {
-        var buffer = new byte[12];
         await using var stream = file.OpenReadStream();
-        var read = await stream.ReadAsync(buffer);
+        return await HasValidMagicBytesAsync(stream, contentType);
+    }
+
+    internal static async Task<bool> HasValidMagicBytesAsync(Stream stream, string contentType)
+    {
+        var buffer = new byte[12];
+        // A single ReadAsync may return fewer bytes than requested on a chunk boundary,
+        // which would wrongly reject valid files (WebP needs all 12 bytes). Fill the
+        // buffer up to its length (or EOF) before validating.
+        var read = await stream.ReadAtLeastAsync(buffer, buffer.Length, throwOnEndOfStream: false);
 
         return HasValidMagicBytes(buffer, read, contentType);
     }

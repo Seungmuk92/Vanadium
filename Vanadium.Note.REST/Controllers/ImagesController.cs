@@ -65,9 +65,17 @@ public class ImagesController(IWebHostEnvironment env, ILogger<ImagesController>
 
     private static async Task<string?> DetectImageTypeAsync(IFormFile file)
     {
-        var buffer = new byte[12];
         await using var stream = file.OpenReadStream();
-        var read = await stream.ReadAsync(buffer);
+        return await DetectImageTypeAsync(stream);
+    }
+
+    internal static async Task<string?> DetectImageTypeAsync(Stream stream)
+    {
+        var buffer = new byte[12];
+        // A single ReadAsync may return fewer bytes than requested on a chunk boundary,
+        // which would wrongly reject valid files (WebP needs all 12 bytes). Fill the
+        // buffer up to its length (or EOF) before validating.
+        var read = await stream.ReadAtLeastAsync(buffer, buffer.Length, throwOnEndOfStream: false);
         if (read < 4) return null;
 
         if (buffer[0] == 0xFF && buffer[1] == 0xD8 && buffer[2] == 0xFF)
