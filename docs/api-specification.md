@@ -42,7 +42,9 @@ by design (single-tenant). The default JWT lifetime is 480 minutes (8h), configu
 ## Rate limiting
 
 - `POST /api/auth/login` — fixed-window **10 requests/min per client IP** (policy `login`), plus a
-  global cross-IP login-backoff lockout that returns `429` with a `Retry-After` header.
+  global cross-IP login-backoff lockout that returns `429` with a `Retry-After` header for **failed**
+  attempts. The password is still verified while locked, so the owner's correct password always
+  authenticates and clears the lockout (the per-IP limiter caps the PBKDF2 cost this incurs).
 - `GET /api/share/{token}` — fixed-window **60 requests/min per client IP** (policy `share`).
 - Rate-limit rejections return `429 Too Many Requests`.
 

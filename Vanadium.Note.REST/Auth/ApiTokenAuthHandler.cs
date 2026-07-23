@@ -36,14 +36,11 @@ public class ApiTokenAuthHandler(
         if (!plaintext.StartsWith(ApiTokenService.TokenPrefix, StringComparison.Ordinal))
             return AuthenticateResult.NoResult();
 
-        // Reject before touching the DB while a lockout is active, so a flood of invalid
-        // tokens cannot keep issuing one ApiTokens query per request.
-        if (throttle.IsLocked(out _))
-        {
-            Logger.LogWarning("Rejected API token: authentication is throttled after repeated failures.");
-            return AuthenticateResult.Fail("Too many failed API token attempts.");
-        }
-
+        // Validate EVEN during an active lockout, so a legitimate token is never rejected just
+        // because an attacker's invalid attempts armed the shared lock — the throttle otherwise
+        // becomes a denial-of-service against the owner (issue #291, mirroring the login fix).
+        // A valid token clears the lock below; only invalid/expired tokens feed RegisterFailure.
+        // The extra ApiTokens query this incurs while locked is a single indexed lookup.
         var hash = ApiTokenService.HashToken(plaintext);
 
         var record = await db.ApiTokens
