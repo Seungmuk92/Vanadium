@@ -501,13 +501,18 @@ public class NoteService(
         if (string.IsNullOrEmpty(content)) return content;
         var idStr = noteId.ToString();
         var encodedTitle = WebUtility.HtmlEncode(newTitle);
+        // HtmlEncode leaves '$' untouched, and '$' is a substitution metacharacter in a
+        // Regex.Replace replacement string ($1, $&, ...). Escape it as '$$' for the inner
+        // attribute rewrite so a title like "Cost is $100" is inserted literally (issue #299).
+        // The MatchEvaluator return below is used verbatim, so it keeps the unescaped title.
+        var replacementTitle = encodedTitle.Replace("$", "$$");
 
         return Regex.Replace(
             content,
             $@"(<a\s[^>]*data-note-id=""{Regex.Escape(idStr)}""[^>]*>)@[^<]*(</a>)",
             m =>
             {
-                var openTag = Regex.Replace(m.Groups[1].Value, @"data-title=""[^""]*""", $@"data-title=""{encodedTitle}""");
+                var openTag = Regex.Replace(m.Groups[1].Value, @"data-title=""[^""]*""", $@"data-title=""{replacementTitle}""");
                 return $"{openTag}@{encodedTitle}{m.Groups[2].Value}";
             },
             RegexOptions.Singleline | RegexOptions.IgnoreCase);
@@ -529,6 +534,10 @@ public class NoteService(
         if (string.IsNullOrEmpty(content)) return content;
         var idStr = noteId.ToString();
         var encodedTitle = WebUtility.HtmlEncode(newTitle);
+        // '$' survives HtmlEncode and is a substitution metacharacter in a Regex.Replace
+        // replacement string, so escape it as '$$' before both inner rewrites — otherwise a title
+        // like "Cost is $100" would corrupt the page-link markup (issue #299).
+        var replacementTitle = encodedTitle.Replace("$", "$$");
 
         return Regex.Replace(
             content,
@@ -536,8 +545,8 @@ public class NoteService(
             m =>
             {
                 var tag = m.Value;
-                tag = Regex.Replace(tag, @"data-title=""[^""]*""", $@"data-title=""{encodedTitle}""");
-                tag = Regex.Replace(tag, @">.*?</div>$", $">📄 {encodedTitle}</div>", RegexOptions.Singleline);
+                tag = Regex.Replace(tag, @"data-title=""[^""]*""", $@"data-title=""{replacementTitle}""");
+                tag = Regex.Replace(tag, @">.*?</div>$", $">📄 {replacementTitle}</div>", RegexOptions.Singleline);
                 return tag;
             },
             RegexOptions.Singleline | RegexOptions.IgnoreCase);
