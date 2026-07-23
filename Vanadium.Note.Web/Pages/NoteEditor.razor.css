@@ -673,6 +673,15 @@
     opacity: 0.5;
 }
 
+/* Load-failure state must stay legible and actionable, so it overrides the dimmed
+   empty-state hint and lays the message out beside the Retry button (issue #288). */
+.backlinks-error {
+    opacity: 1;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
 .backlinks-list {
     list-style: none;
     margin: 0;
