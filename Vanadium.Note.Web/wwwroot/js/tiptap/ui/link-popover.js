@@ -57,15 +57,17 @@ export function createLinkPopover(editorId) {
         if (e.key === 'Escape') { _editors[editorId]?.editor.commands.focus(); hide(); }
     });
 
-    // Click outside → close
-    document.addEventListener('mousedown', (e) => {
+    // Click outside → close. Keep a reference to the handler so `destroy` can
+    // detach it; otherwise every editor instance leaks a live document listener.
+    const onDocumentMouseDown = (e) => {
         if (popover.style.display !== 'none' && !popover.contains(e.target)) {
             _editors[editorId]?.editor.commands.focus();
             hide();
         }
-    });
+    };
+    document.addEventListener('mousedown', onDocumentMouseDown);
 
-    return { popover, input, hide };
+    return { popover, input, hide, onDocumentMouseDown };
 }
 
 export function showLinkPopover(editorId) {

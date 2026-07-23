@@ -557,6 +557,7 @@ window.tiptapInterop = {
             entry.blobUrlCache.clear();
             entry.editor.destroy();
             entry.bubbleMenuEl.remove();
+            document.removeEventListener('mousedown', entry.linkPopover.onDocumentMouseDown);
             entry.linkPopover.popover.remove();
             delete _editors[elementId];
             console.debug(`[tiptap] Editor destroyed: ${elementId}`);
