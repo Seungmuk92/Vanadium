@@ -61,8 +61,7 @@
 
         if (outcome == LoginOutcome.Success)
         {
-            var target = string.IsNullOrEmpty(ReturnUrl) ? "/" : Uri.UnescapeDataString(ReturnUrl);
-            Nav.NavigateTo(target);
+            Nav.NavigateTo(ResolveSafeReturnUrl());
         }
         else
         {
@@ -75,6 +74,19 @@
             };
             _isLoading = false;
         }
+    }
+
+    // Only redirect to a same-app absolute path after login. An external absolute URL
+    // (e.g. https://evil.example) or a scheme-relative URL (//evil.example) must never be
+    // a redirect target, so a returnUrl that does not start with a single '/' falls back
+    // to the app root — this closes the open-redirect on /login?returnUrl= (issue #284).
+    private string ResolveSafeReturnUrl()
+    {
+        if (string.IsNullOrEmpty(ReturnUrl))
+            return "/";
+
+        var target = Uri.UnescapeDataString(ReturnUrl);
+        return target.StartsWith('/') && !target.StartsWith("//") ? target : "/";
     }
 
     private class LoginModel
