@@ -208,6 +208,13 @@
             {
                 <div class="backlinks-hint">Loading…</div>
             }
+            else if (_backlinksFailed)
+            {
+                <div class="backlinks-hint backlinks-error">
+                    <span>Couldn't load backlinks.</span>
+                    <button type="button" class="btn btn-sm btn-primary" @onclick="RetryBacklinks">Retry</button>
+                </div>
+            }
             else if (backlinks.Count == 0)
             {
                 <div class="backlinks-hint">No other notes link here yet.</div>
@@ -321,6 +328,7 @@
     // Backlinks ("what links here") state
     private List<BacklinkResult> backlinks = [];
     private bool _backlinksLoading = false;
+    private bool _backlinksFailed = false;
 
     // Label state
     private List<Label> noteLabels = [];
@@ -370,6 +378,7 @@
         childCount = 0;
         noteLabels = [];
         backlinks = [];
+        _backlinksFailed = false;
         _hasConflict = false;
         // Drop any unresolved #267 draft-choice banner from the outgoing note so it can't leak
         // onto the incoming note across this reused component instance (a stale _pendingDraft
@@ -474,12 +483,24 @@
     private async Task LoadBacklinksAsync(Guid noteId)
     {
         _backlinksLoading = true;
+        _backlinksFailed = false;
         var result = await NoteService.GetBacklinksAsync(noteId);
         // Ignore a stale response if the user navigated to another note while loading.
         if (_currentId != noteId) return;
-        backlinks = result.IsSuccess ? result.Value! : [];
+        // Distinguish a load failure from a genuinely empty result so the panel does not show
+        // the "no notes link here" empty state when the request actually errored (issue #288).
+        if (result.IsSuccess)
+            backlinks = result.Value!;
+        else
+            _backlinksFailed = true;
         _backlinksLoading = false;
         StateHasChanged();
+    }
+
+    private async Task RetryBacklinks()
+    {
+        if (Id is not null)
+            await LoadBacklinksAsync(Id.Value);
     }
 
     private async Task LoadLabelsAsync()
