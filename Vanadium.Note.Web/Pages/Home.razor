@@ -1,6 +1,7 @@
 @page "/"
 @attribute [Authorize]
 @inject NoteService NoteService
+@inject SettingsService SettingsService
 @inject NavigationManager Nav
 @inject ConfirmService Confirm
 @inject ILogger<Home> Logger
@@ -271,7 +272,9 @@
 
     private int currentPage = 1;
     private int totalCount = 0;
-    private const int PageSize = 30;
+    // Seeded from the user's saved settings in OnInitializedAsync; falls back to 30 if
+    // settings fail to load. Not const because it is user-configurable (issue #268).
+    private int pageSize = 30;
     private bool isLoading = false;
     private bool loadFailed = false;
 
@@ -279,7 +282,7 @@
     private SortColumn currentSort = SortColumn.Date;
     private bool sortAscending = false;
 
-    private int TotalPages => Math.Max(1, (int)Math.Ceiling((double)totalCount / PageSize));
+    private int TotalPages => Math.Max(1, (int)Math.Ceiling((double)totalCount / pageSize));
     private bool IsAllSelected => notes.Count > 0 && notes.All(n => selectedIds.Contains(n.Id));
 
     private string SortIcon(SortColumn col)
@@ -290,7 +293,24 @@
 
     protected override async Task OnInitializedAsync()
     {
+        await ApplyUserSettings();
         await LoadNotes(includeLabels: true);
+    }
+
+    // Seed the sort column/direction and page size from the user's saved settings so the
+    // Notes List section in Settings actually takes effect on Home (issue #268). Unknown
+    // or missing values fall back to the existing defaults (date desc, 30 per page).
+    private async Task ApplyUserSettings()
+    {
+        var result = await SettingsService.GetAsync();
+        if (!result.IsSuccess || result.Value is null)
+            return;
+
+        var settings = result.Value;
+        currentSort = settings.DefaultSortBy == "title" ? SortColumn.Title : SortColumn.Date;
+        sortAscending = settings.DefaultSortDir == "asc";
+        if (settings.DefaultPageSize > 0)
+            pageSize = settings.DefaultPageSize;
     }
 
     // Retry after a failed load. Reload labels too if the initial load never delivered them.
@@ -320,7 +340,7 @@
             {
                 var result = await NoteService.GetAllAsync(
                     currentPage,
-                    PageSize,
+                    pageSize,
                     string.IsNullOrWhiteSpace(_searchText) ? null : _searchText,
                     currentSort == SortColumn.Title ? "title" : "date",
                     sortAscending ? "asc" : "desc",
