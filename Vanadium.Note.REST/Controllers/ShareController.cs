@@ -37,7 +37,9 @@ public class ShareController(NoteService noteService, ILogger<ShareController> l
         {
             Id = note.Id,
             Title = note.Title,
-            Content = note.Content,
+            // Strip cross-note reference markup so a shared note never leaks the GUIDs/titles of
+            // the (possibly non-shared) notes it links to (issue #292).
+            Content = ShareContentRedactor.Redact(note.Content),
             UpdatedAt = note.UpdatedAt
         });
     }

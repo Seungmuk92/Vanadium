@@ -37,15 +37,21 @@ public sealed class VanadiumWebApplicationFactory : WebApplicationFactory<Progra
     // while at least one connection to it is open.
     private readonly SqliteConnection _connection = new("DataSource=:memory:");
 
-    public VanadiumWebApplicationFactory()
+    // Program validates Auth:JwtSecret eagerly during WebApplication.CreateBuilder,
+    // before the host is built — earlier than any ConfigureAppConfiguration source takes
+    // effect. Environment variables are read at that point (the default builder calls
+    // AddEnvironmentVariables), so the auth config must be supplied this way.
+    //
+    // Environment variables are process-global, so this is done ONCE in a static
+    // constructor and never torn down. Every E2E factory (there is one per test class,
+    // and xUnit runs test classes in parallel) then observes the same valid config while
+    // building its host. Setting them per-instance and nulling them in Dispose instead
+    // raced across parallel factories: one factory's Dispose could null Auth:JwtSecret
+    // while another was still building its host, making that host fail to start
+    // ("Auth:JwtSecret is not configured") and flaking a smoke test on CI.
+    // "__" maps to the ":" configuration separator.
+    static VanadiumWebApplicationFactory()
     {
-        _connection.Open();
-
-        // Program validates Auth:JwtSecret eagerly during WebApplication.CreateBuilder,
-        // before the host is built — earlier than any ConfigureAppConfiguration source
-        // takes effect. Environment variables are read at that point (the default builder
-        // calls AddEnvironmentVariables), so the auth config is supplied this way.
-        // "__" maps to the ":" configuration separator.
         Environment.SetEnvironmentVariable("Auth__JwtSecret", JwtSecret);
         Environment.SetEnvironmentVariable("Auth__PasswordHash", PasswordHasher.Hash(OwnerPassword));
         // Never used (the provider is replaced below) but present so the Npgsql option
@@ -53,6 +59,11 @@ public sealed class VanadiumWebApplicationFactory : WebApplicationFactory<Progra
         Environment.SetEnvironmentVariable(
             "ConnectionStrings__DefaultConnection",
             "Host=localhost;Database=vanadium_test;Username=test;Password=test");
+    }
+
+    public VanadiumWebApplicationFactory()
+    {
+        _connection.Open();
     }
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
@@ -92,9 +103,11 @@ public sealed class VanadiumWebApplicationFactory : WebApplicationFactory<Progra
         if (!disposing)
             return;
 
+        // Only the per-factory SQLite connection is torn down here. The auth/config
+        // environment variables are process-global and set once in the static
+        // constructor; they are deliberately NOT nulled, so disposing one factory can
+        // never pull valid config out from under another factory that is still building
+        // its host on a parallel test thread.
         _connection.Dispose();
-        Environment.SetEnvironmentVariable("Auth__JwtSecret", null);
-        Environment.SetEnvironmentVariable("Auth__PasswordHash", null);
-        Environment.SetEnvironmentVariable("ConnectionStrings__DefaultConnection", null);
     }
 }
