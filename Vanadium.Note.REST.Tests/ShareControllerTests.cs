@@ -39,6 +39,33 @@ public class ShareControllerTests
     }
 
     [Fact]
+    public async Task Get_NoteWithReferences_RedactsIdsAndTitles()
+    {
+        using var h = new TestHost();
+        const string secretId = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
+        const string secretTitle = "Private Referenced Note";
+        var content =
+            $"<p>intro</p>" +
+            $"<div data-type=\"page-link\" data-note-id=\"{secretId}\" data-title=\"{secretTitle}\" class=\"page-link-block\">" +
+            $"<span class=\"page-link-icon\">📄</span><span class=\"page-link-title\">{secretTitle}</span></div>" +
+            $"<p>see <a data-type=\"note-mention\" data-note-id=\"{secretId}\" data-title=\"{secretTitle}\" class=\"note-mention\">@{secretTitle}</a></p>";
+        var note = await h.CreateNoteAsync("Shared", content: content);
+        var info = await h.Notes.SetShare(note.Id, ShareMode.Public);
+        var controller = CreateController(h);
+
+        var result = await controller.Get(info!.Token!, CancellationToken.None);
+
+        var ok = Assert.IsType<OkObjectResult>(result.Result);
+        var shared = Assert.IsType<SharedNote>(ok.Value);
+        Assert.DoesNotContain(secretId, shared.Content);
+        Assert.DoesNotContain(secretTitle, shared.Content);
+        Assert.DoesNotContain("data-note-id", shared.Content);
+        Assert.DoesNotContain("data-title", shared.Content);
+        Assert.Contains("🔒 private page", shared.Content);
+        Assert.Contains("<p>intro</p>", shared.Content); // ordinary content survives
+    }
+
+    [Fact]
     public async Task Get_UnknownToken_ReturnsNotFound()
     {
         using var h = new TestHost();
