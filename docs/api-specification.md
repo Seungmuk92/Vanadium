@@ -355,7 +355,7 @@ Route prefix `/api/settings`. **Auth: Bearer (JWT or PAT).** `UserSettings` is a
 |---|---|---|---|
 | GET | `/api/settings` | Bearer | Get user settings. |
 | PUT | `/api/settings` | Bearer | Update user settings. |
-| DELETE | `/api/settings/all-data` | Bearer | Permanently purge all content. |
+| DELETE | `/api/settings/all-data` | **JWT only** | Permanently purge all content (owner-password re-confirmation required). |
 
 ### GET `/api/settings`
 
@@ -371,7 +371,12 @@ Route prefix `/api/settings`. **Auth: Bearer (JWT or PAT).** `UserSettings` is a
 Permanently deletes all notes, labels, label categories, API tokens, settings, and orphaned
 uploads. The owner password lives in configuration, so login remains possible afterward.
 
-- **Status codes:** `204` purged · `404` nothing to purge.
+As the most destructive endpoint, it is locked down beyond the shared smart scheme: it accepts
+**only the interactive JWT scheme** (a personal access token cannot call it), and it re-confirms
+the owner password from the request body before deleting anything.
+
+- **Request body:** `{ password }` — the owner password, re-verified with `PasswordHasher.Verify`.
+- **Status codes:** `204` purged · `403` wrong password · `401` called with a PAT (or no JWT) · `500` server password not configured.
 
 ---
 

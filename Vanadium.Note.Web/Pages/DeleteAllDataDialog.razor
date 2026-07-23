@@ -15,7 +15,7 @@
         </MudText>
 
         <MudText Class="mb-2">
-            To confirm, type <strong>@ConfirmWord</strong> below.
+            To confirm, type <strong>@ConfirmWord</strong> and enter your account password below.
         </MudText>
 
         <MudTextField @bind-Value="_typed"
@@ -25,6 +25,14 @@
                       Placeholder="@ConfirmWord"
                       Adornment="Adornment.None"
                       AutoFocus="true" />
+
+        <MudTextField @bind-Value="_password"
+                      Immediate="true"
+                      InputType="InputType.Password"
+                      Variant="Variant.Outlined"
+                      Margin="Margin.Dense"
+                      Label="Password"
+                      Class="mt-3" />
     </DialogContent>
     <DialogActions>
         <MudButton OnClick="Cancel">Cancel</MudButton>
@@ -45,13 +53,16 @@
     private IMudDialogInstance MudDialog { get; set; } = default!;
 
     private string _typed = string.Empty;
+    private string _password = string.Empty;
 
-    private bool CanConfirm => string.Equals(_typed.Trim(), ConfirmWord, StringComparison.Ordinal);
+    private bool CanConfirm =>
+        string.Equals(_typed.Trim(), ConfirmWord, StringComparison.Ordinal)
+        && !string.IsNullOrEmpty(_password);
 
     private void Confirm()
     {
         if (CanConfirm)
-            MudDialog.Close(DialogResult.Ok(true));
+            MudDialog.Close(DialogResult.Ok(_password));
     }
 
     private void Cancel() => MudDialog.Cancel();

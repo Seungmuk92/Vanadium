@@ -1,3 +1,4 @@
+using System.Net;
 using System.Net.Http.Json;
 using Vanadium.Note.Web.Models;
 
@@ -40,14 +41,24 @@ public class SettingsService(HttpClient http, ILogger<SettingsService> logger)
         }
     }
 
-    public async Task<ServiceResult<bool>> DeleteAllDataAsync()
+    public async Task<ServiceResult<bool>> DeleteAllDataAsync(string password)
     {
         try
         {
-            var response = await http.DeleteAsync("api/settings/all-data");
-            return response.IsSuccessStatusCode
-                ? ServiceResult<bool>.Ok(true)
-                : ServiceResult<bool>.Fail("Failed to delete data.");
+            // The purge endpoint requires the owner password in the body (issue #289), so it
+            // is sent as a DELETE with a JSON body rather than a bare DeleteAsync.
+            var request = new HttpRequestMessage(HttpMethod.Delete, "api/settings/all-data")
+            {
+                Content = JsonContent.Create(new DeleteAllDataRequest(password))
+            };
+            var response = await http.SendAsync(request);
+            if (response.IsSuccessStatusCode)
+                return ServiceResult<bool>.Ok(true);
+            // A wrong password is rejected with 403; surface that distinctly so the user knows
+            // their data is intact and the password was the problem.
+            if (response.StatusCode == HttpStatusCode.Forbidden)
+                return ServiceResult<bool>.Fail("Incorrect password. Your data was not deleted.");
+            return ServiceResult<bool>.Fail("Failed to delete data.");
         }
         catch (Exception ex)
         {

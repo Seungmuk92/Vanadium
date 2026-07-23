@@ -282,11 +282,11 @@
     {
         var dialog = await DialogService.ShowAsync<DeleteAllDataDialog>("Remove all data");
         var dialogResult = await dialog.Result;
-        if (dialogResult is null || dialogResult.Canceled)
+        if (dialogResult is null || dialogResult.Canceled || dialogResult.Data is not string password)
             return;
 
         _isPurging = true;
-        var result = await SettingsService.DeleteAllDataAsync();
+        var result = await SettingsService.DeleteAllDataAsync(password);
         if (result.IsSuccess)
         {
             Snackbar.Add("All data deleted.", Severity.Success);
