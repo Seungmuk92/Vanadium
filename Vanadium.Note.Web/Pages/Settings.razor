@@ -274,8 +274,18 @@
 
     private async Task CopyToken(string token)
     {
-        await JS.InvokeVoidAsync("navigator.clipboard.writeText", token);
-        Snackbar.Add("Token copied to clipboard.", Severity.Info);
+        // navigator.clipboard is undefined in non-secure (http) contexts, so the interop
+        // call throws a JSException. Handle it instead of letting it surface unhandled, and
+        // point the user at the read-only token field above for manual copy (issue #287).
+        try
+        {
+            await JS.InvokeVoidAsync("navigator.clipboard.writeText", token);
+            Snackbar.Add("Token copied to clipboard.", Severity.Info);
+        }
+        catch (JSException)
+        {
+            Snackbar.Add("Couldn't copy automatically. Select the token in the field above and copy it manually.", Severity.Warning);
+        }
     }
 
     private async Task DeleteAllDataAsync()

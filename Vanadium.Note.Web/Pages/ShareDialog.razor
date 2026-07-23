@@ -124,8 +124,18 @@
     private async Task CopyLink()
     {
         if (string.IsNullOrEmpty(ShareUrl)) return;
-        await JS.InvokeVoidAsync("navigator.clipboard.writeText", ShareUrl);
-        Snackbar.Add("Link copied to clipboard.", Severity.Info);
+        // navigator.clipboard is undefined in non-secure (http) contexts, so the interop
+        // call throws a JSException. Handle it instead of letting it surface unhandled, and
+        // point the user at the read-only share-link field for manual copy (issue #287).
+        try
+        {
+            await JS.InvokeVoidAsync("navigator.clipboard.writeText", ShareUrl);
+            Snackbar.Add("Link copied to clipboard.", Severity.Info);
+        }
+        catch (JSException)
+        {
+            Snackbar.Add("Couldn't copy automatically. Select the link in the field above and copy it manually.", Severity.Warning);
+        }
     }
 
     private void Close() => MudDialog.Close();
