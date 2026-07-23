@@ -35,6 +35,9 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Vanadium.Note.REST\Vanadium.Note.REST.csproj" />
+    <!-- Referenced only to unit-test the dependency-free Vanadium.Note.Web.Auth.JwtClaimParser
+         (issue #297); the Web project is Blazor WASM but JwtClaimParser has no Blazor/JS deps. -->
+    <ProjectReference Include="..\Vanadium.Note.Web\Vanadium.Note.Web.csproj" />
   </ItemGroup>
 
 </Project>
