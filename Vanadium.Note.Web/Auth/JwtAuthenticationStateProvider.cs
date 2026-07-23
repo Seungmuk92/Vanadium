@@ -1,6 +1,5 @@
 using Microsoft.AspNetCore.Components.Authorization;
 using System.Security.Claims;
-using System.Text.Json;
 
 namespace Vanadium.Note.Web.Auth;
 
@@ -31,7 +30,21 @@ public class JwtAuthenticationStateProvider : AuthenticationStateProvider
         if (string.IsNullOrWhiteSpace(token))
             return Anonymous;
 
-        var claims = ParseClaimsFromJwt(token);
+        var claims = JwtClaimParser.ParseClaims(token);
+        if (claims.Count == 0)
+        {
+            logger.LogWarning("JWT produced no claims — token may be malformed or corrupted.");
+            return Anonymous;
+        }
+
+        // An expired token must not present as authenticated, otherwise a stale JWT flashes a
+        // logged-in shell before the first API 401 forces re-login (issue #297).
+        if (JwtClaimParser.IsExpired(claims, DateTimeOffset.UtcNow))
+        {
+            logger.LogInformation("JWT is expired — treating as anonymous.");
+            return Anonymous;
+        }
+
         var identity = new ClaimsIdentity(claims, "jwt");
         return new AuthenticationState(new ClaimsPrincipal(identity));
     }
@@ -39,34 +52,5 @@ public class JwtAuthenticationStateProvider : AuthenticationStateProvider
     public void NotifyAuthStateChanged()
     {
         NotifyAuthenticationStateChanged(GetAuthenticationStateAsync());
-    }
-
-    private IEnumerable<Claim> ParseClaimsFromJwt(string jwt)
-    {
-        var payload = jwt.Split('.').ElementAtOrDefault(1);
-        if (payload is null)
-        {
-            logger.LogWarning("JWT is malformed — missing payload segment.");
-            return [];
-        }
-
-        var padded = (payload.Length % 4) switch
-        {
-            2 => payload + "==",
-            3 => payload + "=",
-            _ => payload,
-        };
-
-        try
-        {
-            var jsonBytes = Convert.FromBase64String(padded);
-            var pairs = JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(jsonBytes);
-            return pairs?.Select(p => new Claim(p.Key, p.Value.ToString())) ?? [];
-        }
-        catch (Exception ex)
-        {
-            logger.LogWarning(ex, "Failed to parse JWT claims — token may be malformed or corrupted.");
-            return [];
-        }
     }
 }
