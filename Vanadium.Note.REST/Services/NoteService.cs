@@ -427,19 +427,73 @@ public class NoteService(
 
         if (referencingNotes.Count == 0) return;
 
+        // Save each referencing note on its own so one note losing an optimistic-concurrency race
+        // cannot abort propagation to the others, and so the conflict can be resolved per note
+        // (issue #298). The previous single batch save neither advanced UpdatedAt nor tolerated a
+        // conflict — a concurrent edit to any referencing note would surface as an uncaught
+        // DbUpdateConcurrencyException that failed the whole request after the title note had
+        // already been saved.
+        var propagated = 0;
         foreach (var n in referencingNotes)
         {
-            var updated = UpdatePageLinkTitleInContent(n.Content, noteId, newTitle);
-            updated = UpdateMentionTitleInContent(updated, noteId, newTitle);
-            if (updated == n.Content) continue;
-            n.Content = updated;
-            n.ContentText = StripHtml(updated);
+            if (await TryPropagateTitleToNote(n, noteId, newTitle, ct))
+                propagated++;
         }
 
-        await db.SaveChangesAsync(ct);
         logger.LogInformation(
-            "Propagated title change to '{NewTitle}' across {Count} note(s) referencing {NoteId}.",
-            newTitle, referencingNotes.Count, noteId);
+            "Propagated title change to '{NewTitle}' across {Count} of {Total} note(s) referencing {NoteId}.",
+            newTitle, propagated, referencingNotes.Count, noteId);
+    }
+
+    /// <summary>
+    /// Rewrites the page-link/mention titles that reference <paramref name="referencedId"/> inside a
+    /// single note, advances its microsecond <see cref="NoteItem.UpdatedAt"/>, and saves it on its
+    /// own. Because <c>UpdatedAt</c> is a <c>[ConcurrencyCheck]</c> token, EF pins the version we
+    /// read into the UPDATE's WHERE clause; if a concurrent editor advanced the row in between, the
+    /// save conflicts and we reload the note's current content and re-apply the title on top of that
+    /// edit instead of silently overwriting it. Returns true when the note was persisted with the new
+    /// title. Best-effort: after a bounded number of losing races the note is left untouched (its own
+    /// next save will refresh the stale title), so a hot-edited note never blocks the request.
+    /// </summary>
+    private async Task<bool> TryPropagateTitleToNote(
+        NoteItem note, Guid referencedId, string newTitle, CancellationToken ct)
+    {
+        const int maxAttempts = 3;
+        for (var attempt = 1; attempt <= maxAttempts; attempt++)
+        {
+            var updated = UpdatePageLinkTitleInContent(note.Content, referencedId, newTitle);
+            updated = UpdateMentionTitleInContent(updated, referencedId, newTitle);
+            if (updated == note.Content) return false;
+
+            note.Content = updated;
+            note.ContentText = StripHtml(updated);
+            // Advance the version so the change is detectable by optimistic concurrency; the
+            // pre-save (original) value remains the token EF places in the UPDATE's WHERE clause.
+            note.UpdatedAt = UtcNowMicroseconds();
+
+            try
+            {
+                await db.SaveChangesAsync(ct);
+                return true;
+            }
+            catch (DbUpdateConcurrencyException)
+            {
+                // A concurrent edit advanced this note between our read and save. Reload its current
+                // state and retry so the title change layers onto that edit rather than clobbering it.
+                await db.Entry(note).ReloadAsync(ct);
+                if (db.Entry(note).State == EntityState.Detached)
+                {
+                    // The referencing note was hard-deleted mid-propagation — nothing left to update.
+                    return false;
+                }
+            }
+        }
+
+        logger.LogWarning(
+            "Skipped title propagation to note {NoteId} after {Attempts} conflicting attempts; its "
+            + "next own save will refresh the stale reference title.",
+            note.Id, maxAttempts);
+        return false;
     }
 
     private static string UpdateMentionTitleInContent(string content, Guid noteId, string newTitle)
