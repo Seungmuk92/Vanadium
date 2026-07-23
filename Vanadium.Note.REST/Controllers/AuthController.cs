@@ -34,9 +34,33 @@ public class AuthController(
     {
         logger.LogInformation("Login attempt.");
 
-        // Global backoff gate: unlike the per-IP fixed-window limiter, this counter is shared
-        // across every source, so distributed IPs or forged X-Forwarded-For cannot slip past it.
-        // Attempts arriving during an active lockout are rejected without touching the password.
+        var storedHash = config["Auth:PasswordHash"];
+        if (string.IsNullOrEmpty(storedHash))
+        {
+            logger.LogError("Auth:PasswordHash is not configured — login is impossible until it is set.");
+            return Problem(
+                detail: "Server password is not configured.",
+                statusCode: StatusCodes.Status500InternalServerError);
+        }
+
+        // Verify the password EVEN during an active global lockout. Skipping verification while
+        // locked let an attacker keep the owner out forever: the shared failure counter only
+        // resets on a success, so one wrong attempt right after each window expired re-armed the
+        // lock indefinitely and the owner's correct password was never checked (issue #291).
+        // Now a correct password always clears the lock and gets through; only a wrong password is
+        // rejected. The PBKDF2 cost this incurs while locked is bounded by the per-IP
+        // fixed-window limiter on this endpoint (unlike PBKDF2, the shared lock is not per-IP).
+        if (PasswordHasher.Verify(request.Password, storedHash))
+        {
+            loginThrottle.RegisterSuccess();
+            var token = GenerateJwtToken();
+            logger.LogInformation("Owner authenticated successfully.");
+            return Ok(new { token });
+        }
+
+        // Wrong password. During an active lockout, surface 429 without counting the failure
+        // (RegisterFailure already ignores locked-window attempts, so the window cannot be
+        // extended); otherwise register the failure and return 401.
         if (loginThrottle.IsLocked(out var retryAfter))
         {
             var seconds = (int)Math.Ceiling(retryAfter.TotalSeconds);
@@ -47,26 +71,9 @@ public class AuthController(
                 statusCode: StatusCodes.Status429TooManyRequests);
         }
 
-        var storedHash = config["Auth:PasswordHash"];
-        if (string.IsNullOrEmpty(storedHash))
-        {
-            logger.LogError("Auth:PasswordHash is not configured — login is impossible until it is set.");
-            return Problem(
-                detail: "Server password is not configured.",
-                statusCode: StatusCodes.Status500InternalServerError);
-        }
-
-        if (!PasswordHasher.Verify(request.Password, storedHash))
-        {
-            loginThrottle.RegisterFailure();
-            logger.LogWarning("Failed login attempt.");
-            return Problem(detail: "Invalid password.", statusCode: StatusCodes.Status401Unauthorized);
-        }
-
-        loginThrottle.RegisterSuccess();
-        var token = GenerateJwtToken();
-        logger.LogInformation("Owner authenticated successfully.");
-        return Ok(new { token });
+        loginThrottle.RegisterFailure();
+        logger.LogWarning("Failed login attempt.");
+        return Problem(detail: "Invalid password.", statusCode: StatusCodes.Status401Unauthorized);
     }
 
     /// <summary>
