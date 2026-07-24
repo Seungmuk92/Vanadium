@@ -13,6 +13,7 @@ public class FileCleanupService(
     NoteDbContext db,
     IWebHostEnvironment env,
     IConfiguration config,
+    OrphanReferenceTracker tracker,
     ILogger<FileCleanupService> logger)
 {
     private const int DefaultGraceMinutes = 60;
@@ -65,11 +66,19 @@ public class FileCleanupService(
     /// </summary>
     public async Task DeleteAllOrphansAsync(CancellationToken ct = default)
     {
-        // Files uploaded within the grace window are skipped: a freshly uploaded
-        // file may not yet be referenced in any note's HTML because the editor
-        // auto-save is debounced (~1500ms) and the note may still be in progress.
+        // Grace is measured from when an asset was FIRST observed unreferenced by a scan
+        // (tracked in OrphanReferenceTracker), not from its upload/creation time. A freshly
+        // uploaded asset whose note draft has not been saved yet (auto-save debounced ~1500ms,
+        // delayed, offline, or abandoned) is therefore recorded on the first scan and skipped;
+        // it is only collected once it has stayed unreferenced for the whole grace window
+        // across scans. Any scan that finds the asset referenced again clears the record and
+        // resets the clock (issue #301).
+        var now = DateTime.UtcNow;
         var graceMinutes = config.GetValue("FileCleanup:GraceMinutes", DefaultGraceMinutes);
-        var graceCutoff = DateTime.UtcNow.AddMinutes(-graceMinutes);
+        var graceCutoff = now.AddMinutes(-graceMinutes);
+
+        // GUIDs still present this scan, so the tracker can prune vanished assets afterwards.
+        var liveIds = new HashSet<Guid>();
 
         // --- File attachments (have DB records) ---
         var attachments = await db.FileAttachments.ToListAsync(ct);
@@ -82,20 +91,30 @@ public class FileCleanupService(
 
         foreach (var attachment in attachments)
         {
-            if (await IsReferencedInAnyNoteAsync(attachment.Id, ct))
-                continue;
+            liveIds.Add(attachment.Id);
 
-            // Skip recently uploaded attachments still within the grace window.
-            if (attachment.UploadedAt > graceCutoff)
+            if (await IsReferencedInAnyNoteAsync(attachment.Id, ct))
+            {
+                // Referenced again — reset any accumulated unreferenced grace.
+                tracker.Forget(attachment.Id);
+                continue;
+            }
+
+            // Skip until the asset has been unreferenced for the whole grace window,
+            // measured from the first scan that observed it unreferenced.
+            var firstUnreferenced = tracker.ObserveUnreferenced(attachment.Id, now);
+            if (firstUnreferenced > graceCutoff)
             {
                 logger.LogDebug(
-                    "Periodic scan: skipping recently uploaded attachment {FileId} (within grace window).",
+                    "Periodic scan: skipping unreferenced attachment {FileId} (within grace window since first seen unreferenced).",
                     attachment.Id);
                 continue;
             }
 
             db.FileAttachments.Remove(attachment);
             DeletePhysicalFile(Path.Combine(UploadsPath, $"file_{attachment.Id}"));
+            tracker.Forget(attachment.Id);
+            liveIds.Remove(attachment.Id);
             logger.LogDebug("Periodic scan: removed orphaned file attachment {FileId} ('{FileName}').",
                 attachment.Id, attachment.OriginalName);
             filesRemoved++;
@@ -107,6 +126,7 @@ public class FileCleanupService(
         // --- Images (disk-only, no DB record) ---
         if (!Directory.Exists(UploadsPath))
         {
+            tracker.RetainOnly(liveIds);
             logger.LogInformation(
                 "Orphan cleanup complete — {Files} file attachment(s) and 0 image(s) removed.", filesRemoved);
             return;
@@ -124,23 +144,34 @@ public class FileCleanupService(
             if (!Guid.TryParse(guidStr, out var imageId))
                 continue;
 
-            if (await IsReferencedInAnyNoteAsync(imageId, ct))
-                continue;
+            liveIds.Add(imageId);
 
-            // Disk-only images have no DB record, so fall back to the file's
-            // creation time to honor the same grace window.
-            if (file.CreationTimeUtc > graceCutoff)
+            if (await IsReferencedInAnyNoteAsync(imageId, ct))
+            {
+                tracker.Forget(imageId);
+                continue;
+            }
+
+            // Same first-unreferenced grace as attachments: disk-only images have no DB
+            // record, so the tracker (not the file's creation time) supplies the clock.
+            var firstUnreferenced = tracker.ObserveUnreferenced(imageId, now);
+            if (firstUnreferenced > graceCutoff)
             {
                 logger.LogDebug(
-                    "Periodic scan: skipping recently created image {ImageFile} (within grace window).",
+                    "Periodic scan: skipping unreferenced image {ImageFile} (within grace window since first seen unreferenced).",
                     file.Name);
                 continue;
             }
 
             DeletePhysicalFile(file.FullName);
+            tracker.Forget(imageId);
+            liveIds.Remove(imageId);
             logger.LogDebug("Periodic scan: removed orphaned image {ImageFile}.", file.Name);
             imagesRemoved++;
         }
+
+        // Forget assets that disappeared by another path so records do not accumulate.
+        tracker.RetainOnly(liveIds);
 
         logger.LogInformation(
             "Orphan cleanup complete — {Files} file attachment(s) and {Images} image(s) removed.",

@@ -156,6 +156,9 @@ builder.Services.AddScoped<LabelService>();
 builder.Services.AddScoped<SettingsService>();
 builder.Services.AddScoped<ApiTokenService>();
 builder.Services.AddScoped<FileCleanupService>();
+// Singleton: holds first-observed-unreferenced timestamps across periodic scans so the
+// orphan grace window is measured from first sighting, not upload time (issue #301).
+builder.Services.AddSingleton<OrphanReferenceTracker>();
 builder.Services.AddScoped<AccountService>();
 
 builder.Services.Configure<PasswordPolicyOptions>(

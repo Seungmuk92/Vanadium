@@ -25,6 +25,7 @@ public sealed class TestHost : IDisposable
     public LabelService Labels { get; }
     public AccountService Account { get; }
     public FileCleanupService FileCleanup { get; }
+    public OrphanReferenceTracker OrphanTracker { get; }
 
     /// <summary>Content root used by FileCleanupService ("uploads" lives below it).</summary>
     public string ContentRoot { get; }
@@ -45,8 +46,10 @@ public sealed class TestHost : IDisposable
         Directory.CreateDirectory(Path.Combine(ContentRoot, "uploads"));
 
         var configuration = new ConfigurationBuilder().Build();
+        OrphanTracker = new OrphanReferenceTracker();
         FileCleanup = new FileCleanupService(
-            Db, new TestWebHostEnvironment(ContentRoot), configuration, NullLogger<FileCleanupService>.Instance);
+            Db, new TestWebHostEnvironment(ContentRoot), configuration, OrphanTracker,
+            NullLogger<FileCleanupService>.Instance);
         Notes = new NoteService(Db, FileCleanup, new HtmlSanitizerService(), NullLogger<NoteService>.Instance);
         Labels = new LabelService(Db, NullLogger<LabelService>.Instance);
         Account = new AccountService(Db, NullLogger<AccountService>.Instance);
