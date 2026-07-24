@@ -228,6 +228,23 @@
     border-bottom-color: var(--mud-palette-primary);
 }
 
+/* "No label" virtual column (#272): notes with none of this category's labels.
+   Dashed border marks it as a non-droppable, display-only column. */
+.board-column-unclassified {
+    border-style: dashed;
+    background-color: transparent;
+}
+
+.board-column-unclassified .board-column-title {
+    opacity: 0.7;
+    font-style: italic;
+}
+
+/* Its cards are not draggable — only clickable to open the note. */
+.board-column-unclassified .board-card {
+    cursor: pointer;
+}
+
 .board-card-title {
     font-size: 0.88rem;
     font-weight: 500;

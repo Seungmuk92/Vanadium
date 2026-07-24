@@ -117,6 +117,65 @@
                     </div>
                 </div>
             }
+
+            @{
+                var unclassifiedNotes = GetUnclassifiedNotes();
+            }
+            @if (unclassifiedNotes.Any())
+            {
+                // "No label" virtual column: notes with none of this category's labels. It is
+                // display-only — no data-label-id (so drag-drop ignores it as a drop target) and
+                // its cards are not draggable, keeping the label-move semantics untouched (#272).
+                var unclassifiedExpanded = expandedColumns.Contains(UnclassifiedColumnKey);
+                var unclassifiedVisible = unclassifiedExpanded ? unclassifiedNotes : unclassifiedNotes.Take(CardsPerColumnLimit).ToList();
+                var unclassifiedHidden = unclassifiedNotes.Count - unclassifiedVisible.Count;
+
+                <div class="board-column board-column-unclassified">
+                    <div class="board-column-header">
+                        <span class="board-column-title">No label</span>
+                        <span class="board-column-count">@unclassifiedNotes.Count</span>
+                    </div>
+                    <div class="board-column-cards">
+                        @foreach (var note in unclassifiedVisible)
+                        {
+                            var capturedNote = note;
+                            <div class="board-card"
+                                 data-note-id="@capturedNote.Id"
+                                 @onclick="() => EditNote(capturedNote.Id)">
+                                <div class="board-card-title">
+                                    @(string.IsNullOrWhiteSpace(capturedNote.Title) ? "(No title)" : capturedNote.Title)
+                                </div>
+                                @if (capturedNote.Labels.Any())
+                                {
+                                    <div class="board-card-labels">
+                                        @foreach (var lbl in capturedNote.Labels)
+                                        {
+                                            <span class="board-card-chip @(lbl.CategoryId.HasValue ? "board-card-chip-cat" : "")">
+                                                @if (lbl.CategoryId.HasValue)
+                                                {
+                                                    <span class="board-card-chip-prefix">@lbl.CategoryName:</span>
+                                                }
+                                                @lbl.Name
+                                            </span>
+                                        }
+                                    </div>
+                                }
+                                <div class="board-card-date">
+                                    @capturedNote.UpdatedAt.ToLocalTime().ToString("MM-dd HH:mm")
+                                </div>
+                            </div>
+                        }
+                    </div>
+                    @if (unclassifiedHidden > 0)
+                    {
+                        <div class="board-column-showmore">
+                            <button class="board-showmore-btn" @onclick="() => ShowMore(UnclassifiedColumnKey)">
+                                Show @unclassifiedHidden more
+                            </button>
+                        </div>
+                    }
+                </div>
+            }
         </div>
     }
 </div>
@@ -164,6 +223,10 @@
     // does not grow the board's DOM/render cost without bound (#206). The rest
     // stay reachable behind a per-column "Show more" toggle.
     private const int CardsPerColumnLimit = 50;
+
+    // Sentinel key for the "No label" virtual column in expandedColumns. Real label ids
+    // are never Guid.Empty, so it can never collide with an actual column (#272).
+    private static readonly Guid UnclassifiedColumnKey = Guid.Empty;
 
     private IReadOnlyList<NoteSummary> notes = [];
     private List<LabelCategory> categories = [];
@@ -213,8 +276,10 @@
         }
         isLoading = true;
         StateHasChanged();
-        var labelIds = selectedCategory.Labels.Select(l => l.Id);
-        var notesResult = await NoteService.GetAllSummariesAsync(labelIds);
+        // Load every non-archived note (no label filter) so notes that carry none of this
+        // category's labels are available client-side for the "No label" virtual column (#272).
+        // Server-side label filtering would drop them entirely, making them invisible on the board.
+        var notesResult = await NoteService.GetAllSummariesAsync();
         if (!notesResult.IsSuccess)
             Snackbar.Add(notesResult.Error ?? "Failed to load notes.", Severity.Error);
         notes = notesResult.Value ?? [];
@@ -311,6 +376,18 @@
         notes.Where(n => n.Labels.Any(l => l.Id == labelId))
              .OrderByDescending(n => n.UpdatedAt)
              .ToList();
+
+    // Notes carrying none of the selected category's labels — surfaced in the "No label"
+    // virtual column so unclassified notes are not invisible on the board (#272).
+    private List<NoteSummary> GetUnclassifiedNotes()
+    {
+        if (selectedCategory is null)
+            return [];
+        var categoryLabelIds = selectedCategory.Labels.Select(l => l.Id).ToHashSet();
+        return notes.Where(n => !n.Labels.Any(l => categoryLabelIds.Contains(l.Id)))
+                    .OrderByDescending(n => n.UpdatedAt)
+                    .ToList();
+    }
 
     private void ShowMore(Guid labelId) => expandedColumns.Add(labelId);
 
