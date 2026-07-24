@@ -124,10 +124,10 @@
 
         try
         {
-            // lowlight highlighting is an editor-runtime decoration, so the stored
-            // HTML only carries data-language on the <pre> and the code renders as a
-            // plain block here. Lazily load highlight.js (share-page only) and
-            // syntax-highlight the code blocks in place (#275).
+            // lowlight highlighting is an editor-runtime decoration that is never
+            // saved, so the raw dump renders code as a plain block. Re-run the same
+            // lowlight highlighter (already loaded) over the code blocks in place so
+            // the shared view matches the editor (#275).
             await JS.InvokeVoidAsync("tiptapInterop.highlightSharedCode", _contentRef);
         }
         catch (JSException ex)
