@@ -92,7 +92,8 @@
 
             <div class="quicknav-footer">
                 <span><kbd>↑</kbd><kbd>↓</kbd> to navigate</span>
-                <span><kbd>Enter</kbd> to open</span>
+                <span><kbd>Enter</kbd> to peek</span>
+                <span><kbd>Shift</kbd><kbd>Enter</kbd> full page</span>
                 <span><kbd>Esc</kbd> to close</span>
             </div>
         </div>
@@ -238,7 +239,7 @@
                 break;
             case "Enter":
                 if (_rows.Count > 0 && _selected >= 0 && _selected < _rows.Count)
-                    await OpenRow(_rows[_selected]);
+                    await OpenRow(_rows[_selected], fullPage: e.ShiftKey);
                 break;
             case "Escape":
                 await Close();
@@ -246,13 +247,21 @@
         }
     }
 
-    private async Task OpenRow(QuickNavRow row)
+    private async Task OpenRow(QuickNavRow row, bool fullPage = false)
     {
         await Close();
 
-        // Always open the picked note in a peek dialog so the current page (and any
+        if (fullPage)
+        {
+            // Shift+Enter bypasses the peek dialog and navigates straight to the full
+            // editor page, saving the extra "Open in full page" click.
+            Nav.NavigateTo($"/editor/{row.Id}");
+            return;
+        }
+
+        // Default: open the picked note in a peek dialog so the current page (and any
         // unsaved editor work) stays in place. Full navigation is available from the
-        // dialog's "Open in full page" button.
+        // dialog's "Open in full page" button, or directly via Shift+Enter.
         var parameters = new DialogParameters<SubNoteDialog> { { x => x.NoteId, row.Id } };
         var options = new DialogOptions { MaxWidth = MaxWidth.Large, FullWidth = true, CloseOnEscapeKey = true };
         await DialogService.ShowAsync<SubNoteDialog>(string.Empty, parameters, options);
