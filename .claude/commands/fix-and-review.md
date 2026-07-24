@@ -31,6 +31,14 @@ Ground rules: markers (not GitHub review state, which is always `COMMENT` here) 
 
 Do not re-implement or shortcut those workflows; this command's only added logic is the sequencing and the stop/loop decisions below. Each of those commands emits a machine-readable **status marker** as its last line — those markers, not prose and not the GitHub review state, are what you branch on.
 
+**Do not end your turn between phases (CRITICAL — this is the #1 failure mode of this command).** Each sub-command file is written to run *standalone*, so it instructs you to finish with a "final report" whose LAST line is a terminal marker (e.g. `fix-issue.md`: "the LAST line of your **final report**"). When you run that file as a *phase of this orchestrator*, its terminal marker is an **internal handoff signal, NOT the end of your turn.** Concretely:
+
+- When a sub-command emits its terminal marker (`pr-created`, `changes-pushed`, a review verdict, etc.), DO NOT stop, DO NOT hand control back to the user, and DO NOT write that sub-command's standalone "final report" / "Summary — Phase … complete" block. Read the marker and **immediately proceed to the next orchestrator step in this same turn.**
+- **Suppress each sub-command's user-facing final report.** While running a phase, you are executing that file's *workflow steps* (its `gh`/build/test/commit actions), but you are NOT its final narrator. Replace its closing report with a **single one-line progress note** — e.g. "Phase A done → PR #NNN opened, proceeding to review" — and move on. The full write-up belongs only to the one consolidated report in **step 3**.
+- The **only** place this command ends its turn is **step 3 (Hand off to the user)**. Reaching any intermediate marker is a branch point you act on immediately, never a turn-ending event.
+
+If you ever notice yourself about to write a phase-completion summary and stop, that IS the bug — re-read this block and continue to the next step instead.
+
 **Single-owner reality.** This repo is single-owner, so every PR is a self-review: the GitHub review *state* is always `COMMENT` and cannot be trusted. Read the verdict from the `<!-- review-pr: verdict=…; loop=… -->` marker, never from `gh` review state.
 
 **Marker fallbacks (when a sub-command's terminal marker is missing from its output):**
@@ -61,7 +69,7 @@ Do not re-implement or shortcut those workflows; this command's only added logic
 
 Run the `/fix-issue` workflow for issue `ISSUE`. When it finishes, read its terminal marker:
 
-- `status=pr-created` → capture `pr=<N>` as `PR` and continue to step 2 (fresh run). If the marker is missing, use the fix-issue fallback above.
+- `status=pr-created` → capture `pr=<N>` as `PR` and continue to step 2 (fresh run) **in this same turn. Do NOT stop or write a Phase-A summary — the `pr-created` marker is an internal handoff, per "Do not end your turn between phases" above.** If the marker is missing, use the fix-issue fallback above.
 - `status=stopped` → branch on the `reason` **code**:
   - **`reason=existing-pr` → RESUME MODE.** This is the normal state after a previous run hit the round cap or was interrupted, so do not treat it as a failure. Derive the PR (substitute the bare issue number for `$ISSUE`):
 
@@ -87,7 +95,7 @@ Note: review-pr's own step 0 may also stop without posting ("already reviewed at
 
 **2c. Address.** Increment `rounds`. Record `HEAD_SHA_BEFORE` (see marker fallbacks). Run the `/address-review` workflow for `PR`. Read its terminal marker (or fall back to the before/after head comparison):
 
-- `status=changes-pushed` → new commits landed on the PR head. Loop back to **2a** to re-review the new head. (The commit_id handshake is enforced by the commands themselves: `/address-review` refuses to run against a stale review, and `/review-pr` refuses to duplicate a review at an unchanged head — so always re-review after a push, and never run `/address-review` twice without a review in between.)
+- `status=changes-pushed` → new commits landed on the PR head. Loop back to **2a** to re-review the new head **in this same turn — do not stop after the push.** (The commit_id handshake is enforced by the commands themselves: `/address-review` refuses to run against a stale review, and `/review-pr` refuses to duplicate a review at an unchanged head — so always re-review after a push, and never run `/address-review` twice without a review in between.)
 - `status=stale-review` → the review's `commit_id` no longer matches the PR head (new commits appeared after the review — e.g. a manual push mid-run). This is **recoverable by exactly one re-review**: if `stale_recoveries == 0`, set `stale_recoveries = 1`, decrement `rounds` (this address pass did no work and must not consume the cap), and loop back to **2a** to review the current head. If `stale_recoveries >= 1` (it happened again), something is racing this workflow — STOP and go to step 3; report the repeated staleness so the user can investigate.
 - `status=no-actionable-items` / `already-approved` / `stopped` → **no new commit was pushed** and no address pass can move this state. STOP and go to step 3; do **not** loop again. Report the status (and `reason` if present) so the user can resolve it manually.
 
@@ -104,6 +112,7 @@ Stop here regardless of how you exited the loop. Do **not** merge, close, or pus
 
 ## Guardrails (do not violate)
 
+- **Never end your turn between phases.** A sub-command's terminal marker (`pr-created` / `changes-pushed` / a verdict) is an internal handoff, not a stop signal. Do not emit any sub-command's standalone "final report"; keep one progress line and proceed to the next step. Only **step 3** ends this command's turn. (This is the single most common way this command fails: it stops after Phase A and never runs the review.)
 - **Never merge or close** the PR — the merge decision is always the user's.
 - `/address-review` runs **at most `MAX_ROUNDS` times** per invocation of this command (a stale-review recovery pass that pushed nothing does not count).
 - **Always re-run `/review-pr` after `/address-review`**, and never run `/address-review` twice in a row without a review between them.

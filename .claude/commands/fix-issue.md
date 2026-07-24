@@ -7,6 +7,9 @@ You are fixing GitHub issue **#$ARGUMENTS** in this repository. Follow this work
 
 **Terminal status marker (ALWAYS emit last).** Whatever the outcome, the LAST line of your final report MUST be a machine-readable marker so the `/fix-and-review` orchestrator can branch on it without parsing prose:
 
+> **If you are running as a phase of `/fix-and-review` (not as a top-level `/fix-issue` invocation):** this marker is an **internal handoff, not the end of your turn.** Do NOT write a standalone "final report" and do NOT stop — emit the marker as a one-line status and return control to the orchestrator so it can proceed to the review phase in the same turn. Only a *directly typed* `/fix-issue` ends the turn here.
+
+
 - On success (PR opened in step 7): `<!-- fix-issue: status=pr-created; issue=<NNN>; pr=<PR_NUMBER> -->`
 - On any STOP before a PR exists: `<!-- fix-issue: status=stopped; issue=<NNN>; reason=<code> -->`, where `<code>` is one of the fixed machine-readable values below (so an orchestrator can branch on the code, not on free text):
   - `existing-pr` — an open PR already references this issue (a normal resume point, NOT a failure)
