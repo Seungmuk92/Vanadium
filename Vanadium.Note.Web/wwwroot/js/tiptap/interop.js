@@ -191,6 +191,26 @@ window.tiptapInterop = {
             document.body.removeChild(a);
         });
 
+        // Plain link click — the Link extension runs with openOnClick:false so that
+        // clicking a link's text in edit mode positions the caret instead of
+        // navigating, but that leaves ProseMirror swallowing the click entirely so
+        // the link never opens (issue #340). Open it manually: in read-only mode a
+        // plain click navigates; in edit mode only Ctrl/Cmd+click navigates, so a
+        // plain click keeps placing the caret for editing (behavior unchanged).
+        // File attachments have their own handler above and are excluded here.
+        editor.view.dom.addEventListener('click', (e) => {
+            const link = e.target.closest('a[href]');
+            if (!link || link.classList.contains('file-attachment')) return;
+            if (editor.isEditable && !(e.ctrlKey || e.metaKey)) return;
+            const href = link.getAttribute('href');
+            if (!href) return;
+            e.preventDefault();
+            e.stopPropagation();
+            // 'noopener,noreferrer' mirrors the rendered <a rel="noopener noreferrer">
+            // so the opened tab cannot reach back through window.opener.
+            window.open(href, '_blank', 'noopener,noreferrer');
+        });
+
         // Callout emoji click — prevent cursor move, open emoji picker
         editor.view.dom.addEventListener('mousedown', (e) => {
             if (e.target.classList.contains('callout-emoji')) e.preventDefault();
