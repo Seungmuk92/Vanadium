@@ -75,8 +75,21 @@
                                  data-note-id="@capturedNote.Id"
                                  data-label-id="@columnLabel.Id"
                                  @onclick="() => EditNote(capturedNote.Id)">
-                                <div class="board-card-title">
-                                    @(string.IsNullOrWhiteSpace(capturedNote.Title) ? "(No title)" : capturedNote.Title)
+                                <div class="board-card-header">
+                                    <div class="board-card-title">
+                                        @(string.IsNullOrWhiteSpace(capturedNote.Title) ? "(No title)" : capturedNote.Title)
+                                    </div>
+                                    @* Touch fallback for HTML5 drag-drop (#273): a menu button that opens the
+                                       "move to column" sheet, since dragstart/drop never fire on touch. *@
+                                    <button class="board-card-move"
+                                            type="button"
+                                            draggable="false"
+                                            title="Move to another column"
+                                            aria-label="Move to another column"
+                                            @onclick="() => OpenMoveSheet(capturedNote, columnLabel.Id)"
+                                            @onclick:stopPropagation="true">
+                                        &#8942;
+                                    </button>
                                 </div>
                                 @{
                                     var otherLabels = capturedNote.Labels.Where(l => l.Id != columnLabel.Id).ToList();
@@ -218,6 +231,41 @@
     </div>
 }
 
+@* Move sheet: touch-friendly fallback (#273) to change a card's column when HTML5
+   drag-drop is unavailable. Lists the current category's labels; tapping one moves
+   the note via the same persistence path as a desktop drop. *@
+@if (showMoveSheet)
+{
+    <div class="board-dialog-overlay" @onclick="CloseMoveSheet">
+        <div class="board-dialog board-move-sheet"
+             role="dialog"
+             aria-modal="true"
+             aria-label="Move note to another column"
+             @onclick:stopPropagation="true">
+            <div class="board-dialog-header">
+                <h4>Move &ldquo;<strong>@moveNoteTitle</strong>&rdquo; to</h4>
+                <button class="board-dialog-close" @onclick="CloseMoveSheet">×</button>
+            </div>
+            <div class="board-move-options">
+                @foreach (var lbl in moveSheetLabels)
+                {
+                    var targetId = lbl.Id;
+                    var isCurrent = targetId == moveFromLabelId;
+                    <button class="board-move-option @(isCurrent ? "current" : "")"
+                            disabled="@isCurrent"
+                            @onclick="() => MoveViaSheet(targetId)">
+                        <span class="board-move-option-name">@lbl.Name</span>
+                        @if (isCurrent)
+                        {
+                            <span class="board-move-option-badge">Current</span>
+                        }
+                    </button>
+                }
+            </div>
+        </div>
+    </div>
+}
+
 @code {
     // Cap the cards initially rendered per column so a category with many notes
     // does not grow the board's DOM/render cost without bound (#206). The rest
@@ -245,6 +293,13 @@
     private ElementReference _dialogRef;
     private ElementReference _dialogInput;
     private bool _trapQueued;
+
+    // ── Move sheet state (touch fallback for HTML5 drag-drop, #273) ───────────
+    private bool showMoveSheet = false;
+    private Guid moveNoteId;
+    private Guid moveFromLabelId;
+    private string moveNoteTitle = "";
+    private IReadOnlyList<Label> moveSheetLabels = [];
 
     private LabelCategory? selectedCategory =>
         categories.FirstOrDefault(c => c.Id == selectedCategoryId);
@@ -310,7 +365,13 @@
         if (!Guid.TryParse(noteIdStr, out var noteId)) return;
         if (!Guid.TryParse(fromLabelIdStr, out var fromLabelId)) return;
         if (!Guid.TryParse(toLabelIdStr, out var toLabelId)) return;
+        await MoveNoteToLabelAsync(noteId, fromLabelId, toLabelId);
+    }
 
+    // Shared move logic used by both the desktop HTML5 drop (OnDropFromJs) and the
+    // touch move sheet (MoveViaSheet) so both paths persist identically (#273).
+    private async Task MoveNoteToLabelAsync(Guid noteId, Guid fromLabelId, Guid toLabelId)
+    {
         // Resolve target label object from current category
         var targetLabel = selectedCategory?.Labels.FirstOrDefault(l => l.Id == toLabelId);
         if (targetLabel is null)
@@ -399,6 +460,32 @@
 
     private void EditNote(Guid id) =>
         Nav.NavigateTo($"/editor/{id}?returnUrl=/board");
+
+    // ── Move sheet (touch fallback for HTML5 drag-drop, #273) ─────────────────
+
+    private void OpenMoveSheet(NoteSummary note, Guid fromLabelId)
+    {
+        moveNoteId = note.Id;
+        moveFromLabelId = fromLabelId;
+        moveNoteTitle = string.IsNullOrWhiteSpace(note.Title) ? "(No title)" : note.Title;
+        moveSheetLabels = selectedCategory?.Labels.OrderBy(l => l.Name).ToList() ?? [];
+        showMoveSheet = true;
+    }
+
+    private void CloseMoveSheet()
+    {
+        showMoveSheet = false;
+        moveSheetLabels = [];
+    }
+
+    private async Task MoveViaSheet(Guid toLabelId)
+    {
+        var noteId = moveNoteId;
+        var fromLabelId = moveFromLabelId;
+        CloseMoveSheet();
+        if (toLabelId == fromLabelId) return;
+        await MoveNoteToLabelAsync(noteId, fromLabelId, toLabelId);
+    }
 
     // ── Add note dialog ───────────────────────────────────────────────────────
 
