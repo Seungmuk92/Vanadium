@@ -56,7 +56,12 @@ window.tiptapInterop = {
             extensions: [
                 StarterKit.configure({ codeBlock: false, heading: false }),
                 CollapsibleHeading.configure({ levels: [1, 2, 3, 4, 5, 6] }),
-                CodeBlock.configure({ lowlight, defaultLanguage: 'plaintext' }),
+                // No defaultLanguage: blocks are left language-less so lowlight
+                // auto-detects the grammar and highlights every code block. There
+                // is no language picker, so a 'plaintext' default would leave all
+                // code unhighlighted. The shared view mirrors this auto-detection
+                // (see highlightSharedCode) so editor and share render identically.
+                CodeBlock.configure({ lowlight }),
                 Markdown.configure({
                     html: true,
                     tightLists: true,
@@ -566,6 +571,67 @@ window.tiptapInterop = {
                 if (e.target.closest('a')) return;
                 flip();
             });
+        }
+    },
+
+    // Syntax-highlight code blocks in a read-only shared view (the Share page).
+    // Editor pages highlight code live via lowlight in the Tiptap node view, but
+    // the shared page is a raw HTML dump with no node view, so its code blocks
+    // render as plain <pre>. Reuse the SAME lowlight instance the editor uses (it
+    // is already imported by this module, so this adds no extra load to the share
+    // page and none to any other page), then convert lowlight's hast output into
+    // real DOM nodes in place. This yields output identical to the editor's — the
+    // alternative of loading highlight.js's own `lib/common` diverges on
+    // auto-detection (e.g. it scored SCSS over C# for the same snippet). The
+    // emitted `hljs-*` token classes reuse the theme already defined in app.css.
+    // Pass a CSS selector string or a DOM element reference.
+    //
+    // Language: the stored/sanitized HTML carries no language hint — the editor
+    // never persists one, and the sanitizer would strip `class="language-*"`
+    // anyway — so blocks are auto-detected here exactly as the editor does. A
+    // surviving `data-language` (should one ever be present) is honored first.
+    highlightSharedCode(root) {
+        const el = typeof root === 'string' ? document.querySelector(root) : root;
+        if (!el) return;
+
+        // Mermaid blocks (pre[data-type="mermaid"]) are rendered as diagrams
+        // elsewhere, so exclude them and target real code blocks only.
+        const blocks = el.querySelectorAll('pre:not([data-type="mermaid"]) > code');
+        if (!blocks.length) return;
+
+        // Convert a lowlight hast node into DOM. Nodes are either text or <span>
+        // elements carrying `hljs-*` class names; build them recursively.
+        const hastToDom = (node) => {
+            if (node.type === 'text') return document.createTextNode(node.value);
+            const span = document.createElement(node.tagName || 'span');
+            const cls = node.properties?.className;
+            if (cls) span.className = Array.isArray(cls) ? cls.join(' ') : cls;
+            for (const child of node.children ?? []) span.appendChild(hastToDom(child));
+            return span;
+        };
+
+        for (const code of blocks) {
+            const text = code.textContent ?? '';
+            if (!text.trim()) continue;
+
+            // Honor an explicit, registered data-language if present; otherwise
+            // auto-detect, mirroring the editor's lowlight behavior for blocks
+            // saved without a language (the normal case).
+            const lang = code.parentElement?.getAttribute('data-language');
+            let tree;
+            try {
+                tree = (lang && lang !== 'plaintext' && lowlight.registered(lang))
+                    ? lowlight.highlight(lang, text)
+                    : lowlight.highlightAuto(text);
+            } catch (err) {
+                // A single block failing must not break the read-only note.
+                console.error('[tiptap] Failed to highlight shared code block', err);
+                continue;
+            }
+
+            code.textContent = '';
+            for (const child of tree.children) code.appendChild(hastToDom(child));
+            code.classList.add('hljs');
         }
     },
 

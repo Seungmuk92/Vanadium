@@ -53,8 +53,27 @@
     height: auto;
 }
 
+/* Code blocks: the editor's pre chrome is component-scoped (NoteEditor.razor.css)
+   and never reaches this raw-markup subtree, so the shared view showed code with
+   no visible code region. Mirror the editor's boxed block here (::deep because the
+   content is injected as raw markup). Syntax highlighting itself is applied by JS
+   (highlightSharedCode) reusing the same hljs-* theme from app.css. */
 .shared-note-content ::deep pre {
+    background: var(--vn-editor-pre-bg, #f8f9fa);
+    border: 1px solid var(--vn-editor-title-border, #e0e0e0);
+    border-radius: 6px;
+    padding: 1em;
+    margin-bottom: 0.75em;
     overflow-x: auto;
+}
+
+/* Reset the global inline-code color/background inside code blocks so untokenized
+   text inherits the block color, matching the editor's `pre code` rule. */
+.shared-note-content ::deep pre code {
+    background: none;
+    padding: 0;
+    color: inherit;
+    font-size: 0.9em;
 }
 
 /* Placeholder shown in place of an image that failed to load (authenticated
