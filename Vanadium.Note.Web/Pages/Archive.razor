@@ -179,7 +179,18 @@
             return;
         }
         Logger.LogInformation("Archived note moved to recycle bin from archive page.");
-        Snackbar.Add("Note moved to the Recycle Bin.", Severity.Normal);
+        var noteId = item.Id;
+        Snackbar.Add("Note moved to the Recycle Bin.", Severity.Normal, config =>
+        {
+            config.Action = "Undo";
+            config.ActionColor = Color.Primary;
+            config.OnClick = async _ =>
+            {
+                await NoteService.RestoreAsync(noteId);
+                await ReloadAfterRemoval();
+                StateHasChanged();
+            };
+        });
         await ReloadAfterRemoval();
     }
 
@@ -206,12 +217,39 @@
         if (!await Confirm.ConfirmAsync("Move to Recycle Bin", message, "Move to Recycle Bin")) return;
 
         isBusy = true;
-        var (ok, failed) = await RunBulk(ids, id => NoteService.DeleteAsync(id));
+        var deletedIds = new List<Guid>();
+        var failed = 0;
+        foreach (var id in ids)
+        {
+            var result = await NoteService.DeleteAsync(id);
+            if (result.IsSuccess) deletedIds.Add(id);
+            else failed++;
+        }
         isBusy = false;
 
-        if (ok > 0)
-            Logger.LogInformation("{Count} archived note(s) moved to recycle bin from archive page.", ok);
-        ReportBulk(ok, failed, "moved to the Recycle Bin", "move");
+        if (deletedIds.Count > 0)
+            Logger.LogInformation("{Count} archived note(s) moved to recycle bin from archive page.", deletedIds.Count);
+
+        if (failed > 0)
+            Snackbar.Add($"Failed to move {failed} note(s).", Severity.Error);
+        if (deletedIds.Count > 0)
+        {
+            Snackbar.Add(
+                deletedIds.Count == 1 ? "Note moved to the Recycle Bin." : $"{deletedIds.Count} notes moved to the Recycle Bin.",
+                Severity.Normal,
+                config =>
+                {
+                    config.Action = "Undo";
+                    config.ActionColor = Color.Primary;
+                    config.OnClick = async _ =>
+                    {
+                        foreach (var id in deletedIds)
+                            await NoteService.RestoreAsync(id);
+                        await ReloadAfterRemoval();
+                        StateHasChanged();
+                    };
+                });
+        }
         await ReloadAfterRemoval();
     }
 
