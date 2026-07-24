@@ -178,6 +178,10 @@ public class ToggleContentTests
 
         await h.CreateNoteAsync("Unrelated", content: "<p>no references here</p>");
 
+        // Grace is measured from first-observed-unreferenced (issue #301): simulate an earlier
+        // scan that already saw it unreferenced beyond the grace window so this scan removes it.
+        h.OrphanTracker.ObserveUnreferenced(orphan.Id, DateTime.UtcNow.AddHours(-2));
+
         await h.FileCleanup.DeleteAllOrphansAsync();
 
         Assert.Null(await h.Db.FileAttachments.FindAsync(orphan.Id));

@@ -88,6 +88,10 @@ public class FileCleanupReferenceScanTests
         var attachment = await AddAttachmentAsync(h, DateTime.UtcNow - BeyondGrace);
         await AddNoteAsync(h, "<p>no file references here</p>");
 
+        // Grace is measured from first-observed-unreferenced (issue #301): simulate an earlier
+        // scan that already saw it unreferenced beyond the grace window so this scan collects it.
+        h.OrphanTracker.ObserveUnreferenced(attachment.Id, DateTime.UtcNow - BeyondGrace);
+
         await h.FileCleanup.DeleteAllOrphansAsync();
 
         Assert.Null(await h.Db.FileAttachments.FindAsync(attachment.Id));
