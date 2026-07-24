@@ -56,7 +56,12 @@ window.tiptapInterop = {
             extensions: [
                 StarterKit.configure({ codeBlock: false, heading: false }),
                 CollapsibleHeading.configure({ levels: [1, 2, 3, 4, 5, 6] }),
-                CodeBlock.configure({ lowlight, defaultLanguage: 'plaintext' }),
+                // No defaultLanguage: blocks are left language-less so lowlight
+                // auto-detects the grammar and highlights every code block. There
+                // is no language picker, so a 'plaintext' default would leave all
+                // code unhighlighted. The shared view mirrors this auto-detection
+                // (see highlightSharedCode) so editor and share render identically.
+                CodeBlock.configure({ lowlight }),
                 Markdown.configure({
                     html: true,
                     tightLists: true,
