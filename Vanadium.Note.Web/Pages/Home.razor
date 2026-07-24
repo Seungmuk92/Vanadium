@@ -270,6 +270,15 @@
     private CancellationTokenSource? _searchCts;
     private CancellationTokenSource? _loadCts;
 
+    // Background refresh: externally-added notes (e.g. via the API) should appear without a
+    // manual full-screen reload. A periodic poll re-fetches the current page quietly and
+    // swaps the list in only when it actually changed (issue #339). Kept within the existing
+    // stack — no SignalR/real-time dependency — per the issue's constraints.
+    private PeriodicTimer? _refreshTimer;
+    private Task? _refreshLoop;
+    private string? _lastListSignature;
+    private static readonly TimeSpan BackgroundRefreshInterval = TimeSpan.FromSeconds(15);
+
     private int currentPage = 1;
     private int totalCount = 0;
     // Seeded from the user's saved settings in OnInitializedAsync; falls back to 30 if
@@ -295,6 +304,7 @@
     {
         await ApplyUserSettings();
         await LoadNotes(includeLabels: true);
+        StartBackgroundRefresh();
     }
 
     // Seed the sort column/direction and page size from the user's saved settings so the
@@ -375,9 +385,94 @@
 
         expandedNoteIds.Clear();
         childrenCache.Clear();
+        // Record the freshly-loaded list so the next background poll can tell whether
+        // anything actually changed before it re-renders.
+        _lastListSignature = ComputeListSignature(notes, totalCount);
         isLoading = false;
         StateHasChanged();
     }
+
+    // Starts the periodic background refresh loop. Called once after the initial load.
+    private void StartBackgroundRefresh()
+    {
+        _refreshTimer = new PeriodicTimer(BackgroundRefreshInterval);
+        _refreshLoop = RunBackgroundRefreshAsync(_refreshTimer);
+    }
+
+    private async Task RunBackgroundRefreshAsync(PeriodicTimer timer)
+    {
+        try
+        {
+            // WaitForNextTickAsync returns false once the timer is disposed, ending the loop.
+            while (await timer.WaitForNextTickAsync())
+                await InvokeAsync(RefreshNotesSilently);
+        }
+        catch (OperationCanceledException)
+        {
+            // Timer disposed during teardown — expected, nothing to do.
+        }
+    }
+
+    // Re-fetches the current page/filter/sort quietly and swaps the list in only when it
+    // changed. Deliberately does NOT touch isLoading (no full-screen "Loading..." indicator)
+    // and does NOT clear the existing list, so the visible notes never blank out (issue #339).
+    private async Task RefreshNotesSilently()
+    {
+        // Never fight a user-initiated load nor overwrite it with stale poll data.
+        if (isLoading)
+            return;
+
+        var page = await FetchCurrentPageAsync();
+        if (page is null)
+            return;
+
+        // An external deletion may have pushed us past the last page — clamp and refetch once
+        // so the user isn't silently stranded on an empty page.
+        var totalPages = Math.Max(1, (int)Math.Ceiling((double)page.TotalCount / pageSize));
+        if (currentPage > totalPages)
+        {
+            currentPage = totalPages;
+            page = await FetchCurrentPageAsync();
+            if (page is null)
+                return;
+        }
+
+        var signature = ComputeListSignature(page.Items, page.TotalCount);
+        if (signature == _lastListSignature)
+            return;
+
+        notes = page.Items;
+        totalCount = page.TotalCount;
+        _lastListSignature = signature;
+        StateHasChanged();
+    }
+
+    // Fetches the current page with the active search/sort/filter. Returns null when the
+    // request fails or a user-initiated load started while awaiting (so a late poll never
+    // clobbers fresher user-driven state).
+    private async Task<PagedResult<NoteSummary>?> FetchCurrentPageAsync()
+    {
+        var result = await NoteService.GetAllAsync(
+            currentPage,
+            pageSize,
+            string.IsNullOrWhiteSpace(_searchText) ? null : _searchText,
+            currentSort == SortColumn.Title ? "title" : "date",
+            sortAscending ? "asc" : "desc",
+            activeFilters.Count > 0 ? activeFilters : null,
+            includeLabels: false,
+            cancellationToken: CancellationToken.None);
+
+        if (isLoading || !result.IsSuccess || result.Value is null)
+            return null;
+
+        return result.Value;
+    }
+
+    // Lightweight change fingerprint: id + last-modified + child count per row, plus the
+    // total. Catches external adds/removes/reorders and content edits (which bump UpdatedAt)
+    // as well as sub-note count changes, so the poll skips a re-render when nothing moved.
+    private static string ComputeListSignature(List<NoteSummary> items, int total)
+        => total + "|" + string.Join(";", items.Select(n => $"{n.Id}:{n.UpdatedAt.Ticks}:{n.ChildCount}"));
 
     private async Task ToggleExpand(Guid noteId)
     {
@@ -582,6 +677,13 @@
         _searchCts?.Dispose();
         _loadCts?.Cancel();
         _loadCts?.Dispose();
+        // Stop the background poll: disposing the timer ends the loop, then await it drains.
+        _refreshTimer?.Dispose();
+        if (_refreshLoop is not null)
+        {
+            try { await _refreshLoop; }
+            catch (OperationCanceledException) { }
+        }
         await ShortcutService.UnregisterAsync("delete");
     }
 }
