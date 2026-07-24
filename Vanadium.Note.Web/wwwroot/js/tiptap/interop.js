@@ -569,6 +569,53 @@ window.tiptapInterop = {
         }
     },
 
+    // Syntax-highlight code blocks in a read-only shared view (the Share page).
+    // Editor pages highlight code live via lowlight in the Tiptap node view, but
+    // the shared page is a raw HTML dump with no node view, so its code blocks
+    // render as plain <pre>. highlight.js is imported on demand here so it only
+    // loads on the share page and never touches any other page's load path (#275).
+    // The server sanitizer strips the `language-*` class from <code>, leaving only
+    // `data-language` on the parent <pre>, so re-derive the grammar from that. The
+    // emitted `hljs-*` token classes reuse the theme already defined in app.css.
+    // Pass a CSS selector string or a DOM element reference.
+    async highlightSharedCode(root) {
+        const el = typeof root === 'string' ? document.querySelector(root) : root;
+        if (!el) return;
+
+        // Mermaid blocks (pre[data-type="mermaid"]) are rendered as diagrams
+        // elsewhere, so exclude them and target real code blocks only.
+        const blocks = el.querySelectorAll('pre:not([data-type="mermaid"]) > code');
+        if (!blocks.length) return;
+
+        let hljs;
+        try {
+            // Mirror the editor's lowlight `common` language set (and keep the
+            // lazy payload small) by loading highlight.js's common build.
+            hljs = (await import('https://esm.sh/highlight.js@11/lib/common')).default;
+        } catch (err) {
+            // Read-only page: if highlight.js fails to load, leave the plain code
+            // blocks as-is rather than breaking the note.
+            console.error('[tiptap] Failed to load highlight.js for shared code', err);
+            return;
+        }
+
+        for (const code of blocks) {
+            // The sanitizer stripped the `language-*` class; re-derive it from the
+            // surviving data-language on the parent <pre>. Skip plaintext/unknown
+            // grammars so highlight.js never auto-detects and mis-colors plain text,
+            // mirroring the editor where those blocks stay un-highlighted.
+            const lang = code.parentElement?.getAttribute('data-language');
+            if (!lang || lang === 'plaintext' || !hljs.getLanguage(lang)) continue;
+            code.classList.add(`language-${lang}`);
+            try {
+                hljs.highlightElement(code);
+            } catch (err) {
+                // A single block failing must not break the read-only note.
+                console.error('[tiptap] Failed to highlight shared code block', err);
+            }
+        }
+    },
+
     destroy(elementId) {
         const entry = _editors[elementId];
         if (entry) {

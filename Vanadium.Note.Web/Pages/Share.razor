@@ -121,6 +121,20 @@
             // Read-only page: a toggle-enhancement failure must not break the note.
             Console.Error.WriteLine($"Failed to enable shared toggles: {ex.Message}");
         }
+
+        try
+        {
+            // lowlight highlighting is an editor-runtime decoration, so the stored
+            // HTML only carries data-language on the <pre> and the code renders as a
+            // plain block here. Lazily load highlight.js (share-page only) and
+            // syntax-highlight the code blocks in place (#275).
+            await JS.InvokeVoidAsync("tiptapInterop.highlightSharedCode", _contentRef);
+        }
+        catch (JSException ex)
+        {
+            // Read-only page: a highlighting failure must not break the note.
+            Console.Error.WriteLine($"Failed to highlight shared code blocks: {ex.Message}");
+        }
     }
 
     // Poll the tiptapInterop.ready() gate until the module is installed (the
