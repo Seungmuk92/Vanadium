@@ -28,6 +28,7 @@
                        autocomplete="current-password"
                        class="login-input"
                        placeholder="Password"
+                       @ref="_passwordInput"
                        @bind="_model.Password"
                        @bind:event="oninput"
                        disabled="@_isLoading" />
@@ -51,6 +52,18 @@
     private readonly LoginModel _model = new();
     private bool _isLoading;
     private string? _errorMessage;
+    private ElementReference _passwordInput;
+
+    // Focus the password field on first render so a keyboard-first user can type
+    // immediately without clicking (issue #283). Native autofocus is unreliable in
+    // Blazor WASM, so use FocusAsync after the element is in the DOM.
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            await _passwordInput.FocusAsync();
+        }
+    }
 
     private async Task HandleLogin()
     {
