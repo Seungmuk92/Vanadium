@@ -45,8 +45,11 @@ main {
 }
 
 /* The section list can grow past the viewport; scroll it while the header
-   stays pinned. */
+   stays pinned. min-height:0 overrides the flex item's default min-height:auto
+   so the body actually shrinks and scrolls inside the dialog instead of
+   overflowing it on a short viewport. */
 .shortcuts-body {
+    min-height: 0;
     overflow-y: auto;
 }
 
