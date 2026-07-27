@@ -430,4 +430,78 @@ public class ArchiveServiceTests
         Assert.Null(c!.DeletedAt);
         Assert.Null(c.ParentNoteId); // would otherwise resurrect under a read-only parent
     }
+
+    // ── #302: group membership is decided by a dedicated group id, never by ──
+    //         DeletedAt/ArchivedAt timestamp equality ──────────────────────────
+
+    [Fact]
+    public async Task Archive_AssignsSharedGroupId_DistinctPerOperation()
+    {
+        using var h = new TestHost();
+        var rootA = await h.CreateNoteAsync("Root A");
+        var childA = await h.CreateNoteAsync("Child A", rootA.Id);
+        var rootB = await h.CreateNoteAsync("Root B");
+
+        await h.Notes.Archive(rootA.Id);
+        await h.Notes.Archive(rootB.Id);
+
+        var groupA = (await h.FindAsync(rootA.Id))!.ArchiveGroupId;
+        Assert.NotNull(groupA);
+        Assert.Equal(groupA, (await h.FindAsync(childA.Id))!.ArchiveGroupId);      // shared within the group
+        Assert.NotEqual(groupA, (await h.FindAsync(rootB.Id))!.ArchiveGroupId);     // distinct per operation
+    }
+
+    [Fact]
+    public async Task Unarchive_TimestampCollisionBetweenGroups_UnarchivesOnlyOwnGroup()
+    {
+        using var h = new TestHost();
+        var rootA = await h.CreateNoteAsync("Root A");
+        var childA = await h.CreateNoteAsync("Child A", rootA.Id);
+        var rootB = await h.CreateNoteAsync("Root B");
+        var childB = await h.CreateNoteAsync("Child B", rootB.Id);
+
+        await h.Notes.Archive(rootA.Id);
+        await h.Notes.Archive(rootB.Id);
+
+        // Force a microsecond timestamp collision across the two independent archive
+        // groups. Under the old ArchivedAt-equality grouping this would fuse them;
+        // group-id identity must keep them apart.
+        var sharedTimestamp = (await h.FindAsync(rootA.Id))!.ArchivedAt;
+        await h.Db.Notes.IgnoreQueryFilters()
+            .Where(n => n.ArchivedAt != null)
+            .ExecuteUpdateAsync(s => s.SetProperty(n => n.ArchivedAt, sharedTimestamp));
+
+        Assert.True(await h.Notes.Unarchive(rootA.Id));
+
+        Assert.Null((await h.FindAsync(rootA.Id))!.ArchivedAt);
+        Assert.Null((await h.FindAsync(childA.Id))!.ArchivedAt);
+        Assert.NotNull((await h.FindAsync(rootB.Id))!.ArchivedAt);   // untouched despite same timestamp
+        Assert.NotNull((await h.FindAsync(childB.Id))!.ArchivedAt);
+    }
+
+    [Fact]
+    public async Task Restore_TimestampCollisionBetweenGroups_RestoresOnlyOwnGroup()
+    {
+        using var h = new TestHost();
+        var rootA = await h.CreateNoteAsync("Root A");
+        var childA = await h.CreateNoteAsync("Child A", rootA.Id);
+        var rootB = await h.CreateNoteAsync("Root B");
+        var childB = await h.CreateNoteAsync("Child B", rootB.Id);
+
+        await h.Notes.Delete(rootA.Id);
+        await h.Notes.Delete(rootB.Id);
+
+        // Same microsecond-collision scenario for the recycle-bin deletion group.
+        var sharedTimestamp = (await h.FindAsync(rootA.Id))!.DeletedAt;
+        await h.Db.Notes.IgnoreQueryFilters()
+            .Where(n => n.DeletedAt != null)
+            .ExecuteUpdateAsync(s => s.SetProperty(n => n.DeletedAt, sharedTimestamp));
+
+        Assert.True(await h.Notes.Restore(rootA.Id));
+
+        Assert.Null((await h.FindAsync(rootA.Id))!.DeletedAt);
+        Assert.Null((await h.FindAsync(childA.Id))!.DeletedAt);
+        Assert.NotNull((await h.FindAsync(rootB.Id))!.DeletedAt);   // untouched despite same timestamp
+        Assert.NotNull((await h.FindAsync(childB.Id))!.DeletedAt);
+    }
 }

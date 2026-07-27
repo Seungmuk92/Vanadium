@@ -28,6 +28,14 @@ public class NoteItem
     [JsonIgnore]
     public bool IsDeletionRoot { get; set; }
 
+    /// <summary>Identifies the recycle-bin restore group: the directly-deleted note plus the
+    /// descendants swept in with it share one value, assigned fresh per delete operation.
+    /// Group membership is decided by this id, never by <see cref="DeletedAt"/> equality
+    /// (a microsecond timestamp collision must never merge two independent groups).
+    /// Null when the note is not in the recycle bin.</summary>
+    [JsonIgnore]
+    public Guid? DeletionGroupId { get; set; }
+
     /// <summary>Null = not archived. Non-null marks the note archived (read-only).
     /// Notes archived in the same operation share the same value (restore group).
     /// Serialized on purpose: the frontend editor uses it to switch to read-only mode.</summary>
@@ -37,6 +45,14 @@ public class NoteItem
     /// Sub-notes swept into the archive keep this false.</summary>
     [JsonIgnore]
     public bool IsArchiveRoot { get; set; }
+
+    /// <summary>Identifies the archive restore group: notes archived in one operation share one
+    /// value, assigned fresh per archive operation. Group membership is decided by this id, never
+    /// by <see cref="ArchivedAt"/> equality. Independent of <see cref="DeletionGroupId"/> so an
+    /// archived note that is later soft-deleted keeps its archive group for a lossless restore.
+    /// Null when the note is not archived.</summary>
+    [JsonIgnore]
+    public Guid? ArchiveGroupId { get; set; }
 
     /// <summary>Unguessable token that grants anonymous read access when the note is shared.
     /// Null when the note is not shared. Cleared on unshare, which immediately invalidates any
