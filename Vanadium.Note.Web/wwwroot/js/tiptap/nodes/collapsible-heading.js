@@ -1,5 +1,5 @@
-import { PluginKey, Plugin, Selection } from 'https://esm.sh/prosemirror-state@1.4.4'
-import { Decoration, DecorationSet } from 'https://esm.sh/prosemirror-view@1.42.1'
+import { PluginKey, Plugin, Selection } from 'https://esm.sh/@tiptap/pm@2/state'
+import { Decoration, DecorationSet } from 'https://esm.sh/@tiptap/pm@2/view'
 import Heading from 'https://esm.sh/@tiptap/extension-heading@2'
 import { toggleOpenAt } from './toggle.js'
 
