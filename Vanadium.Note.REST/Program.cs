@@ -11,6 +11,7 @@ using Microsoft.AspNetCore.Authentication;
 using Vanadium.Note.REST.Auth;
 using Vanadium.Note.REST.Data;
 using Vanadium.Note.REST.Middleware;
+using Vanadium.Note.REST.Models;
 using Vanadium.Note.REST.Security;
 using Vanadium.Note.REST.Services;
 
@@ -300,9 +301,30 @@ if (!app.Environment.IsEnvironment("Testing"))
 {
     using var scope = app.Services.CreateScope();
     var startupLogger = scope.ServiceProvider.GetRequiredService<ILogger<Program>>();
+    var db = scope.ServiceProvider.GetRequiredService<NoteDbContext>();
     startupLogger.LogInformation("Applying database migrations...");
-    scope.ServiceProvider.GetRequiredService<NoteDbContext>().Database.Migrate();
+    db.Database.Migrate();
     startupLogger.LogInformation("Database migrations applied.");
+
+    // One-time legacy content re-sanitize backfill (issue #294). The re-sanitize itself cannot
+    // run inside the EF migration because HtmlSanitizer is C#, not SQL, so it runs here right
+    // after Migrate() and is gated by a persisted flag on the UserSettings singleton — this makes
+    // it fire exactly once (crash-safe: the flag is only set after the backfill's own commit).
+    var settings = await db.UserSettings.FirstOrDefaultAsync();
+    if (settings is null)
+    {
+        settings = new UserSettings { Id = Guid.NewGuid() };
+        db.UserSettings.Add(settings);
+    }
+    if (!settings.LegacyContentSanitized)
+    {
+        var noteService = scope.ServiceProvider.GetRequiredService<NoteService>();
+        var updated = await noteService.ReSanitizeAllContentAsync();
+        settings.LegacyContentSanitized = true;
+        await db.SaveChangesAsync();
+        startupLogger.LogInformation(
+            "Legacy content re-sanitize backfill complete; {UpdatedCount} note(s) updated.", updated);
+    }
 }
 
 // Must run before any middleware that reads the client IP or request scheme

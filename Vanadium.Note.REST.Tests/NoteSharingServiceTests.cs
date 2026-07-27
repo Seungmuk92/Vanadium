@@ -41,6 +41,104 @@ public class NoteSharingServiceTests
     }
 
     [Fact]
+    public async Task GetSharedByToken_SanitizesLegacyContentBeforeReturning()
+    {
+        using var h = new TestHost();
+
+        // Seed a "legacy" note directly, bypassing Create's persist-time sanitizer, so the stored
+        // row carries active content the way a pre-sanitizer row would (issue #294).
+        var note = new NoteItem
+        {
+            Id = Guid.NewGuid(),
+            Title = "Legacy",
+            Content = "<p>hello</p><script>alert(1)</script>",
+            ContentText = "hello",
+            UpdatedAt = DateTime.UtcNow,
+            ShareToken = "legacy-token",
+            ShareMode = ShareMode.Public,
+            SharedAt = DateTime.UtcNow
+        };
+        h.Db.Notes.Add(note);
+        await h.Db.SaveChangesAsync();
+
+        var resolved = await h.Notes.GetSharedByToken("legacy-token");
+
+        Assert.NotNull(resolved);
+        Assert.DoesNotContain("<script", resolved!.Content, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("hello", resolved.Content);
+
+        // The in-memory read-time sanitize must NOT be flushed back to the stored row (AsNoTracking).
+        var stored = await h.FindAsync(note.Id);
+        Assert.Contains("<script", stored!.Content, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task ReSanitizeAllContent_StripsActiveContentFromLegacyRows()
+    {
+        using var h = new TestHost();
+
+        var dirty = new NoteItem
+        {
+            Id = Guid.NewGuid(),
+            Title = "Legacy",
+            Content = "<p>keep</p><script>alert(1)</script>",
+            ContentText = "keep",
+            UpdatedAt = DateTime.UtcNow
+        };
+        h.Db.Notes.Add(dirty);
+        await h.Db.SaveChangesAsync();
+
+        var updated = await h.Notes.ReSanitizeAllContentAsync();
+
+        Assert.Equal(1, updated);
+        var stored = await h.FindAsync(dirty.Id);
+        Assert.DoesNotContain("<script", stored!.Content, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("keep", stored.Content);
+        // ContentText is re-derived from the sanitized markup, keeping the Create/Update invariant.
+        Assert.DoesNotContain("alert", stored.ContentText, StringComparison.OrdinalIgnoreCase);
+
+        // Idempotent: a second pass finds nothing to change.
+        Assert.Equal(0, await h.Notes.ReSanitizeAllContentAsync());
+    }
+
+    [Fact]
+    public async Task ReSanitizeAllContent_IncludesArchivedAndSoftDeletedNotes()
+    {
+        using var h = new TestHost();
+
+        var archived = new NoteItem
+        {
+            Id = Guid.NewGuid(),
+            Title = "Archived",
+            Content = "<p>a</p><script>alert(1)</script>",
+            ContentText = "a",
+            UpdatedAt = DateTime.UtcNow,
+            ArchivedAt = DateTime.UtcNow,
+            IsArchiveRoot = true
+        };
+        var deleted = new NoteItem
+        {
+            Id = Guid.NewGuid(),
+            Title = "Deleted",
+            Content = "<p>d</p><script>alert(2)</script>",
+            ContentText = "d",
+            UpdatedAt = DateTime.UtcNow,
+            DeletedAt = DateTime.UtcNow,
+            IsDeletionRoot = true
+        };
+        h.Db.Notes.AddRange(archived, deleted);
+        await h.Db.SaveChangesAsync();
+
+        var updated = await h.Notes.ReSanitizeAllContentAsync();
+
+        Assert.Equal(2, updated);
+        var storedArchived = await h.FindAsync(archived.Id);
+        var storedDeleted = await h.FindAsync(deleted.Id);
+        Assert.DoesNotContain("<script", storedArchived!.Content, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("<script", storedDeleted!.Content, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public async Task GetSharedByToken_WrongToken_ReturnsNull()
     {
         using var h = new TestHost();
