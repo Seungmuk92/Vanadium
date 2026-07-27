@@ -240,10 +240,26 @@
         _autoSave.Schedule(() => InvokeAsync(DoAutoSave));
     }
 
+    // Pull any edit still sitting in the editor's debounced push window into `content` before
+    // it is read for a save or draft stash. onUpdate debounces the HTML push (issue #303), so
+    // between pushes `content` can lag the editor; without this, a Close/Expand/Esc flush that
+    // fires inside that window would persist stale content and drop the pending push on destroy.
+    private async Task FlushPendingContentAsync()
+    {
+        if (!_editorMounted) return;
+        var html = await JS.InvokeAsync<string?>("tiptapInterop.flushPendingContent", _editorId);
+        if (html is not null)
+            content = html;
+    }
+
     // UI-free save used by both the debounced path and the close/dispose flush. It never touches
     // StateHasChanged so it is safe to await while the component is being torn down (Esc/backdrop).
     private async Task<ServiceResult<NoteItem>> SaveCoreAsync()
     {
+        // Capture any edit still in the editor's debounce window so the save persists the
+        // very latest content (#303).
+        await FlushPendingContentAsync();
+
         // Send the tracked server timestamp so optimistic concurrency passes; without it the
         // Web NoteItem's UpdatedAt default (DateTime.UtcNow) never matches and every save 409s.
         var result = await NoteService.SaveAsync(new NoteItem
@@ -346,9 +362,13 @@
         if (!_isArchived && HasPendingChanges)
         {
             if (_hasConflict)
+            {
                 // The snapshot is stale — a save can only 409 again — so back the edit up to a
                 // draft that a reopen / full-page restore recovers instead of losing it (#192).
+                // Flush the debounce window first so the draft keeps the last edits (#303).
+                await FlushPendingContentAsync();
                 await DraftStore.SaveAsync(NoteId, title, content);
+            }
             else
                 // A normal flush; DoAutoSave → SaveCoreAsync itself stashes a draft if it fails.
                 await DoAutoSave();
@@ -409,9 +429,13 @@
         if (!_isArchived && HasPendingChanges)
         {
             if (_hasConflict)
+            {
                 // On a 409 the save can never win against this stale snapshot; re-issuing it here
                 // is exactly the loop that used to silently drop the edit. Back it up instead (#192).
+                // Flush the debounce window first so the draft keeps the last edits (#303).
+                await FlushPendingContentAsync();
                 await DraftStore.SaveAsync(NoteId, title, content);
+            }
             else
                 await SaveCoreAsync();
         }

@@ -601,6 +601,19 @@
         return _saveInFlight;
     }
 
+    // Pull any edit still sitting in the editor's debounced push window into `content`
+    // before it is read for a save or draft stash. onUpdate now debounces the HTML push
+    // (issue #303), so between pushes `content` can lag the editor by up to the debounce
+    // window; without this, an explicit Save & close (or teardown) that fires inside that
+    // window would persist stale content and the pending push would be dropped on destroy.
+    private async Task FlushPendingContentAsync()
+    {
+        if (!_editorMounted) return;
+        var html = await JS.InvokeAsync<string?>("tiptapInterop.flushPendingContent", _editorId);
+        if (html is not null)
+            content = html;
+    }
+
     private async Task<NoteItem?> SaveOnceAsync()
     {
         // The note this save targets, captured before the awaited PUT. Uses _currentId (the note
@@ -610,6 +623,10 @@
         // away while the request is in flight, the completion callback below must not fold this
         // save's result into the now-current note's state (#262).
         var startId = _currentId;
+
+        // Capture any edit still in the editor's debounce window so this save (auto, manual,
+        // Save & close, or the navigation flush) persists the very latest content (#303).
+        await FlushPendingContentAsync();
 
         // Normalize the title before saving so a whitespace-only or empty title
         // never lands in the list. Mirrors the Board create path (which trims) and
@@ -819,7 +836,10 @@
         // 'Reload Latest' preserves the user's in-progress edits for recovery instead of discarding
         // them without any backup (#263). A later successful save clears the draft.
         if (HasPendingChanges)
+        {
+            await FlushPendingContentAsync();
             await DraftStore.SaveAsync(Id, title, content);
+        }
         var result = await NoteService.GetAsync(Id.Value);
         if (!result.IsSuccess) { Nav.NavigateTo("/"); return; }
         title = result.Value!.Title;
@@ -1260,10 +1280,14 @@
         if (HasPendingChanges && !IsArchived)
         {
             if (_hasConflict)
+            {
                 // A save can only 409 again against this stale snapshot; back the edit up to a
                 // draft that a reopen restores instead of silently dropping it on teardown —
-                // mirroring SubNoteDialog (#263).
+                // mirroring SubNoteDialog (#263). Flush the debounce window first so the draft
+                // captures the last edits and does not lose the pending push on destroy (#303).
+                await FlushPendingContentAsync();
                 await DraftStore.SaveAsync(Id, title, content);
+            }
             else
                 await SaveCoreAsync();
         }

@@ -137,6 +137,10 @@ window.tiptapInterop = {
         // keeps its own auto-save debounce untouched; this only throttles how often it
         // hears about changes. The pushed HTML is still editor.getHTML() verbatim, so
         // the stored content is byte-for-byte identical to the old per-keystroke push.
+        //
+        // onUpdate (above) references scheduleContentPush, which reads these timer
+        // bindings; that is safe because Tiptap does not emit an update while applying
+        // the constructor `content`, so onUpdate never fires before these lines run.
         let pushDebounceTimer = null;
         let pushMaxWaitTimer = null;
         const flushContentPush = () => {
@@ -155,6 +159,21 @@ window.tiptapInterop = {
             if (pushMaxWaitTimer === null)
                 pushMaxWaitTimer = setTimeout(flushContentPush, CONTENT_PUSH_MAX_WAIT_MS);
         }
+        // Defuse any pending debounced push and hand back the latest serialized HTML so a
+        // caller (.NET) that is about to read `content` — an explicit save, a draft stash, or
+        // teardown — captures edits made within the last debounce window instead of losing
+        // them when the pending timer is discarded on destroy (issue #303 follow-up). Returns
+        // null when no push is pending: the last flushContentPush already delivered the current
+        // HTML, so .NET's `content` is already up to date and needs no re-serialization.
+        const flushPendingContent = () => {
+            if (pushDebounceTimer === null && pushMaxWaitTimer === null) return null;
+            clearTimeout(pushDebounceTimer);
+            clearTimeout(pushMaxWaitTimer);
+            pushDebounceTimer = null;
+            pushMaxWaitTimer = null;
+            return editor.isDestroyed ? null : editor.getHTML();
+        };
+        editor.__flushPendingContent = flushPendingContent;
         // Drop any pending push when the editor is torn down so a stray timer never calls
         // editor.getHTML() on a destroyed instance or invokes a disposed .NET reference.
         editor.on('destroy', () => {
@@ -385,6 +404,15 @@ window.tiptapInterop = {
 
     focus(elementId) {
         _editors[elementId]?.editor.commands.focus('start');
+    },
+
+    // Flush a pending debounced content push and return the latest serialized HTML,
+    // or null when nothing is pending (see the flushPendingContent closure in init).
+    // Called by the .NET editors right before a save / draft stash / teardown so the
+    // last debounce window of edits is never dropped (issue #303 follow-up).
+    flushPendingContent(elementId) {
+        const editor = _editors[elementId]?.editor;
+        return editor?.__flushPendingContent ? editor.__flushPendingContent() : null;
     },
 
     // Toggle read-only mode (used for archived notes).
