@@ -315,8 +315,10 @@ public class NoteService(
         // by the soft-delete filter (and silently purged) or born archived.
         note.DeletedAt = null;
         note.IsDeletionRoot = false;
+        note.DeletionGroupId = null;
         note.ArchivedAt = null;
         note.IsArchiveRoot = false;
+        note.ArchiveGroupId = null;
         // Sharing is off at birth and can only be turned on through the dedicated share
         // endpoints — a client must never be able to mint a share token via create/update.
         note.ShareToken = null;
@@ -700,16 +702,19 @@ public class NoteService(
         if (note is null) return false;
 
         var deletedAt = UtcNowMicroseconds();
+        var groupId = Guid.NewGuid();
         note.DeletedAt = deletedAt;
         note.IsDeletionRoot = true;
+        note.DeletionGroupId = groupId;
 
-        // Active descendants are swept into the same recycle bin group (same timestamp).
+        // Active descendants are swept into the same recycle bin group (shared group id).
         // Descendants soft-deleted earlier keep their own group and restore independently.
         var descendants = await CollectActiveDescendantsAsync(id, ct);
         foreach (var descendant in descendants)
         {
             descendant.DeletedAt = deletedAt;
             descendant.IsDeletionRoot = false;
+            descendant.DeletionGroupId = groupId;
         }
 
         await db.SaveChangesAsync(ct);
@@ -775,8 +780,8 @@ public class NoteService(
                 n.Id == id && n.DeletedAt != null && n.IsDeletionRoot, ct);
         if (note is null) return false;
 
-        var groupDeletedAt = note.DeletedAt!.Value;
-        var groupMembers = await CollectDeletedGroupDescendantsAsync(id, groupDeletedAt, ct);
+        var groupId = note.DeletionGroupId!.Value;
+        var groupMembers = await CollectDeletedGroupDescendantsAsync(id, groupId, ct);
 
         if (note.ParentNoteId.HasValue)
         {
@@ -792,10 +797,12 @@ public class NoteService(
 
         note.DeletedAt = null;
         note.IsDeletionRoot = false;
+        note.DeletionGroupId = null;
         foreach (var member in groupMembers)
         {
             member.DeletedAt = null;
             member.IsDeletionRoot = false;
+            member.DeletionGroupId = null;
         }
 
         await db.SaveChangesAsync(ct);
@@ -819,12 +826,14 @@ public class NoteService(
         if (note.ArchivedAt is not null) return true; // idempotent no-op
 
         var archivedAt = UtcNowMicroseconds();
+        var groupId = Guid.NewGuid();
         note.ArchivedAt = archivedAt;
         note.IsArchiveRoot = true;
+        note.ArchiveGroupId = groupId;
 
-        // Sweep active descendants into the same archive group. The BFS sees
-        // archived descendants too (archive has no global filter), so skip them:
-        // independently archived subtrees keep their own root and timestamp.
+        // Sweep active descendants into the same archive group (shared group id). The
+        // BFS sees archived descendants too (archive has no global filter), so skip
+        // them: independently archived subtrees keep their own root and group id.
         var descendants = (await CollectActiveDescendantsAsync(id, ct))
             .Where(d => d.ArchivedAt == null)
             .ToList();
@@ -832,6 +841,7 @@ public class NoteService(
         {
             descendant.ArchivedAt = archivedAt;
             descendant.IsArchiveRoot = false;
+            descendant.ArchiveGroupId = groupId;
         }
 
         await db.SaveChangesAsync(ct);
@@ -854,15 +864,17 @@ public class NoteService(
             n.Id == id && n.ArchivedAt != null, ct);
         if (note is null) return false;
 
-        var groupArchivedAt = note.ArchivedAt!.Value;
-        var groupMembers = await CollectArchivedGroupDescendantsAsync(id, groupArchivedAt, ct);
+        var groupId = note.ArchiveGroupId!.Value;
+        var groupMembers = await CollectArchivedGroupDescendantsAsync(id, groupId, ct);
 
         note.ArchivedAt = null;
         note.IsArchiveRoot = false;
+        note.ArchiveGroupId = null;
         foreach (var member in groupMembers)
         {
             member.ArchivedAt = null;
             member.IsArchiveRoot = false;
+            member.ArchiveGroupId = null;
         }
 
         // Never resurrect an active note under a missing, soft-deleted, or
@@ -905,20 +917,24 @@ public class NoteService(
             })
             .ToListAsync(ct);
 
-        // Direct children swept in the same archive operation (same timestamp),
+        // Direct children swept in the same archive operation (same group id),
         // mirroring the recycle bin's per-root child counts.
         var ids = items.Select(i => i.Id).ToList();
         if (ids.Count > 0)
         {
+            var rootGroupIds = await db.Notes
+                .Where(n => ids.Contains(n.Id))
+                .Select(n => new { n.Id, n.ArchiveGroupId })
+                .ToDictionaryAsync(x => x.Id, x => x.ArchiveGroupId, ct);
             var children = await db.Notes
                 .Where(n => n.ArchivedAt != null
                     && n.ParentNoteId.HasValue
                     && ids.Contains(n.ParentNoteId.Value))
-                .Select(n => new { ParentId = n.ParentNoteId!.Value, n.ArchivedAt })
+                .Select(n => new { ParentId = n.ParentNoteId!.Value, n.ArchiveGroupId })
                 .ToListAsync(ct);
             foreach (var item in items)
                 item.ChildCount = children.Count(c =>
-                    c.ParentId == item.Id && c.ArchivedAt == item.ArchivedAt);
+                    c.ParentId == item.Id && c.ArchiveGroupId == rootGroupIds.GetValueOrDefault(item.Id));
         }
 
         return new PagedResult<ArchivedNoteSummary>
@@ -1062,19 +1078,19 @@ public class NoteService(
     private async Task<List<NoteItem>> CollectDescendantsUnfilteredAsync(Guid rootId, CancellationToken ct = default)
         => await CollectDescendantsAsync(rootId, db.Notes.IgnoreQueryFilters(), ct);
 
-    /// <summary>BFS over soft-deleted descendants sharing the given recycle-bin-group timestamp.</summary>
-    private async Task<List<NoteItem>> CollectDeletedGroupDescendantsAsync(Guid rootId, DateTime groupDeletedAt, CancellationToken ct = default)
+    /// <summary>BFS over soft-deleted descendants sharing the given recycle-bin group id.</summary>
+    private async Task<List<NoteItem>> CollectDeletedGroupDescendantsAsync(Guid rootId, Guid groupId, CancellationToken ct = default)
         => await CollectDescendantsAsync(
             rootId,
-            db.Notes.IgnoreQueryFilters().Where(n => n.DeletedAt == groupDeletedAt),
+            db.Notes.IgnoreQueryFilters().Where(n => n.DeletionGroupId == groupId),
             ct);
 
-    /// <summary>BFS over archived descendants sharing the given archive-group timestamp.
+    /// <summary>BFS over archived descendants sharing the given archive group id.
     /// Descends only through same-group notes, so independently archived subtrees stay put.</summary>
-    private async Task<List<NoteItem>> CollectArchivedGroupDescendantsAsync(Guid rootId, DateTime groupArchivedAt, CancellationToken ct = default)
+    private async Task<List<NoteItem>> CollectArchivedGroupDescendantsAsync(Guid rootId, Guid groupId, CancellationToken ct = default)
         => await CollectDescendantsAsync(
             rootId,
-            db.Notes.Where(n => n.ArchivedAt == groupArchivedAt),
+            db.Notes.Where(n => n.ArchiveGroupId == groupId),
             ct);
 
     private static async Task<List<NoteItem>> CollectDescendantsAsync(Guid rootId, IQueryable<NoteItem> source, CancellationToken ct = default)
