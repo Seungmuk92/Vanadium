@@ -1,6 +1,6 @@
-import { mergeAttributes } from 'https://esm.sh/@tiptap/core@2'
-import { createLowlight, common } from 'https://esm.sh/lowlight@3.3.0'
-import CodeBlockLowlight from 'https://esm.sh/@tiptap/extension-code-block-lowlight@2'
+import { mergeAttributes } from '@tiptap/core'
+import { createLowlight, common } from 'lowlight'
+import CodeBlockLowlight from '@tiptap/extension-code-block-lowlight'
 
 // ── Code block with lowlight syntax highlighting ─────────────────────────────
 

@@ -1,5 +1,5 @@
-import { Extension } from 'https://esm.sh/@tiptap/core@2'
-import { Selection, TextSelection } from 'https://esm.sh/@tiptap/pm@2/state'
+import { Extension } from '@tiptap/core'
+import { Selection, TextSelection } from '@tiptap/pm/state'
 import { findAncestorOfType, toggleOpenAt } from '../nodes/toggle.js'
 import { collectFoldedHeadingSpans } from '../nodes/collapsible-heading.js'
 

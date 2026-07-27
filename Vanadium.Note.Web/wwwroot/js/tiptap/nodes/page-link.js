@@ -1,4 +1,4 @@
-import { Node } from 'https://esm.sh/@tiptap/core@2'
+import { Node } from '@tiptap/core'
 
 // ── PageLink node ────────────────────────────────────────────────────────────
 

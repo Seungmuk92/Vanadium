@@ -1,4 +1,4 @@
-import { Extension } from 'https://esm.sh/@tiptap/core@2'
+import { Extension } from '@tiptap/core'
 
 // ── Tab / Shift-Tab handling ─────────────────────────────────────────────────
 
