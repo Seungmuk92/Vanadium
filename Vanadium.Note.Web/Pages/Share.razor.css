@@ -15,6 +15,27 @@
     color: var(--vn-text-muted, #6a6a6a);
 }
 
+.shared-note-retry {
+    margin-top: 1.25rem;
+    padding: 0.5rem 1.5rem;
+    font: inherit;
+    font-weight: 600;
+    color: var(--vn-mermaid-apply-color, #ffffff);
+    background: var(--vn-mermaid-apply-bg, #7950f2);
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+}
+
+.shared-note-retry:hover {
+    background: var(--vn-mermaid-apply-hover-bg, #6741d9);
+}
+
+.shared-note-retry:disabled {
+    opacity: 0.6;
+    cursor: default;
+}
+
 .shared-note-card {
     background: var(--vn-editor-bg, #ffffff);
     border: 1px solid var(--vn-editor-title-border, #e0e0e0);
