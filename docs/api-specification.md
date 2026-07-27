@@ -405,7 +405,9 @@ This is the only content endpoint reachable without authentication.
 - **Response `200`:** `SharedNote` — `{ id, title, content, updatedAt }`. Lean, read-only; never exposes
   the token, structure, labels, or lifecycle fields. Cross-note reference markup (page-link / note-mention)
   is redacted from `content` — each node is replaced with a `🔒 private page` placeholder so a referenced
-  (possibly non-shared) note's GUID and title are never disclosed. For `Link` mode, an
+  (possibly non-shared) note's GUID and title are never disclosed. `content` is also re-sanitized
+  at read time, so a shared page never serves active content (scripts / event handlers) even if a
+  legacy row predates the persist-time sanitizer. For `Link` mode, an
   `X-Robots-Tag: noindex, nofollow` header is added; `Public` mode omits it.
 - **Status codes:** `200` · `404` unknown, revoked, or soft-deleted note.
 
