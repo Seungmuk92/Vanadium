@@ -79,17 +79,19 @@ export function showLinkPopover(editorId) {
     // Pre-fill if selection is already a link
     input.value = entry.editor.getAttributes('link').href || '';
 
-    // Position below the current selection
-    const sel = window.getSelection();
-    if (sel.rangeCount > 0) {
-        const rect = sel.getRangeAt(0).getBoundingClientRect();
-        popover.style.display = 'flex';
-        // Clamp to viewport right edge
-        const popoverWidth = 320;
-        const left = Math.min(rect.left, window.innerWidth - popoverWidth - 8);
-        popover.style.top  = `${rect.bottom + 8}px`;
-        popover.style.left = `${Math.max(8, left)}px`;
-    }
+    // Position below the caret at the selection start, using ProseMirror's
+    // coordinate API. The DOM Selection's bounding rect is unreliable here:
+    // a collapsed selection yields an empty (0,0,0,0) rect that drops the
+    // popover into the top-left corner, and a multi-line/whitespace selection
+    // yields the box enclosing all lines, which drifts far from the text.
+    // coordsAtPos returns a precise caret rect for both cases.
+    const coords = entry.editor.view.coordsAtPos(entry.editor.state.selection.from);
+    popover.style.display = 'flex';
+    // Clamp to viewport right edge
+    const popoverWidth = 320;
+    const left = Math.min(coords.left, window.innerWidth - popoverWidth - 8);
+    popover.style.top  = `${coords.bottom + 8}px`;
+    popover.style.left = `${Math.max(8, left)}px`;
 
     setTimeout(() => input.focus(), 0);
 }
