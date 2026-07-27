@@ -532,7 +532,7 @@
                 // matching SubNoteDialog's Ctrl+S (OnSaveShortcut → DoAutoSave). Leaving to the
                 // list is the separate "Save & close" button, so a habitual Ctrl+S no longer
                 // ejects keyboard users from the editor (#265).
-                await ShortcutService.RegisterAsync("ctrl+s", "Save note", () => InvokeAsync(DoAutoSave));
+                await ShortcutService.RegisterAsync("ctrl+s", "Save note", () => InvokeAsync(DoAutoSave), inputSafe: true);
             }
             catch (Exception ex)
             {

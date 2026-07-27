@@ -157,7 +157,7 @@
                 // Claim Ctrl+S while the dialog is open so it saves THIS sub-note instead of the
                 // underlying page's note (which would navigate away). The prior binding is restored
                 // on dispose (#168).
-                _ctrlSOverride = await ShortcutService.OverrideAsync("ctrl+s", "Save note", OnSaveShortcut);
+                _ctrlSOverride = await ShortcutService.OverrideAsync("ctrl+s", "Save note", OnSaveShortcut, inputSafe: true);
             }
             catch (Exception ex)
             {

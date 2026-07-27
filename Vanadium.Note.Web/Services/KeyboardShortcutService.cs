@@ -6,7 +6,7 @@ public sealed class KeyboardShortcutService : IAsyncDisposable
 {
     public record ShortcutEntry(string Key, string Description);
 
-    private record HandlerEntry(Func<Task> Handler, string Description);
+    private record HandlerEntry(Func<Task> Handler, string Description, bool InputSafe);
 
     private readonly IJSRuntime _js;
     private readonly Dictionary<string, HandlerEntry> _handlers = new(StringComparer.OrdinalIgnoreCase);
@@ -25,10 +25,16 @@ public sealed class KeyboardShortcutService : IAsyncDisposable
         await _js.InvokeVoidAsync("keyboardShortcuts.init", _objRef);
     }
 
-    public async Task RegisterAsync(string key, string description, Func<Task> handler)
+    /// <summary>
+    /// Registers a shortcut. Set <paramref name="inputSafe"/> to keep it firing while a text field
+    /// has focus (e.g. the command palette or save) — this flag is the single source for input-safe
+    /// membership, mirrored into the JS handler at registration time (#310). Everything else is
+    /// suppressed while typing so it can't hijack the input (#214).
+    /// </summary>
+    public async Task RegisterAsync(string key, string description, Func<Task> handler, bool inputSafe = false)
     {
-        _handlers[key] = new HandlerEntry(handler, description);
-        await _js.InvokeVoidAsync("keyboardShortcuts.register", key);
+        _handlers[key] = new HandlerEntry(handler, description, inputSafe);
+        await _js.InvokeVoidAsync("keyboardShortcuts.register", key, inputSafe);
     }
 
     public async Task UnregisterAsync(string key)
@@ -49,10 +55,10 @@ public sealed class KeyboardShortcutService : IAsyncDisposable
     /// was none). Modal dialogs use this to claim Ctrl+S for their own note while open and hand it
     /// back to the underlying page on close (#168).
     /// </summary>
-    public async Task<IAsyncDisposable> OverrideAsync(string key, string description, Func<Task> handler)
+    public async Task<IAsyncDisposable> OverrideAsync(string key, string description, Func<Task> handler, bool inputSafe = false)
     {
         _handlers.TryGetValue(key, out var previous);
-        await RegisterAsync(key, description, handler);
+        await RegisterAsync(key, description, handler, inputSafe);
         return new ShortcutOverride(this, key, previous);
     }
 
@@ -64,7 +70,7 @@ public sealed class KeyboardShortcutService : IAsyncDisposable
             if (previous is not null)
             {
                 owner._handlers[key] = previous;
-                await owner._js.InvokeVoidAsync("keyboardShortcuts.register", key);
+                await owner._js.InvokeVoidAsync("keyboardShortcuts.register", key, previous.InputSafe);
             }
             else
             {
