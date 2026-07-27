@@ -30,7 +30,18 @@
         @if (selected.Count > 0)
         {
             <div class="bulk-bar">
-                <span class="bulk-count">@selected.Count selected</span>
+                @if (isBusy && bulkTotal > 0)
+                {
+                    <span class="bulk-count">Processing @bulkDone / @bulkTotal…</span>
+                    <div class="bulk-progress" role="progressbar"
+                         aria-valuenow="@bulkDone" aria-valuemin="0" aria-valuemax="@bulkTotal">
+                        <div class="bulk-progress-fill" style="width:@BulkProgressPercent%"></div>
+                    </div>
+                }
+                else
+                {
+                    <span class="bulk-count">@selected.Count selected</span>
+                }
                 <button class="row-btn" disabled="@isBusy" @onclick="BulkRestore">Restore</button>
                 <button class="row-btn row-btn-danger" disabled="@isBusy" @onclick="BulkDeleteForever">Delete forever</button>
                 <button class="row-btn bulk-clear" disabled="@isBusy" @onclick="ClearSelection">Clear</button>
@@ -100,6 +111,15 @@
     private int currentPage = 1;
     private bool isLoading = true;
     private bool isBusy;
+
+    // Bulk actions run concurrently with a capped number of in-flight requests
+    // so a large selection finishes far faster than a sequential loop, without
+    // flooding the server. bulkTotal/bulkDone drive the progress indicator.
+    private const int MaxBulkConcurrency = 6;
+    private int bulkTotal;
+    private int bulkDone;
+
+    private int BulkProgressPercent => bulkTotal == 0 ? 0 : (int)(100.0 * bulkDone / bulkTotal);
 
     private int TotalPages => Math.Max(1, (int)Math.Ceiling((double)totalCount / PageSize));
 
@@ -197,10 +217,10 @@
         if (ids.Count == 0) return;
 
         isBusy = true;
-        var (ok, failed) = await RunBulk(ids, id => NoteService.RestoreAsync(id));
+        var (succeeded, failed) = await RunBulk(ids, id => NoteService.RestoreAsync(id));
         isBusy = false;
 
-        ReportBulk(ok, failed, "restored", "restore");
+        ReportBulk(succeeded.Count, failed, "restored", "restore");
         await ReloadAfterRemoval();
     }
 
@@ -213,12 +233,12 @@
         if (!await Confirm.ConfirmAsync("Delete forever", message, "Delete forever")) return;
 
         isBusy = true;
-        var (ok, failed) = await RunBulk(ids, id => NoteService.DeletePermanentAsync(id));
+        var (succeeded, failed) = await RunBulk(ids, id => NoteService.DeletePermanentAsync(id));
         isBusy = false;
 
-        if (ok > 0)
-            Logger.LogInformation("{Count} note(s) permanently deleted from recycle bin page.", ok);
-        ReportBulk(ok, failed, "permanently deleted", "delete");
+        if (succeeded.Count > 0)
+            Logger.LogInformation("{Count} note(s) permanently deleted from recycle bin page.", succeeded.Count);
+        ReportBulk(succeeded.Count, failed, "permanently deleted", "delete");
         await ReloadAfterRemoval();
     }
 
@@ -240,17 +260,36 @@
     private List<Guid> SelectedIdsOnPage() =>
         items.Where(i => selected.Contains(i.Id)).Select(i => i.Id).ToList();
 
-    private static async Task<(int ok, int failed)> RunBulk(
+    // Runs the action for every id concurrently, capped at MaxBulkConcurrency
+    // in-flight requests, and reports progress as each one finishes. Returns the
+    // ids that succeeded (preserving input order) plus the failure count. Blazor
+    // WASM is single-threaded, so the shared counters are only mutated in
+    // continuations — no locking needed.
+    private async Task<(List<Guid> succeeded, int failed)> RunBulk(
         List<Guid> ids, Func<Guid, Task<ServiceResult<bool>>> action)
     {
-        int ok = 0, failed = 0;
-        foreach (var id in ids)
+        bulkTotal = ids.Count;
+        bulkDone = 0;
+        using var throttle = new SemaphoreSlim(MaxBulkConcurrency);
+
+        var results = await Task.WhenAll(ids.Select(async id =>
         {
-            var result = await action(id);
-            if (result.IsSuccess) ok++;
-            else failed++;
-        }
-        return (ok, failed);
+            await throttle.WaitAsync();
+            try
+            {
+                var result = await action(id);
+                return (id, ok: result.IsSuccess);
+            }
+            finally
+            {
+                throttle.Release();
+                bulkDone++;
+                StateHasChanged();
+            }
+        }));
+
+        var succeeded = results.Where(r => r.ok).Select(r => r.id).ToList();
+        return (succeeded, results.Length - succeeded.Count);
     }
 
     private void ReportBulk(int ok, int failed, string doneVerb, string failVerb)

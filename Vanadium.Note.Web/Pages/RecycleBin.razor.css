@@ -79,6 +79,21 @@
     margin-left: auto;
 }
 
+.bulk-progress {
+    flex: 1;
+    max-width: 160px;
+    height: 6px;
+    background-color: var(--mud-palette-divider);
+    border-radius: 3px;
+    overflow: hidden;
+}
+
+.bulk-progress-fill {
+    height: 100%;
+    background-color: var(--mud-palette-primary);
+    transition: width 0.15s ease;
+}
+
 .note-row:last-child {
     border-bottom: none;
 }
