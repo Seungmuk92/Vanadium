@@ -33,6 +33,12 @@ import { showCalloutEmojiPicker, hideCalloutPicker } from './ui/callout-picker.j
 import { uploadWithProgress, createProgressToast, validateUpload, showUploadNotice } from './upload.js'
 import { resolveAuthenticatedImages } from './images.js'
 
+// Debounce window for pushing serialized editor HTML to .NET (issue #303).
+// CONTENT_PUSH_DEBOUNCE_MS waits for a pause in typing; CONTENT_PUSH_MAX_WAIT_MS
+// bounds how long a continuous, gapless burst can withhold a push.
+const CONTENT_PUSH_DEBOUNCE_MS = 400;
+const CONTENT_PUSH_MAX_WAIT_MS = 1000;
+
 // ── Public API ───────────────────────────────────────────────────────────────
 
 window.tiptapInterop = {
@@ -116,10 +122,63 @@ window.tiptapInterop = {
             ],
             content: initialContent || '',
             editable,
-            onUpdate({ editor }) {
-                dotnetRef.invokeMethodAsync('OnEditorContentChanged', editor.getHTML())
-                    .catch(err => console.error('[tiptap] OnEditorContentChanged failed', err));
+            onUpdate() {
+                scheduleContentPush();
             },
+        });
+
+        // Serializing the entire document with editor.getHTML() and marshalling the
+        // resulting string across the WASM boundary on EVERY keystroke is the dominant
+        // typing-latency cost on large notes (issue #303). Debounce the push so a burst
+        // of keystrokes serializes at most once per CONTENT_PUSH_DEBOUNCE_MS, and cap the
+        // wait with CONTENT_PUSH_MAX_WAIT_MS so even a long gapless burst still flushes
+        // periodically — that keeps the .NET side's unsaved-changes guard armed and its
+        // 1.5s auto-save timer scheduled, so no edit is left unpersisted. The .NET side
+        // keeps its own auto-save debounce untouched; this only throttles how often it
+        // hears about changes. The pushed HTML is still editor.getHTML() verbatim, so
+        // the stored content is byte-for-byte identical to the old per-keystroke push.
+        //
+        // onUpdate (above) references scheduleContentPush, which reads these timer
+        // bindings; that is safe because Tiptap does not emit an update while applying
+        // the constructor `content`, so onUpdate never fires before these lines run.
+        let pushDebounceTimer = null;
+        let pushMaxWaitTimer = null;
+        const flushContentPush = () => {
+            clearTimeout(pushDebounceTimer);
+            clearTimeout(pushMaxWaitTimer);
+            pushDebounceTimer = null;
+            pushMaxWaitTimer = null;
+            if (editor.isDestroyed) return;
+            dotnetRef.invokeMethodAsync('OnEditorContentChanged', editor.getHTML())
+                .catch(err => console.error('[tiptap] OnEditorContentChanged failed', err));
+        };
+        function scheduleContentPush() {
+            clearTimeout(pushDebounceTimer);
+            pushDebounceTimer = setTimeout(flushContentPush, CONTENT_PUSH_DEBOUNCE_MS);
+            // Arm the ceiling only once per burst; it is not reset by later keystrokes.
+            if (pushMaxWaitTimer === null)
+                pushMaxWaitTimer = setTimeout(flushContentPush, CONTENT_PUSH_MAX_WAIT_MS);
+        }
+        // Defuse any pending debounced push and hand back the latest serialized HTML so a
+        // caller (.NET) that is about to read `content` — an explicit save, a draft stash, or
+        // teardown — captures edits made within the last debounce window instead of losing
+        // them when the pending timer is discarded on destroy (issue #303 follow-up). Returns
+        // null when no push is pending: the last flushContentPush already delivered the current
+        // HTML, so .NET's `content` is already up to date and needs no re-serialization.
+        const flushPendingContent = () => {
+            if (pushDebounceTimer === null && pushMaxWaitTimer === null) return null;
+            clearTimeout(pushDebounceTimer);
+            clearTimeout(pushMaxWaitTimer);
+            pushDebounceTimer = null;
+            pushMaxWaitTimer = null;
+            return editor.isDestroyed ? null : editor.getHTML();
+        };
+        editor.__flushPendingContent = flushPendingContent;
+        // Drop any pending push when the editor is torn down so a stray timer never calls
+        // editor.getHTML() on a destroyed instance or invokes a disposed .NET reference.
+        editor.on('destroy', () => {
+            clearTimeout(pushDebounceTimer);
+            clearTimeout(pushMaxWaitTimer);
         });
 
         // Ctrl+K shortcut
@@ -345,6 +404,15 @@ window.tiptapInterop = {
 
     focus(elementId) {
         _editors[elementId]?.editor.commands.focus('start');
+    },
+
+    // Flush a pending debounced content push and return the latest serialized HTML,
+    // or null when nothing is pending (see the flushPendingContent closure in init).
+    // Called by the .NET editors right before a save / draft stash / teardown so the
+    // last debounce window of edits is never dropped (issue #303 follow-up).
+    flushPendingContent(elementId) {
+        const editor = _editors[elementId]?.editor;
+        return editor?.__flushPendingContent ? editor.__flushPendingContent() : null;
     },
 
     // Toggle read-only mode (used for archived notes).
