@@ -74,6 +74,14 @@ into `Auth:PasswordHash`. Persists nothing. Returns `404` outside the Developmen
 - **Status codes:** `200` success · `400` password fails the security policy (`ValidationProblemDetails`)
   · `404` not in Development.
 
+> **Production password rotation.** Because this endpoint is `404` outside Development, an owner who
+> only runs the production instance rotates the password with the server-local `--hash-password`
+> startup flag instead: `dotnet Vanadium.Note.REST.dll --hash-password` (or `dotnet run -- --hash-password`)
+> reads the new password from **stdin**, applies the same password policy, prints the PBKDF2 storage
+> hash to stdout, and exits without starting the web host or touching the database. Requiring shell
+> access to the running server is the authorization control. Nothing is persisted — paste the printed
+> hash into `Auth:PasswordHash` (config/env) and restart.
+
 ---
 
 ## Personal access tokens — `ApiTokensController`
