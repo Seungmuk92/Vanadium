@@ -1,0 +1,24 @@
+{
+  "imports": {
+    "@tiptap/core": "js/vendor/tiptap-core.js",
+    "@tiptap/pm/state": "js/vendor/tiptap-pm-state.js",
+    "@tiptap/pm/view": "js/vendor/tiptap-pm-view.js",
+    "@tiptap/starter-kit": "js/vendor/tiptap-starter-kit.js",
+    "@tiptap/suggestion": "js/vendor/tiptap-suggestion.js",
+    "@tiptap/extension-bubble-menu": "js/vendor/tiptap-extension-bubble-menu.js",
+    "@tiptap/extension-placeholder": "js/vendor/tiptap-extension-placeholder.js",
+    "@tiptap/extension-link": "js/vendor/tiptap-extension-link.js",
+    "@tiptap/extension-image": "js/vendor/tiptap-extension-image.js",
+    "@tiptap/extension-task-list": "js/vendor/tiptap-extension-task-list.js",
+    "@tiptap/extension-task-item": "js/vendor/tiptap-extension-task-item.js",
+    "@tiptap/extension-table": "js/vendor/tiptap-extension-table.js",
+    "@tiptap/extension-table-row": "js/vendor/tiptap-extension-table-row.js",
+    "@tiptap/extension-table-header": "js/vendor/tiptap-extension-table-header.js",
+    "@tiptap/extension-table-cell": "js/vendor/tiptap-extension-table-cell.js",
+    "@tiptap/extension-code-block-lowlight": "js/vendor/tiptap-extension-code-block-lowlight.js",
+    "@tiptap/extension-heading": "js/vendor/tiptap-extension-heading.js",
+    "tiptap-markdown": "js/vendor/tiptap-markdown.js",
+    "lowlight": "js/vendor/lowlight.js",
+    "mermaid": "js/vendor/mermaid.js"
+  }
+}
