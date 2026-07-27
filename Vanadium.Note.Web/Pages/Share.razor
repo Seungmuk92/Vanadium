@@ -13,10 +13,24 @@
     }
     else if (_note is null)
     {
-        <div class="shared-note-status">
-            <h1>This note isn't available</h1>
-            <p>The link may be incorrect, or the note is no longer shared.</p>
-        </div>
+        @if (_transientFailure)
+        {
+            @* A 5xx/network failure is likely temporary — offer a retry instead of
+               presenting it as a permanently unavailable note. *@
+            <div class="shared-note-status">
+                <h1>Couldn't load this note</h1>
+                <p>Something went wrong while loading this note. This may be temporary.</p>
+                <button type="button" class="shared-note-retry" @onclick="RetryAsync" disabled="@_loading">Retry</button>
+            </div>
+        }
+        else
+        {
+            @* A 404 means the token is unknown or revoked — a permanent state. *@
+            <div class="shared-note-status">
+                <h1>This note isn't available</h1>
+                <p>The link may be incorrect, or the note is no longer shared.</p>
+            </div>
+        }
     }
     else
     {
@@ -41,6 +55,7 @@
 
     private SharedNote? _note;
     private bool _loading = true;
+    private bool _transientFailure;
     private string? _loadedToken;
     private ElementReference _contentRef;
     private bool _mermaidRendered;
@@ -52,12 +67,25 @@
     {
         if (_loadedToken == Token) return;
         _loadedToken = Token;
+        await LoadAsync();
+    }
+
+    // Re-triggered by the Retry button after a transient failure. Reloads the same
+    // token; a successful reload replaces the error screen with the note.
+    private Task RetryAsync() => LoadAsync();
+
+    private async Task LoadAsync()
+    {
         _loading = true;
         _note = null;
+        _transientFailure = false;
         _mermaidRendered = false;
 
         var result = await NoteService.GetSharedNoteAsync(Token);
         _note = result.IsSuccess ? result.Value : null;
+        // IsNotFound (404) is a permanent revoke/unknown-token state; any other
+        // failure (5xx/network) is treated as transient and offered a retry.
+        _transientFailure = !result.IsSuccess && !result.IsNotFound;
         _loading = false;
     }
 
