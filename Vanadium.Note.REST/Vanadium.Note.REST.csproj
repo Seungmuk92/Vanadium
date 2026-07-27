@@ -18,6 +18,11 @@
          AngleSharp alone against a 9.0.x HtmlSanitizer compiled for 0.17 is not runtime-safe
          (NU1608); upgrading the sanitizer keeps the AngleSharp graph vendor-coherent. -->
     <PackageReference Include="HtmlSanitizer" Version="9.1.966-beta" />
+    <!-- Explicit reference for parser-based note-content rewriting (issue #306): mention/page-link
+         title propagation and stripping use AngleSharp DOM manipulation instead of Regex.Replace.
+         Pinned to 1.5.2 — the same patched version HtmlSanitizer 9.1.x already resolves, so the
+         AngleSharp graph stays vendor-coherent and clear of the vulnerable < 1.5.0 line (GHSA-pgww-w46g-26qg). -->
+    <PackageReference Include="AngleSharp" Version="1.5.2" />
     <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.5" />
     <!-- Pinned to patch GHSA-v5pm-xwqc-g5wc; Swashbuckle.AspNetCore 10.1.7 pulls in the vulnerable 2.4.1 transitively. -->
     <PackageReference Include="Microsoft.OpenApi" Version="2.7.5" />
