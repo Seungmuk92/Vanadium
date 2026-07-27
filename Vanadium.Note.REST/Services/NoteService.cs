@@ -278,9 +278,44 @@ public class NoteService(
     public async Task<NoteItem?> GetSharedByToken(string? token, CancellationToken ct = default)
     {
         if (string.IsNullOrEmpty(token)) return null;
-        return await db.Notes
+        var note = await db.Notes
+            .AsNoTracking()
             .FirstOrDefaultAsync(n =>
                 n.ShareToken == token && n.ShareMode != ShareMode.None, ct);
+        if (note is null) return null;
+        // Defense in depth (issue #294): the persist-time sanitizer runs only on Create/Update,
+        // so legacy rows saved before it — or any future gap — could still carry active content.
+        // Sanitize once more right before the note leaves the anonymous read path so a shared
+        // page can never serve script/event handlers. AsNoTracking keeps this in-memory pass
+        // from being flushed back to the row (which would desync the persisted ContentText).
+        note.Content = htmlSanitizer.Sanitize(note.Content);
+        return note;
+    }
+
+    /// <summary>
+    /// One-time backfill (issue #294): re-sanitize every stored note's <c>Content</c> so legacy
+    /// rows saved before the persist-time sanitizer can never serve active content on the
+    /// anonymous share path. Archived and soft-deleted notes are included
+    /// (<c>IgnoreQueryFilters</c>) because either can be restored/re-shared later. Idempotent:
+    /// rows whose sanitized content is unchanged are left untouched, and <c>ContentText</c> is
+    /// re-derived only when <c>Content</c> actually changed — the same Content/ContentText
+    /// invariant the Create/Update paths maintain (the StripHtml derivation itself is unchanged).
+    /// Returns the number of notes updated.
+    /// </summary>
+    public async Task<int> ReSanitizeAllContentAsync(CancellationToken ct = default)
+    {
+        var notes = await db.Notes.IgnoreQueryFilters().ToListAsync(ct);
+        var changed = 0;
+        foreach (var note in notes)
+        {
+            var sanitized = htmlSanitizer.Sanitize(note.Content);
+            if (string.Equals(sanitized, note.Content, StringComparison.Ordinal)) continue;
+            note.Content = sanitized;
+            note.ContentText = StripHtml(sanitized);
+            changed++;
+        }
+        if (changed > 0) await db.SaveChangesAsync(ct);
+        return changed;
     }
 
     private static void ClearShare(NoteItem note)
