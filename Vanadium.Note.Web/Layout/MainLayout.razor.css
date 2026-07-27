@@ -38,7 +38,38 @@ main {
     min-width: 320px;
     max-width: 480px;
     width: 90%;
+    max-height: 85vh;
+    display: flex;
+    flex-direction: column;
     box-shadow: 0 8px 32px rgba(0, 0, 0, 0.25);
+}
+
+/* The section list can grow past the viewport; scroll it while the header
+   stays pinned. min-height:0 overrides the flex item's default min-height:auto
+   so the body actually shrinks and scrolls inside the dialog instead of
+   overflowing it on a short viewport. */
+.shortcuts-body {
+    min-height: 0;
+    overflow-y: auto;
+}
+
+.shortcuts-section-title {
+    margin: 1.25rem 0 0.5rem;
+    font-size: 0.8rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--mud-palette-text-secondary);
+}
+
+    .shortcuts-body > .shortcuts-section-title:first-child {
+        margin-top: 0;
+    }
+
+.shortcuts-section-hint {
+    margin: 0 0 0.5rem;
+    font-size: 0.8rem;
+    color: var(--mud-palette-text-secondary);
 }
 
 .shortcuts-dialog-header {
