@@ -10,6 +10,7 @@
 {
     <div class="quicknav-backdrop" @onclick="Close">
         <div class="quicknav-panel"
+             @ref="_panel"
              role="dialog"
              aria-modal="true"
              aria-label="Quick note navigation"
@@ -110,6 +111,7 @@
     private record HighlightSegment(string Text, bool Match);
 
     private ElementReference _input;
+    private ElementReference _panel;
     private string _query = string.Empty;
     private int _selected;
     private string[] _terms = [];
@@ -125,7 +127,12 @@
         if (Open && !_wasOpen)
             await OnOpened();
         else if (!Open && _wasOpen)
+        {
             _searchCts?.Cancel();
+            // Release the focus trap and restore focus to the element that opened
+            // the palette. Covers every close path (Esc, backdrop, row open, parent toggle).
+            try { await JS.InvokeVoidAsync("focusTrap.deactivate"); } catch { /* JS may be gone */ }
+        }
         _wasOpen = Open;
     }
 
@@ -145,6 +152,9 @@
         if (_focusQueued)
         {
             _focusQueued = false;
+            // Activate the trap before moving focus, so it captures the pre-open active
+            // element as the restore target (mirrors the Board dialog pattern).
+            try { await JS.InvokeVoidAsync("focusTrap.activate", _panel); } catch { /* JS may be gone */ }
             try { await _input.FocusAsync(); } catch { /* element may be gone */ }
         }
         if (_scrollQueued)
