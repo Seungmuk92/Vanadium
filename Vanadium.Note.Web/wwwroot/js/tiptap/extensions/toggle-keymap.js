@@ -38,7 +38,26 @@ export const ToggleKeymap = Extension.create({
             'Enter': ({ editor }) => {
                 const { state, view } = editor;
                 const { $from, empty } = state.selection;
-                if (!empty) return false;
+
+                // Non-empty TEXT selections are handled with an explicit
+                // delete-then-split instead of being punted to StarterKit's
+                // splitBlock. That command evaluates canSplit against the
+                // PRE-deletion document but runs tr.split against the
+                // POST-deletion one, so a selection spanning a block boundary
+                // (e.g. Shift+Up from a lower row into the row above, #362)
+                // makes the two disagree and tr.split throws "Inserted content
+                // deeper than insertion position". Collapsing the selection
+                // first makes canSplit and split see the same doc. We return
+                // true unconditionally so the crashing default never runs as a
+                // fallback. NodeSelection (and any non-text selection) keeps the
+                // default path — its splitBlock branch splits without a prior
+                // deleteSelection, so it never hits the mismatch — and the
+                // caret-only toggle/heading handling below is unaffected.
+                if (!empty) {
+                    if (!(state.selection instanceof TextSelection)) return false;
+                    editor.chain().deleteSelection().splitBlock().run();
+                    return true;
+                }
 
                 // On a FOLDED collapsible heading, Enter expands the section
                 // instead of splitting into the hidden range below it.
