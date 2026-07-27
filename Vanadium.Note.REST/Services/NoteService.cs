@@ -1,5 +1,6 @@
-using System.Net;
 using System.Text.RegularExpressions;
+using AngleSharp.Dom;
+using AngleSharp.Html.Parser;
 using Microsoft.EntityFrameworkCore;
 using Vanadium.Note.REST.Data;
 using Vanadium.Note.REST.Models;
@@ -533,61 +534,71 @@ public class NoteService(
         return false;
     }
 
-    private static string UpdateMentionTitleInContent(string content, Guid noteId, string newTitle)
+    // Shared AngleSharp parser for note-content rewriting (issue #306). HtmlParser is stateless and
+    // safe to reuse across threads; each call parses into its own document, so no shared mutable state
+    // leaks between callers.
+    private static readonly HtmlParser ContentParser = new();
+
+    /// <summary>
+    /// Parses <paramref name="content"/> as a body-context HTML fragment, applies <paramref name="mutate"/>
+    /// to the parsed DOM, and returns the reserialized fragment — or the original string unchanged when
+    /// <paramref name="mutate"/> reports it edited nothing. This replaces the former <c>Regex.Replace</c>
+    /// content rewriting (issue #306): a spec-compliant parser sets attribute and text values through the
+    /// DOM API, so it is immune to the <c>'$'</c> substitution-string bug (issue #299) and to nesting or
+    /// attribute-order variations that silently broke the regexes. The user-visible title always lands in
+    /// element text content (never an attribute value), preserving the serialization hard rule, and callers
+    /// still derive <c>ContentText</c> via <c>StripHtml</c> on the result.
+    /// </summary>
+    private static string RewriteContent(string content, Func<IElement, bool> mutate)
     {
         if (string.IsNullOrEmpty(content)) return content;
-        var idStr = noteId.ToString();
-        var encodedTitle = WebUtility.HtmlEncode(newTitle);
-        // HtmlEncode leaves '$' untouched, and '$' is a substitution metacharacter in a
-        // Regex.Replace replacement string ($1, $&, ...). Escape it as '$$' for the inner
-        // attribute rewrite so a title like "Cost is $100" is inserted literally (issue #299).
-        // The MatchEvaluator return below is used verbatim, so it keeps the unescaped title.
-        var replacementTitle = encodedTitle.Replace("$", "$$");
+        var document = ContentParser.ParseDocument(string.Empty);
+        var body = document.Body!;
+        body.InnerHtml = content;
+        return mutate(body) ? body.InnerHtml : content;
+    }
 
-        return Regex.Replace(
-            content,
-            $@"(<a\s[^>]*data-note-id=""{Regex.Escape(idStr)}""[^>]*>)@[^<]*(</a>)",
-            m =>
+    private static string UpdateMentionTitleInContent(string content, Guid noteId, string newTitle) =>
+        RewriteContent(content, body =>
+        {
+            // Mentions are the only <a> elements carrying data-note-id; page-links are <div>.
+            var mentions = body.QuerySelectorAll($"a[data-note-id=\"{noteId}\"]");
+            if (mentions.Length == 0) return false;
+            foreach (var mention in mentions)
             {
-                var openTag = Regex.Replace(m.Groups[1].Value, @"data-title=""[^""]*""", $@"data-title=""{replacementTitle}""");
-                return $"{openTag}@{encodedTitle}{m.Groups[2].Value}";
-            },
-            RegexOptions.Singleline | RegexOptions.IgnoreCase);
-    }
+                mention.SetAttribute("data-title", newTitle);
+                mention.TextContent = "@" + newTitle;
+            }
+            return true;
+        });
 
-    private static string StripMentionLinksFromContent(string content, Guid noteId)
-    {
-        if (string.IsNullOrEmpty(content)) return content;
-        var idStr = noteId.ToString();
-        return Regex.Replace(
-            content,
-            $@"<a\s[^>]*data-note-id=""{Regex.Escape(idStr)}""[^>]*>(@[^<]*)</a>",
-            "$1",
-            RegexOptions.Singleline | RegexOptions.IgnoreCase);
-    }
-
-    private static string UpdatePageLinkTitleInContent(string content, Guid noteId, string newTitle)
-    {
-        if (string.IsNullOrEmpty(content)) return content;
-        var idStr = noteId.ToString();
-        var encodedTitle = WebUtility.HtmlEncode(newTitle);
-        // '$' survives HtmlEncode and is a substitution metacharacter in a Regex.Replace
-        // replacement string, so escape it as '$$' before both inner rewrites — otherwise a title
-        // like "Cost is $100" would corrupt the page-link markup (issue #299).
-        var replacementTitle = encodedTitle.Replace("$", "$$");
-
-        return Regex.Replace(
-            content,
-            $@"<div\s[^>]*data-note-id=""{Regex.Escape(idStr)}""[^>]*>.*?</div>",
-            m =>
+    private static string StripMentionLinksFromContent(string content, Guid noteId) =>
+        RewriteContent(content, body =>
+        {
+            var mentions = body.QuerySelectorAll($"a[data-note-id=\"{noteId}\"]");
+            if (mentions.Length == 0) return false;
+            foreach (var mention in mentions)
             {
-                var tag = m.Value;
-                tag = Regex.Replace(tag, @"data-title=""[^""]*""", $@"data-title=""{replacementTitle}""");
-                tag = Regex.Replace(tag, @">.*?</div>$", $">📄 {replacementTitle}</div>", RegexOptions.Singleline);
-                return tag;
-            },
-            RegexOptions.Singleline | RegexOptions.IgnoreCase);
-    }
+                // Unwrap the link: keep its visible text ("@Title"), drop the anchor wrapper.
+                var text = mention.Owner!.CreateTextNode(mention.TextContent);
+                mention.Parent!.ReplaceChild(text, mention);
+            }
+            return true;
+        });
+
+    private static string UpdatePageLinkTitleInContent(string content, Guid noteId, string newTitle) =>
+        RewriteContent(content, body =>
+        {
+            // Page-links are the only <div> elements carrying data-note-id.
+            var pageLinks = body.QuerySelectorAll($"div[data-note-id=\"{noteId}\"]");
+            if (pageLinks.Length == 0) return false;
+            foreach (var pageLink in pageLinks)
+            {
+                pageLink.SetAttribute("data-title", newTitle);
+                pageLink.TextContent = "📄 " + newTitle;
+            }
+            return true;
+        });
 
     /// <summary>
     /// Returns true if making <paramref name="proposedParentId"/> the parent of
@@ -1195,16 +1206,15 @@ public class NoteService(
             await db.SaveChangesAsync(ct);
     }
 
-    private static string RemovePageLinkFromContent(string content, Guid noteId)
-    {
-        if (string.IsNullOrEmpty(content)) return content;
-        var idStr = noteId.ToString();
-        return Regex.Replace(
-            content,
-            $@"<div\s[^>]*data-note-id=""{Regex.Escape(idStr)}""[^>]*>.*?</div>",
-            string.Empty,
-            RegexOptions.Singleline | RegexOptions.IgnoreCase);
-    }
+    private static string RemovePageLinkFromContent(string content, Guid noteId) =>
+        RewriteContent(content, body =>
+        {
+            var pageLinks = body.QuerySelectorAll($"div[data-note-id=\"{noteId}\"]");
+            if (pageLinks.Length == 0) return false;
+            foreach (var pageLink in pageLinks)
+                pageLink.Remove();
+            return true;
+        });
 
     private static IQueryable<NoteItem> ApplyFilters(
         IQueryable<NoteItem> query, string? search, Guid[]? labelIds)
