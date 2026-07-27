@@ -301,6 +301,9 @@ FakesAssemblies/
 .ntvs_analysis.dat
 node_modules/
 
+# Vanadium editor vendor-bundle build temp dir (issue #307, cleaned by build/bundle.mjs)
+Vanadium.Note.Web/build/.entries/
+
 # Visual Studio 6 build log
 *.plg
 

@@ -89,9 +89,14 @@ async function main() {
   rmSync(entriesDir, { recursive: true, force: true });
 
   // Emit the import map that index.html mirrors, so the two never drift.
+  // Addresses MUST be root-absolute (leading "/"): the import maps spec only
+  // resolves values that start with "/", "./" or "../" (or are absolute URLs)
+  // and silently DROPS any bare "js/vendor/..." value, which would break every
+  // mapping. The app is served from the site root (<base href="/">), so
+  // "/js/vendor/..." is the safe, unambiguous form.
   const imports = {};
   for (const [spec, cfg] of Object.entries(ENTRIES)) {
-    imports[spec] = `js/vendor/${cfg.out}.js`;
+    imports[spec] = `/js/vendor/${cfg.out}.js`;
   }
   const importmap = { imports };
   writeFileSync(join(vendorDir, 'importmap.json'), `${JSON.stringify(importmap, null, 2)}\n`, 'utf8');
