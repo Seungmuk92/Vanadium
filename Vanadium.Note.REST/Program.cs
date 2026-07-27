@@ -16,6 +16,19 @@ using Vanadium.Note.REST.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// Server-local password-hash generation (issue #296): the `--hash-password` startup flag prints a
+// storage hash and exits (handled right after Build below). Silence routine logging first so stdout
+// carries ONLY the hash — the Serilog console sink writes to stdout, and the breach-check HttpClient
+// would otherwise emit Information logs there and corrupt a `> hash.txt` capture.
+var hashPasswordCli = PasswordHashCli.IsInvocation(args);
+if (hashPasswordCli)
+{
+    builder.Configuration.AddInMemoryCollection(new Dictionary<string, string?>
+    {
+        ["Serilog:MinimumLevel:Default"] = "Fatal",
+    });
+}
+
 builder.Host.UseSerilog((context, services, config) =>
 {
     config
@@ -213,6 +226,20 @@ builder.Services.AddSwaggerGen(options =>
 
 var app = builder.Build();
 
+// Server-local password-hash generation (issue #296): the `--hash-password` startup flag reads a
+// new password from stdin, validates it against the API's password policy, prints its PBKDF2
+// storage hash, and exits WITHOUT starting the web host or touching the database. This is the
+// production-safe rotation path — `/api/auth/hash` stays Development-only, and requiring shell
+// access to the running server is itself the authorization control. Reusing the DI-built
+// IPasswordValidator keeps the CLI's policy identical to the endpoint's.
+if (hashPasswordCli)
+{
+    using var cliScope = app.Services.CreateScope();
+    var passwordValidator = cliScope.ServiceProvider.GetRequiredService<IPasswordValidator>();
+    return await PasswordHashCli.RunAsync(
+        passwordValidator, Console.In, Console.Out, Console.Error);
+}
+
 var seqConfigUrl = app.Configuration["Seq:ServerUrl"];
 var seqConfigKey = app.Configuration["Seq:ApiKey"];
 if (!string.IsNullOrWhiteSpace(seqConfigUrl) && string.IsNullOrWhiteSpace(seqConfigKey))
@@ -302,6 +329,11 @@ app.UseAuthorization();
 app.MapControllers();
 
 app.Run();
+
+// app.Run() blocks until shutdown; on graceful exit the process returns 0. An explicit return is
+// required because the `--hash-password` branch above returns an int, making this entry point
+// int-typed on every path.
+return 0;
 
 // Exposes the implicit top-level Program class to the test assembly so the smoke
 // E2E WebApplicationFactory<Program> can bootstrap the real application pipeline.
