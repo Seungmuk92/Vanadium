@@ -5,7 +5,9 @@
     // Shortcuts that must keep working while a text field is focused (command
     // palette, save). Every other shortcut — bare keys AND modifier combos such
     // as Ctrl+N — is skipped while typing so it can't hijack the input (#214).
-    const _inputSafe = new Set(['ctrl+k', 'ctrl+s']);
+    // Membership is decided by the C# registration API (`inputSafe` flag on
+    // `register`), so this list has a single source and never drifts (#310).
+    const _inputSafe = new Set();
     let _ref = null;
 
     function _buildKey(e) {
@@ -58,7 +60,14 @@
             _ref = null;
             _active.clear();
         },
-        register(key) { _active.add(key); },
-        unregister(key) { _active.delete(key); },
+        register(key, inputSafe) {
+            _active.add(key);
+            if (inputSafe) _inputSafe.add(key);
+            else _inputSafe.delete(key);
+        },
+        unregister(key) {
+            _active.delete(key);
+            _inputSafe.delete(key);
+        },
     };
 }());

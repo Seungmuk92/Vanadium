@@ -104,7 +104,7 @@
                 StateHasChanged();
                 return Task.CompletedTask;
             }));
-            await ShortcutService.RegisterAsync("ctrl+k", "Quick navigation", () => InvokeAsync(ToggleQuickNav));
+            await ShortcutService.RegisterAsync("ctrl+k", "Quick navigation", () => InvokeAsync(ToggleQuickNav), inputSafe: true);
         }
     }
 
