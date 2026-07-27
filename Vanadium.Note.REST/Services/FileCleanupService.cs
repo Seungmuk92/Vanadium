@@ -80,6 +80,12 @@ public class FileCleanupService(
         // GUIDs still present this scan, so the tracker can prune vanished assets afterwards.
         var liveIds = new HashSet<Guid>();
 
+        // Build the set of GUIDs referenced by any note ONCE, in a single streamed pass over
+        // note content, instead of running a per-file ILIKE '%guid%' probe (the old N+1: one
+        // query per attachment/image, thousands of low-selectivity trigram scans on a large
+        // corpus). Orphans are then decided by set membership below (issue #304).
+        var (referencedFileIds, referencedImageIds) = await GetReferencedIdsAsync(ct);
+
         // --- File attachments (have DB records) ---
         var attachments = await db.FileAttachments.ToListAsync(ct);
 
@@ -93,7 +99,7 @@ public class FileCleanupService(
         {
             liveIds.Add(attachment.Id);
 
-            if (await IsReferencedInAnyNoteAsync(attachment.Id, ct))
+            if (referencedFileIds.Contains(attachment.Id))
             {
                 // Referenced again — reset any accumulated unreferenced grace.
                 tracker.Forget(attachment.Id);
@@ -146,7 +152,7 @@ public class FileCleanupService(
 
             liveIds.Add(imageId);
 
-            if (await IsReferencedInAnyNoteAsync(imageId, ct))
+            if (referencedImageIds.Contains(imageId))
             {
                 tracker.Forget(imageId);
                 continue;
@@ -179,6 +185,48 @@ public class FileCleanupService(
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Extracts, in a single streamed pass over note content, the set of file-attachment and
+    /// image GUIDs referenced by any note. This replaces the periodic scan's per-file
+    /// <c>ILIKE '%guid%'</c> probe (issue #304): reference detection now costs one content scan
+    /// regardless of how many files are on disk, and reuses the same <c>/api/files/{guid}</c> /
+    /// <c>/api/images/{guid}</c> patterns as the on-delete path (<see cref="ExtractIds"/>).
+    /// <para>
+    /// Content is streamed (not materialized as a list) so the whole note corpus is never held
+    /// in memory at once — only one note's HTML plus the accumulated GUID sets.
+    /// </para>
+    /// <para>
+    /// IgnoreQueryFilters: content of soft-deleted (recycle-bin) and archived notes still counts
+    /// as a live reference until the note is permanently deleted, so their assets are not
+    /// garbage-collected early.
+    /// </para>
+    /// </summary>
+    private async Task<(HashSet<Guid> Files, HashSet<Guid> Images)> GetReferencedIdsAsync(
+        CancellationToken ct)
+    {
+        var fileIds  = new HashSet<Guid>();
+        var imageIds = new HashSet<Guid>();
+
+        var contents = db.Notes
+                         .IgnoreQueryFilters()
+                         .Select(n => n.Content)
+                         .AsAsyncEnumerable();
+
+        await foreach (var content in contents.WithCancellation(ct))
+        {
+            if (string.IsNullOrEmpty(content))
+                continue;
+
+            foreach (Match m in FilePattern.Matches(content))
+                fileIds.Add(Guid.Parse(m.Groups[1].Value));
+
+            foreach (Match m in ImagePattern.Matches(content))
+                imageIds.Add(Guid.Parse(m.Groups[1].Value));
+        }
+
+        return (fileIds, imageIds);
+    }
 
     private async Task<int> DeleteFileAttachmentsAsync(
         IEnumerable<Guid> ids, CancellationToken ct)
