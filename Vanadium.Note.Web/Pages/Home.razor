@@ -383,8 +383,12 @@
             return;
         }
 
-        expandedNoteIds.Clear();
-        childrenCache.Clear();
+        // Preserve tree expansion across search/filter/page changes (issue #270): keep the
+        // expanded state and cached children for notes still reachable in the new result set,
+        // and drop entries for notes that dropped out. Reachability walks down from the new
+        // top-level notes through the retained cache, so a still-present branch keeps its
+        // nested expansions while a vanished note's whole subtree is pruned.
+        PruneStaleTreeState();
         // Record the freshly-loaded list so the next background poll can tell whether
         // anything actually changed before it re-renders.
         _lastListSignature = ComputeListSignature(notes, totalCount);
@@ -473,6 +477,30 @@
     // as well as sub-note count changes, so the poll skips a re-render when nothing moved.
     private static string ComputeListSignature(List<NoteSummary> items, int total)
         => total + "|" + string.Join(";", items.Select(n => $"{n.Id}:{n.UpdatedAt.Ticks}:{n.ChildCount}"));
+
+    // Drops expansion/cache entries for notes no longer reachable from the current top-level
+    // list, while keeping everything still present (issue #270). Reachability starts at the
+    // freshly-loaded top-level notes and descends through the existing childrenCache, so a
+    // branch that survives the reload retains its nested expansions and cached children, and a
+    // note that dropped out of the results has its whole subtree cleaned up.
+    private void PruneStaleTreeState()
+    {
+        var reachable = new HashSet<Guid>();
+        var queue = new Queue<Guid>(notes.Select(n => n.Id));
+        while (queue.Count > 0)
+        {
+            var id = queue.Dequeue();
+            if (!reachable.Add(id))
+                continue;
+            if (childrenCache.TryGetValue(id, out var children))
+                foreach (var child in children)
+                    queue.Enqueue(child.Id);
+        }
+
+        expandedNoteIds.RemoveWhere(id => !reachable.Contains(id));
+        foreach (var staleId in childrenCache.Keys.Where(id => !reachable.Contains(id)).ToList())
+            childrenCache.Remove(staleId);
+    }
 
     private async Task ToggleExpand(Guid noteId)
     {
