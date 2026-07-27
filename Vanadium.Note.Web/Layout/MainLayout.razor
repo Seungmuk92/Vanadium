@@ -49,6 +49,13 @@
                             <td>@entry.Description</td>
                         </tr>
                     }
+                    @* Editor-scoped shortcut: handled by the Tiptap DOM keydown
+                       listener (interop.js), not the global KeyboardShortcutService,
+                       so it is documented statically here (#281). *@
+                    <tr>
+                        <td><kbd>@FormatKey("ctrl+shift+k")</kbd></td>
+                        <td>Insert link (in editor)</td>
+                    </tr>
                 </tbody>
             </table>
         </div>
