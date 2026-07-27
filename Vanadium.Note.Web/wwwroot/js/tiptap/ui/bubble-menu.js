@@ -21,7 +21,7 @@ export function createBubbleMenu(editorId) {
         { label: '"',  cmd: 'blockquote',   title: 'Blockquote' },
         { label: '<>', cmd: 'code',         title: 'Inline code' },
         { sep: true },
-        { label: '🔗', cmd: 'link',         title: 'Link (Ctrl+K)' },
+        { label: '🔗', cmd: 'link',         title: 'Link (Ctrl+Shift+K)' },
     ];
 
     for (const item of items) {

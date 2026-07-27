@@ -181,13 +181,15 @@ window.tiptapInterop = {
             clearTimeout(pushMaxWaitTimer);
         });
 
-        // Ctrl+K shortcut
+        // Ctrl+Shift+K → link popover. Ctrl+K is reserved for the global Quick
+        // Navigation palette everywhere, including the editor body (#281): the
+        // link shortcut moved to Ctrl+Shift+K so bare Ctrl+K bubbles up to the
+        // global handler instead of being swallowed here.
         editor.view.dom.addEventListener('keydown', (e) => {
-            if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+            if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'k') {
                 e.preventDefault();
-                // Stop propagation so the event does not bubble to the global
-                // ctrl+k handler (Quick Navigation); otherwise both the link
-                // popover and the Quick Nav dialog would open at once.
+                // Stop propagation so this combo does not reach any global
+                // handler; the link popover is fully handled here.
                 e.stopPropagation();
                 showLinkPopover(elementId);
             }
