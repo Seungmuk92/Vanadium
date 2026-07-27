@@ -40,24 +40,52 @@
                 <span>Keyboard Shortcuts</span>
                 <button class="shortcuts-close" @onclick="CloseShortcutsHelp">×</button>
             </div>
-            <table class="shortcuts-table">
-                <tbody>
-                    @foreach (var entry in ShortcutService.RegisteredShortcuts)
-                    {
-                        <tr>
-                            <td><kbd>@FormatKey(entry.Key)</kbd></td>
-                            <td>@entry.Description</td>
-                        </tr>
-                    }
-                    @* Editor-scoped shortcut: handled by the Tiptap DOM keydown
-                       listener (interop.js), not the global KeyboardShortcutService,
-                       so it is documented statically here (#281). *@
-                    <tr>
-                        <td><kbd>@FormatKey("ctrl+shift+k")</kbd></td>
-                        <td>Insert link (in editor)</td>
-                    </tr>
-                </tbody>
-            </table>
+            <div class="shortcuts-body">
+                <h3 class="shortcuts-section-title">Global</h3>
+                <table class="shortcuts-table">
+                    <tbody>
+                        @foreach (var entry in ShortcutService.RegisteredShortcuts)
+                        {
+                            <tr>
+                                <td><kbd>@FormatKey(entry.Key)</kbd></td>
+                                <td>@entry.Description</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+
+                @* Editor keys and slash commands are handled inside the Tiptap
+                   editor (its own keymaps / slash-command suggestion), not the
+                   global KeyboardShortcutService, so they are documented
+                   statically here (#282). Keep this list in sync with
+                   wwwroot/js/tiptap/extensions/{toggle-keymap,tab-indent,slash-commands}.js. *@
+                <h3 class="shortcuts-section-title">Editor</h3>
+                <table class="shortcuts-table">
+                    <tbody>
+                        @foreach (var entry in EditorKeys)
+                        {
+                            <tr>
+                                <td><kbd>@entry.Key</kbd></td>
+                                <td>@entry.Description</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+
+                <h3 class="shortcuts-section-title">Slash commands</h3>
+                <p class="shortcuts-section-hint">Type <kbd>/</kbd> in the editor, then pick a block:</p>
+                <table class="shortcuts-table">
+                    <tbody>
+                        @foreach (var entry in SlashCommands)
+                        {
+                            <tr>
+                                <td><kbd>@entry.Command</kbd></td>
+                                <td>@entry.Description</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
         </div>
     </div>
 }
@@ -66,6 +94,39 @@
     private bool _isDarkMode = false;
     private bool _showShortcutsHelp = false;
     private bool _quickNavOpen = false;
+
+    // Editor-internal keys handled by the Tiptap keymaps (toggle-keymap.js,
+    // tab-indent.js) and the DOM keydown listener, NOT the global
+    // KeyboardShortcutService — documented statically for discoverability (#282).
+    private static readonly (string Key, string Description)[] EditorKeys =
+    {
+        ("Ctrl / Cmd + Enter", "Fold or unfold a toggle / collapsible heading"),
+        ("Enter",              "In a toggle summary: move into the body; on a folded heading: expand it"),
+        ("Backspace",          "At the start of an empty toggle summary: unwrap the toggle"),
+        ("Tab",                "Indent a list item, or insert spaces"),
+        ("Shift + Tab",        "Outdent a list item"),
+        ("Ctrl + Shift + K",   "Insert a link"),
+    };
+
+    // Slash commands offered by the editor's "/" menu. Keep in sync with
+    // SLASH_COMMANDS in wwwroot/js/tiptap/extensions/slash-commands.js (#282).
+    private static readonly (string Command, string Description)[] SlashCommands =
+    {
+        ("/page",     "Create a sub-note"),
+        ("/h1 … /h3", "Headings (large to small)"),
+        ("/bullet",   "Bullet list"),
+        ("/numbered", "Numbered list"),
+        ("/todo",     "Task list"),
+        ("/table",    "Insert a table"),
+        ("/quote",    "Block quotation"),
+        ("/code",     "Code block"),
+        ("/callout",  "Highlighted callout"),
+        ("/mermaid",  "Mermaid diagram"),
+        ("/divider",  "Horizontal rule"),
+        ("/toggle",   "Collapsible block"),
+        ("/toggleh1 … /toggleh3", "Collapsible heading (large to small)"),
+        ("/accordion", "Exclusive toggle group (one open at a time)"),
+    };
 
     protected override void OnInitialized()
     {
