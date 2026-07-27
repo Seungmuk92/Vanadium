@@ -595,17 +595,34 @@ public class NoteService(
     /// </summary>
     public async Task<bool> HasCircularReference(Guid noteId, Guid proposedParentId, CancellationToken ct = default)
     {
-        const int maxDepth = 100;
-        var current = (Guid?)proposedParentId;
-        for (var depth = 0; current.HasValue && depth < maxDepth; depth++)
-        {
-            if (current.Value == noteId) return true;
-            current = await db.Notes
-                .Where(n => n.Id == current.Value)
-                .Select(n => n.ParentNoteId)
-                .FirstOrDefaultAsync(ct);
-        }
-        return false;
+        // A note can never be reparented under itself. This also mirrors the old BFS, which
+        // evaluated this equality before issuing any (filtered) DB lookup for the parent.
+        if (proposedParentId == noteId) return true;
+
+        // Walk the ancestor chain upward from the proposed parent in a single recursive CTE
+        // instead of one DB round trip per level (issue #305). A cycle exists when noteId turns
+        // up anywhere above the proposed parent. Traversal follows only non-deleted notes, exactly
+        // mirroring the former db.Notes (global-filter) BFS which stopped at a soft-deleted ancestor.
+        // The Depth < 100 guard preserves the old maxDepth cap so a pre-existing cyclic parent chain
+        // can never loop forever. Standard SQL that runs on PostgreSQL (production) and SQLite (tests).
+        const string sql = """
+            WITH RECURSIVE "ancestors" AS (
+                SELECT n."Id", n."ParentNoteId", 1 AS "Depth"
+                FROM "Notes" n
+                WHERE n."Id" = {0} AND n."DeletedAt" IS NULL
+                UNION ALL
+                SELECT n."Id", n."ParentNoteId", a."Depth" + 1
+                FROM "Notes" n
+                INNER JOIN "ancestors" a ON n."Id" = a."ParentNoteId"
+                WHERE a."Depth" < 100 AND n."DeletedAt" IS NULL
+            )
+            SELECT 1 AS "Value" FROM "ancestors" a WHERE a."Id" = {1} LIMIT 1
+            """;
+
+        var matches = await db.Database
+            .SqlQueryRaw<int>(sql, proposedParentId, noteId)
+            .ToListAsync(ct);
+        return matches.Count > 0;
     }
 
     public async Task<List<MentionSuggestionDto>> SearchForMention(string query, int limit = 10, CancellationToken ct = default)
@@ -1105,44 +1122,57 @@ public class NoteService(
             note.Id, subtree.Count);
     }
 
-    /// <summary>BFS over active descendants only (global filter applies).</summary>
+    /// <summary>All active descendants only (soft-deleted notes excluded, and descent stops at them).</summary>
     private async Task<List<NoteItem>> CollectActiveDescendantsAsync(Guid rootId, CancellationToken ct = default)
-        => await CollectDescendantsAsync(rootId, db.Notes, ct);
+        => await CollectDescendantsAsync(rootId, """ AND n."DeletedAt" IS NULL""", [rootId], ct);
 
-    /// <summary>BFS over all descendants regardless of recycle bin state.</summary>
+    /// <summary>All descendants regardless of recycle bin state.</summary>
     private async Task<List<NoteItem>> CollectDescendantsUnfilteredAsync(Guid rootId, CancellationToken ct = default)
-        => await CollectDescendantsAsync(rootId, db.Notes.IgnoreQueryFilters(), ct);
+        => await CollectDescendantsAsync(rootId, "", [rootId], ct);
 
-    /// <summary>BFS over soft-deleted descendants sharing the given recycle-bin group id.</summary>
+    /// <summary>Soft-deleted descendants sharing the given recycle-bin group id.</summary>
     private async Task<List<NoteItem>> CollectDeletedGroupDescendantsAsync(Guid rootId, Guid groupId, CancellationToken ct = default)
-        => await CollectDescendantsAsync(
-            rootId,
-            db.Notes.IgnoreQueryFilters().Where(n => n.DeletionGroupId == groupId),
-            ct);
+        => await CollectDescendantsAsync(rootId, """ AND n."DeletionGroupId" = {1}""", [rootId, groupId], ct);
 
-    /// <summary>BFS over archived descendants sharing the given archive group id.
-    /// Descends only through same-group notes, so independently archived subtrees stay put.</summary>
+    /// <summary>Archived descendants sharing the given archive group id.
+    /// Descends only through same-group (and non-deleted, matching the old global filter) notes,
+    /// so independently archived subtrees stay put.</summary>
     private async Task<List<NoteItem>> CollectArchivedGroupDescendantsAsync(Guid rootId, Guid groupId, CancellationToken ct = default)
-        => await CollectDescendantsAsync(
-            rootId,
-            db.Notes.Where(n => n.ArchiveGroupId == groupId),
-            ct);
+        => await CollectDescendantsAsync(rootId, """ AND n."ArchiveGroupId" = {1} AND n."DeletedAt" IS NULL""", [rootId, groupId], ct);
 
-    private static async Task<List<NoteItem>> CollectDescendantsAsync(Guid rootId, IQueryable<NoteItem> source, CancellationToken ct = default)
+    /// <summary>
+    /// Collects every descendant of <paramref name="rootId"/> in a single recursive CTE, replacing
+    /// the former per-level BFS round trips (issue #305). <paramref name="nodeFilter"/> is an optional
+    /// SQL predicate on the note alias <c>n</c> (e.g. <c>AND n."DeletedAt" IS NULL</c>) applied to both
+    /// the anchor and every recursive step, exactly reproducing the per-level <c>Where</c> the BFS used —
+    /// so a filtered-out note halts descent through it rather than merely being dropped from the result.
+    /// Parameter <c>{0}</c> is always the root id; any extra parameters referenced as <c>{1}</c>, <c>{2}</c>…
+    /// inside <paramref name="nodeFilter"/> follow, in order, in <paramref name="parameters"/>. The
+    /// <c>Depth &lt; 100</c> guard preserves the old maxDepth cap against a cyclic parent chain. All
+    /// filtering is explicit in the CTE, so global query filters are bypassed; entities are tracked so
+    /// callers can mutate and save them exactly as before. Standard SQL: PostgreSQL (production) + SQLite (tests).
+    /// </summary>
+    private async Task<List<NoteItem>> CollectDescendantsAsync(
+        Guid rootId, string nodeFilter, object[] parameters, CancellationToken ct = default)
     {
-        const int maxDepth = 100;
-        var result = new List<NoteItem>();
-        var frontier = new List<Guid> { rootId };
-        for (var depth = 0; frontier.Count > 0 && depth < maxDepth; depth++)
-        {
-            var children = await source
-                .Where(n => n.ParentNoteId.HasValue && frontier.Contains(n.ParentNoteId.Value))
-                .ToListAsync(ct);
-            if (children.Count == 0) break;
-            result.AddRange(children);
-            frontier = children.Select(c => c.Id).ToList();
-        }
-        return result;
+        var sql = $$"""
+            WITH RECURSIVE "descendants" AS (
+                SELECT n."Id", n."ParentNoteId", 1 AS "Depth"
+                FROM "Notes" n
+                WHERE n."ParentNoteId" = {0}{{nodeFilter}}
+                UNION ALL
+                SELECT n."Id", n."ParentNoteId", d."Depth" + 1
+                FROM "Notes" n
+                INNER JOIN "descendants" d ON n."ParentNoteId" = d."Id"
+                WHERE d."Depth" < 100{{nodeFilter}}
+            )
+            SELECT * FROM "Notes" WHERE "Id" IN (SELECT "Id" FROM "descendants")
+            """;
+
+        return await db.Notes
+            .FromSqlRaw(sql, parameters)
+            .IgnoreQueryFilters()
+            .ToListAsync(ct);
     }
 
     private async Task StripMentionReferencesAsync(Guid noteId, CancellationToken ct = default)
