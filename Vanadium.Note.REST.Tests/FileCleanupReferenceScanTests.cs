@@ -97,4 +97,31 @@ public class FileCleanupReferenceScanTests
         Assert.Null(await h.Db.FileAttachments.FindAsync(attachment.Id));
         Assert.False(File.Exists(PhysicalPath(h, attachment.Id)));
     }
+
+    /// <summary>
+    /// Issue #304: after replacing the per-file <c>ILIKE '%guid%'</c> probe with a single
+    /// referenced-GUID set built from note content, one scan must still keep every referenced
+    /// attachment while removing only the unreferenced one — partitioning by set membership,
+    /// not by per-file query.
+    /// </summary>
+    [Fact]
+    public async Task OrphanScan_MixedReferences_KeepsReferencedRemovesOrphanInSameScan()
+    {
+        using var h = new TestHost();
+        var referenced   = await AddAttachmentAsync(h, DateTime.UtcNow - BeyondGrace);
+        var unreferenced = await AddAttachmentAsync(h, DateTime.UtcNow - BeyondGrace);
+
+        await AddNoteAsync(
+            h, $"<p><a href=\"/api/files/{referenced.Id}\">spec.pdf</a></p>");
+
+        // The orphan must already have been observed unreferenced beyond the grace window.
+        h.OrphanTracker.ObserveUnreferenced(unreferenced.Id, DateTime.UtcNow - BeyondGrace);
+
+        await h.FileCleanup.DeleteAllOrphansAsync();
+
+        Assert.NotNull(await h.Db.FileAttachments.FindAsync(referenced.Id));
+        Assert.True(File.Exists(PhysicalPath(h, referenced.Id)));
+        Assert.Null(await h.Db.FileAttachments.FindAsync(unreferenced.Id));
+        Assert.False(File.Exists(PhysicalPath(h, unreferenced.Id)));
+    }
 }
