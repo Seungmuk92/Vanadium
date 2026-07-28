@@ -1,6 +1,6 @@
-import { Extension } from 'https://esm.sh/@tiptap/core@2'
-import { PluginKey, Plugin } from 'https://esm.sh/@tiptap/pm@2/state'
-import Suggestion from 'https://esm.sh/@tiptap/suggestion@2'
+import { Extension } from '@tiptap/core'
+import { PluginKey, Plugin } from '@tiptap/pm/state'
+import Suggestion from '@tiptap/suggestion'
 
 // ── Mention extension (@) ────────────────────────────────────────────────────
 

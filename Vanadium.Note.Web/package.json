@@ -1,0 +1,34 @@
+{
+  "name": "vanadium-note-web-vendor",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Self-hosted editor dependency bundle for Vanadium.Note.Web (issue #307). Bundles the Tiptap editor stack and vendors Mermaid so the editor loads from local assets instead of esm.sh / jsdelivr at runtime.",
+  "type": "module",
+  "scripts": {
+    "build": "node build/bundle.mjs"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.1"
+  },
+  "dependencies": {
+    "@tiptap/core": "2.27.2",
+    "@tiptap/extension-bubble-menu": "2.27.2",
+    "@tiptap/extension-code-block-lowlight": "2.27.2",
+    "@tiptap/extension-heading": "2.27.2",
+    "@tiptap/extension-image": "2.27.2",
+    "@tiptap/extension-link": "2.27.2",
+    "@tiptap/extension-placeholder": "2.27.2",
+    "@tiptap/extension-table": "2.27.2",
+    "@tiptap/extension-table-cell": "2.27.2",
+    "@tiptap/extension-table-header": "2.27.2",
+    "@tiptap/extension-table-row": "2.27.2",
+    "@tiptap/extension-task-item": "2.27.2",
+    "@tiptap/extension-task-list": "2.27.2",
+    "@tiptap/pm": "2.27.2",
+    "@tiptap/starter-kit": "2.27.2",
+    "@tiptap/suggestion": "2.27.2",
+    "lowlight": "3.3.0",
+    "mermaid": "10.9.6",
+    "tiptap-markdown": "0.9.0"
+  }
+}

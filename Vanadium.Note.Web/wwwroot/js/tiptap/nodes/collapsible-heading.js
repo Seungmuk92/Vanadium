@@ -1,6 +1,6 @@
-import { PluginKey, Plugin, Selection } from 'https://esm.sh/@tiptap/pm@2/state'
-import { Decoration, DecorationSet } from 'https://esm.sh/@tiptap/pm@2/view'
-import Heading from 'https://esm.sh/@tiptap/extension-heading@2'
+import { PluginKey, Plugin, Selection } from '@tiptap/pm/state'
+import { Decoration, DecorationSet } from '@tiptap/pm/view'
+import Heading from '@tiptap/extension-heading'
 import { toggleOpenAt } from './toggle.js'
 
 // ── Collapsible heading ──────────────────────────────────────────────────────

@@ -1,4 +1,4 @@
-import { Node, mergeAttributes } from 'https://esm.sh/@tiptap/core@2'
+import { Node, mergeAttributes } from '@tiptap/core'
 
 // ── Toggle nodes ─────────────────────────────────────────────────────────────
 //
