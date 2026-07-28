@@ -166,6 +166,8 @@ builder.Services.AddControllers();
 builder.Services.AddProblemDetails();
 builder.Services.AddSingleton<IHtmlSanitizerService, HtmlSanitizerService>();
 builder.Services.AddScoped<NoteService>();
+builder.Services.AddScoped<NoteLifecycleService>();
+builder.Services.AddScoped<NoteShareService>();
 builder.Services.AddScoped<LabelService>();
 builder.Services.AddScoped<SettingsService>();
 builder.Services.AddScoped<ApiTokenService>();
