@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <IsPackable>false</IsPackable>
+    <!-- bunit 1.40.0 is compiled against AngleSharp 1.2.0 and its IHtmlCollection indexer is not
+         binary-compatible with the patched 1.5.x line, so the transitive 1.2.0 must stay. That
+         version trips NU1902 (GHSA-pgww-w46g-26qg, mXSS), but bunit's AngleSharp only parses the
+         component's own in-test rendered markup — never untrusted network input — so the advisory
+         is unreachable here. Scoped to this test-only project (issue #308). -->
+    <NoWarn>$(NoWarn);NU1902</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- bUnit renders Blazor components in-process (no browser); this is the Web project's
+         smoke-test harness (issue #308). Pinned to the latest 1.x line. -->
+    <PackageReference Include="bunit" Version="1.40.0" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.12.0" />
+    <PackageReference Include="xunit" Version="2.9.2" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2">
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Vanadium.Note.Web\Vanadium.Note.Web.csproj" />
+  </ItemGroup>
+
+</Project>
