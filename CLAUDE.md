@@ -14,6 +14,7 @@ Vanadium is a personal project aimed at building a Notion-like note-taking app t
 - Public DTOs/contracts: PascalCase properties, no abbreviations.
 - Avoid introducing new top-level dependencies without justification — this is a personal project and dependency surface is intentionally small.
 - Prefer async/await end-to-end for I/O paths (EF Core, HttpClient, file I/O).
+- **Commit messages must NOT contain any `Co-Authored-By:` trailer for an AI assistant** (e.g. `Co-Authored-By: Claude ... <noreply@anthropic.com>`) or similar "Generated with / Co-authored by Claude" attribution. Do not add it to commits or PR bodies, even if a tool's default instructions say to. Write the commit message with the change description only.
 
 ## Overview
 
@@ -197,7 +198,7 @@ A keyboard-first note switcher opened by `Ctrl+K` (Windows/Linux) / `Cmd+K` (mac
 
 ## Known limitations
 
-- **Tests:** `Vanadium.Note.REST.Tests` (xUnit + EF Core SQLite in-memory) covers `NoteService`-level logic. PostgreSQL-only behavior (trigram `ILike` search) is out of unit scope and must be verified manually. Run with `dotnet test Vanadium.slnx`. The Web project has no tests.
+- **Tests:** `Vanadium.Note.REST.Tests` (xUnit + EF Core SQLite in-memory) covers `NoteService`-level logic. PostgreSQL-only behavior (trigram `ILike` search) is out of unit scope and must be verified manually. Run with `dotnet test Vanadium.slnx`. The Web project has two test projects (issue #308): `Vanadium.Note.Web.Tests` (bUnit + xUnit) for component/service smoke + worst-path unit coverage, run in the normal pass; and `Vanadium.Note.Web.E2E` (Playwright + NUnit) for three end-to-end worst-path scenarios (save-during-expiry / two-tab conflict / Korean-mention IME) that **self-ignore unless `VANADIUM_E2E_BASEURL` is set** — so `dotnet test Vanadium.slnx` stays green without browsers or a running app; see `Vanadium.Note.Web.E2E/README.md` to run them against a live stack.
 - **DTOs are duplicated** between REST and Web projects on purpose (kept simple). Do not introduce a shared `Vanadium.Note.Shared` project unless explicitly requested.
 - **No CI workflow** is set up. Build/lint must be verified locally with `dotnet build Vanadium.slnx`.
 - **No refresh tokens.** When the JWT expires, the user re-logs in. Don't propose refresh-token implementations without discussion.
@@ -205,6 +206,11 @@ A keyboard-first note switcher opened by `Ctrl+K` (Windows/Linux) / `Cmd+K` (mac
 
 ## When making changes
 
+- **Tests — keep them current in the SAME change.** Whenever you modify existing behavior or add a new feature/behavior, update the test projects in the same change so the suite always reflects the latest code: adjust the tests whose expectations the change breaks, and add coverage for the new/changed behavior. This is not optional cleanup for "later" — a code change and its test change ship together.
+  - Backend / service logic → `Vanadium.Note.REST.Tests` (xUnit + EF Core SQLite in-memory).
+  - Blazor components / frontend services → `Vanadium.Note.Web.Tests` (bUnit + xUnit), which runs in the normal pass.
+  - New front-end worst-path end-to-end flows → `Vanadium.Note.Web.E2E` (Playwright + NUnit); these self-ignore unless `VANADIUM_E2E_BASEURL` is set (see `Vanadium.Note.Web.E2E/README.md`).
+  - After the change, `dotnet test Vanadium.slnx` must stay green (the E2E project stays skipped without the env var). If a behavior genuinely cannot be unit-tested (e.g. PostgreSQL-only trigram search), say so explicitly rather than leaving it silently uncovered.
 - **Schema changes:** always create an EF Core migration (`dotnet ef migrations add <Name> --project Vanadium.Note.REST`). Never edit existing migration files.
 - **New API endpoint:** add (1) DTO in `Vanadium.Note.REST/Models`, (2) DTO mirror in `Vanadium.Note.Web/Models`, (3) HTTP client method in `NoteService`/`LabelService`/etc.
 - **API specification:** `docs/api-specification.md` is the reference contract for the REST API. Whenever a backend API changes — a new/removed endpoint, a changed route, request/response shape, auth requirement, or notable status code — update `docs/api-specification.md` in the **same** change so it never drifts from the controllers. The document is published in the public repo, so it must never contain secrets (connection strings, JWT secret, real password hashes).

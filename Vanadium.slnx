@@ -2,4 +2,6 @@
   <Project Path="Vanadium.Note.Web/Vanadium.Note.Web.csproj" />
   <Project Path="Vanadium.Note.REST/Vanadium.Note.REST.csproj" />
   <Project Path="Vanadium.Note.REST.Tests/Vanadium.Note.REST.Tests.csproj" />
+  <Project Path="Vanadium.Note.Web.Tests/Vanadium.Note.Web.Tests.csproj" />
+  <Project Path="Vanadium.Note.Web.E2E/Vanadium.Note.Web.E2E.csproj" />
 </Solution>

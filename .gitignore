@@ -131,6 +131,9 @@ ipch/
 
 # Visual Studio Trace Files
 *.e2e
+# The Web Playwright test project's name ends in ".E2E"; on case-insensitive filesystems the
+# *.e2e trace-file glob above would otherwise swallow the whole project, so re-include it (#308).
+!Vanadium.Note.Web.E2E/
 
 # TFS 2012 Local Workspace
 $tf/
