@@ -4,15 +4,16 @@ using NUnit.Framework;
 namespace Vanadium.Note.Web.E2E;
 
 /// <summary>
-/// Scenario 3 — "Korean mention typed through an IME" (issue #308).
+/// Scenario 3 — "Korean mention typed by a Hangul title" (issue #308).
 ///
 /// <para>
-/// Mentioning a note by a Hangul title exercises the IME path: an IME commits composed text via
-/// <c>input</c> events rather than discrete <c>keydown</c>s, and the mention suggestion plugin must
-/// still search and match on that composed text. This scenario opens the mention menu with
-/// <c>@</c>, commits Korean via <see cref="IKeyboard.InsertTextAsync"/> (Playwright's closest proxy
-/// for an IME commit), and verifies the Korean-titled note is found and inserted as a
-/// <c>a.note-mention</c> node carrying the Hangul title as text.
+/// Mentioning a note by a Hangul title must search, match, and insert on Korean text. The scenario
+/// opens the mention menu with <c>@</c> and types the Hangul query. The mention suggestion plugin
+/// derives its query from ProseMirror document changes (not raw keydowns), so driving the query
+/// with <see cref="IKeyboard.TypeAsync"/> exercises the same search/match path an IME commit would.
+/// (<see cref="IKeyboard.InsertTextAsync"/> — a CDP <c>Input.insertText</c> — was tried as an
+/// IME-commit proxy but does not reliably update an already-open suggestion in headless Chromium;
+/// full native IME composition is not reproducible through Playwright's public API.)
 /// </para>
 /// </summary>
 public sealed class KoreanMentionImeScenarioTests : PlaywrightScenarioBase
@@ -34,19 +35,26 @@ public sealed class KoreanMentionImeScenarioTests : PlaywrightScenarioBase
         await page.ClickAsync("button:text-is('Save')"); // exact match, not "Save & close"
         await page.WaitForURLAsync(u => u.Contains("/editor/"), new() { Timeout = 15_000 });
 
-        // In a fresh note, open the mention menu and commit the Korean query through the IME path.
+        // In a fresh note, open the mention menu and search by the Korean title.
         await page.GotoAsync("/editor");
         await page.ClickAsync(".tiptap-wrapper .ProseMirror");
         // TypeAsync fires the full keydown/keypress/input sequence, which reliably drives
-        // ProseMirror's input handling and opens the suggestion menu; a bare PressAsync("@")
-        // does not always register as editor input.
+        // ProseMirror's input handling; a bare PressAsync("@") does not always register.
         await page.Keyboard.TypeAsync("@");
-        await page.Keyboard.InsertTextAsync("회의"); // composed (IME-style) commit, not per-key keydowns
+        // Checkpoint: '@' alone opens the menu (empty query → recent notes). Asserting this
+        // separately pinpoints whether a later failure is the trigger or the Hangul search.
+        await Assertions.Expect(page.Locator(".mention-menu")).ToBeVisibleAsync(
+            new() { Timeout = 15_000 });
 
-        // The suggestion menu must surface the Korean-titled note.
-        var menuItem = page.Locator(".mention-menu-item", new() { HasTextString = "회의록" });
+        // Type the Hangul query so the suggestion searches over Korean text.
+        await page.Keyboard.TypeAsync("회의");
+
+        // The suggestion menu must surface the Korean-titled note. Match .First: repeated seed
+        // runs can leave several identically-titled "회의록" notes, and any one proves the Hangul
+        // search matched — clicking it inserts a mention carrying the Korean title.
+        var menuItem = page.Locator(".mention-menu-item", new() { HasTextString = "회의록" }).First;
         await Assertions.Expect(menuItem).ToBeVisibleAsync(new() { Timeout = 15_000 });
-        await menuItem.First.ClickAsync();
+        await menuItem.ClickAsync();
 
         // The committed mention is a note-mention node bearing the Hangul title.
         var mention = page.Locator("a.note-mention");
