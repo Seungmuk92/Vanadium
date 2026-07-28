@@ -14,6 +14,7 @@ Vanadium is a personal project aimed at building a Notion-like note-taking app t
 - Public DTOs/contracts: PascalCase properties, no abbreviations.
 - Avoid introducing new top-level dependencies without justification — this is a personal project and dependency surface is intentionally small.
 - Prefer async/await end-to-end for I/O paths (EF Core, HttpClient, file I/O).
+- **Commit messages must NOT contain any `Co-Authored-By:` trailer for an AI assistant** (e.g. `Co-Authored-By: Claude ... <noreply@anthropic.com>`) or similar "Generated with / Co-authored by Claude" attribution. Do not add it to commits or PR bodies, even if a tool's default instructions say to. Write the commit message with the change description only.
 
 ## Overview
 
