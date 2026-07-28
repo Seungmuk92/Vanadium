@@ -197,7 +197,7 @@ A keyboard-first note switcher opened by `Ctrl+K` (Windows/Linux) / `Cmd+K` (mac
 
 ## Known limitations
 
-- **Tests:** `Vanadium.Note.REST.Tests` (xUnit + EF Core SQLite in-memory) covers `NoteService`-level logic. PostgreSQL-only behavior (trigram `ILike` search) is out of unit scope and must be verified manually. Run with `dotnet test Vanadium.slnx`. The Web project has no tests.
+- **Tests:** `Vanadium.Note.REST.Tests` (xUnit + EF Core SQLite in-memory) covers `NoteService`-level logic. PostgreSQL-only behavior (trigram `ILike` search) is out of unit scope and must be verified manually. Run with `dotnet test Vanadium.slnx`. The Web project has two test projects (issue #308): `Vanadium.Note.Web.Tests` (bUnit + xUnit) for component/service smoke + worst-path unit coverage, run in the normal pass; and `Vanadium.Note.Web.E2E` (Playwright + NUnit) for three end-to-end worst-path scenarios (save-during-expiry / two-tab conflict / Korean-mention IME) that **self-ignore unless `VANADIUM_E2E_BASEURL` is set** — so `dotnet test Vanadium.slnx` stays green without browsers or a running app; see `Vanadium.Note.Web.E2E/README.md` to run them against a live stack.
 - **DTOs are duplicated** between REST and Web projects on purpose (kept simple). Do not introduce a shared `Vanadium.Note.Shared` project unless explicitly requested.
 - **No CI workflow** is set up. Build/lint must be verified locally with `dotnet build Vanadium.slnx`.
 - **No refresh tokens.** When the JWT expires, the user re-logs in. Don't propose refresh-token implementations without discussion.
