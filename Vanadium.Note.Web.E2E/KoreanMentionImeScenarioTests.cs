@@ -37,7 +37,10 @@ public sealed class KoreanMentionImeScenarioTests : PlaywrightScenarioBase
         // In a fresh note, open the mention menu and commit the Korean query through the IME path.
         await page.GotoAsync("/editor");
         await page.ClickAsync(".tiptap-wrapper .ProseMirror");
-        await page.Keyboard.PressAsync("@");
+        // TypeAsync fires the full keydown/keypress/input sequence, which reliably drives
+        // ProseMirror's input handling and opens the suggestion menu; a bare PressAsync("@")
+        // does not always register as editor input.
+        await page.Keyboard.TypeAsync("@");
         await page.Keyboard.InsertTextAsync("회의"); // composed (IME-style) commit, not per-key keydowns
 
         // The suggestion menu must surface the Korean-titled note.

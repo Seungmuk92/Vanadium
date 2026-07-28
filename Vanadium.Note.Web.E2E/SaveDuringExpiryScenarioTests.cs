@@ -10,7 +10,17 @@ namespace Vanadium.Note.Web.E2E;
 /// The user is editing a note when their JWT expires mid-session. The next auto-save comes back
 /// 401; the app must clear the token and redirect to <c>/login</c> carrying a <c>returnUrl</c>
 /// (issues #117/#297) rather than silently dropping the edit or flashing a broken logged-in shell.
-/// The expiry is forced by overwriting the stored <c>authToken</c> with an already-expired JWT.
+/// The expiry is simulated by intercepting the save call and returning 401 — the same signal a
+/// real expired-JWT request receives from the server.
+/// </para>
+///
+/// <para>
+/// Overwriting the stored <c>authToken</c> in <c>localStorage</c> is deliberately NOT used:
+/// <c>TokenStore</c> caches the token in memory after the first read, and the same-tab
+/// <c>storage</c> event never fires for a change made by the tab itself, so the app would keep
+/// sending the still-valid cached token and the save would succeed. Fulfilling the request with
+/// 401 reproduces exactly what an expired session does — the server rejecting the write — without
+/// depending on those cache internals.
 /// </para>
 /// </summary>
 public sealed class SaveDuringExpiryScenarioTests : PlaywrightScenarioBase
@@ -28,16 +38,13 @@ public sealed class SaveDuringExpiryScenarioTests : PlaywrightScenarioBase
         await page.ClickAsync(".tiptap-wrapper .ProseMirror");
         await page.Keyboard.TypeAsync("draft body before expiry");
 
-        // Force the session to expire: replace the stored JWT with one whose exp is in the past.
-        await page.EvaluateAsync(
-            @"() => {
-                const [h, , s] = (localStorage.getItem('authToken') || 'h.e.s').split('.');
-                const past = Math.floor(Date.now() / 1000) - 3600;
-                const b64url = obj => btoa(JSON.stringify(obj)).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
-                localStorage.setItem('authToken', `${h || 'h'}.${b64url({ name: 'owner', exp: past })}.${s || 's'}`);
-            }");
+        // Force the session to expire: the next note save comes back 401, exactly as it would
+        // if the JWT had expired. AuthTokenHandler still sends the (valid) cached token, so its
+        // 401 branch — clear token + redirect to /login?returnUrl — is what we exercise here.
+        await page.RouteAsync("**/api/notes**", route =>
+            route.FulfillAsync(new RouteFulfillOptions { Status = 401 }));
 
-        // Trigger a save with the now-expired token. Exact-text match so this does not also
+        // Trigger a save with the now-expired session. Exact-text match so this does not also
         // hit the adjacent "Save & close" button.
         await page.ClickAsync("button:text-is('Save')");
 

@@ -41,6 +41,13 @@ public sealed class TwoTabConflictScenarioTests : PlaywrightScenarioBase
         await tabB.GotoAsync(noteUrl);
         await tabB.FillAsync(".editor-title", "Edited by tab B");
         await tabB.ClickAsync("button:text-is('Save')");
+        // Wait for Tab B's save to actually PERSIST (the "Saved" badge) before Tab A saves.
+        // The banner-absent check alone does not wait for the network round-trip, so without
+        // this Tab A's stale PUT can reach the server before Tab B's has advanced the row —
+        // the server then sees a matching version, returns 200, and no 409 conflict ever fires.
+        await Assertions.Expect(tabB.Locator(".save-status.status-saved")).ToBeVisibleAsync(
+            new() { Timeout = 15_000 });
+        // Tab B held the current version, so its own save must not have conflicted.
         await Assertions.Expect(tabB.Locator(conflictBanner)).Not.ToBeVisibleAsync();
 
         // Tab A now saves its stale copy → server 409 → conflict banner.
