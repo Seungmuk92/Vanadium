@@ -31,7 +31,7 @@ public sealed class KoreanMentionImeScenarioTests : PlaywrightScenarioBase
         await page.FillAsync(".editor-title", KoreanTitle);
         await page.ClickAsync(".tiptap-wrapper .ProseMirror");
         await page.Keyboard.TypeAsync("target note body");
-        await page.ClickAsync("button:has-text('Save')");
+        await page.ClickAsync("button:text-is('Save')"); // exact match, not "Save & close"
         await page.WaitForURLAsync(u => u.Contains("/editor/"), new() { Timeout = 15_000 });
 
         // In a fresh note, open the mention menu and commit the Korean query through the IME path.

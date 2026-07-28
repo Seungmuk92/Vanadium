@@ -27,26 +27,31 @@ public sealed class TwoTabConflictScenarioTests : PlaywrightScenarioBase
         await tabA.FillAsync(".editor-title", "Two-tab conflict note");
         await tabA.ClickAsync(".tiptap-wrapper .ProseMirror");
         await tabA.Keyboard.TypeAsync("original body");
-        await tabA.ClickAsync("button:has-text('Save')");
+        // Exact-text match so this does not also hit the adjacent "Save & close" button.
+        await tabA.ClickAsync("button:text-is('Save')");
         await tabA.WaitForURLAsync(u => u.Contains("/editor/"), new() { Timeout = 15_000 });
         var noteUrl = tabA.Url;
+
+        // The optimistic-concurrency conflict banner shares its .conflict-banner class with the
+        // stashed-draft banner (NoteEditor.razor), so scope to the one carrying Force Save.
+        const string conflictBanner = ".conflict-banner:has(.btn-danger)";
 
         // Tab B opens the same note and saves an edit first.
         var tabB = await context.NewPageAsync();
         await tabB.GotoAsync(noteUrl);
         await tabB.FillAsync(".editor-title", "Edited by tab B");
-        await tabB.ClickAsync("button:has-text('Save')");
-        await Assertions.Expect(tabB.Locator(".conflict-banner")).Not.ToBeVisibleAsync();
+        await tabB.ClickAsync("button:text-is('Save')");
+        await Assertions.Expect(tabB.Locator(conflictBanner)).Not.ToBeVisibleAsync();
 
         // Tab A now saves its stale copy → server 409 → conflict banner.
         await tabA.FillAsync(".editor-title", "Edited by tab A (stale)");
-        await tabA.ClickAsync("button:has-text('Save')");
-        await Assertions.Expect(tabA.Locator(".conflict-banner")).ToBeVisibleAsync(
+        await tabA.ClickAsync("button:text-is('Save')");
+        await Assertions.Expect(tabA.Locator(conflictBanner)).ToBeVisibleAsync(
             new() { Timeout = 15_000 });
 
         // Force Save resolves the conflict and dismisses the banner.
-        await tabA.ClickAsync(".conflict-banner .btn-danger");
-        await Assertions.Expect(tabA.Locator(".conflict-banner")).Not.ToBeVisibleAsync(
+        await tabA.ClickAsync($"{conflictBanner} .btn-danger");
+        await Assertions.Expect(tabA.Locator(conflictBanner)).Not.ToBeVisibleAsync(
             new() { Timeout = 15_000 });
     }
 }

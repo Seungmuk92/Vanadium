@@ -37,8 +37,9 @@ public sealed class SaveDuringExpiryScenarioTests : PlaywrightScenarioBase
                 localStorage.setItem('authToken', `${h || 'h'}.${b64url({ name: 'owner', exp: past })}.${s || 's'}`);
             }");
 
-        // Trigger a save with the now-expired token.
-        await page.ClickAsync("button:has-text('Save')");
+        // Trigger a save with the now-expired token. Exact-text match so this does not also
+        // hit the adjacent "Save & close" button.
+        await page.ClickAsync("button:text-is('Save')");
 
         // The 401 handler must bounce to login and preserve where we were.
         await page.WaitForURLAsync(u => u.Contains("/login"), new() { Timeout = 15_000 });
