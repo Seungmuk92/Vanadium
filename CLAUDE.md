@@ -205,6 +205,11 @@ A keyboard-first note switcher opened by `Ctrl+K` (Windows/Linux) / `Cmd+K` (mac
 
 ## When making changes
 
+- **Tests — keep them current in the SAME change.** Whenever you modify existing behavior or add a new feature/behavior, update the test projects in the same change so the suite always reflects the latest code: adjust the tests whose expectations the change breaks, and add coverage for the new/changed behavior. This is not optional cleanup for "later" — a code change and its test change ship together.
+  - Backend / service logic → `Vanadium.Note.REST.Tests` (xUnit + EF Core SQLite in-memory).
+  - Blazor components / frontend services → `Vanadium.Note.Web.Tests` (bUnit + xUnit), which runs in the normal pass.
+  - New front-end worst-path end-to-end flows → `Vanadium.Note.Web.E2E` (Playwright + NUnit); these self-ignore unless `VANADIUM_E2E_BASEURL` is set (see `Vanadium.Note.Web.E2E/README.md`).
+  - After the change, `dotnet test Vanadium.slnx` must stay green (the E2E project stays skipped without the env var). If a behavior genuinely cannot be unit-tested (e.g. PostgreSQL-only trigram search), say so explicitly rather than leaving it silently uncovered.
 - **Schema changes:** always create an EF Core migration (`dotnet ef migrations add <Name> --project Vanadium.Note.REST`). Never edit existing migration files.
 - **New API endpoint:** add (1) DTO in `Vanadium.Note.REST/Models`, (2) DTO mirror in `Vanadium.Note.Web/Models`, (3) HTTP client method in `NoteService`/`LabelService`/etc.
 - **API specification:** `docs/api-specification.md` is the reference contract for the REST API. Whenever a backend API changes — a new/removed endpoint, a changed route, request/response shape, auth requirement, or notable status code — update `docs/api-specification.md` in the **same** change so it never drifts from the controllers. The document is published in the public repo, so it must never contain secrets (connection strings, JWT secret, real password hashes).
