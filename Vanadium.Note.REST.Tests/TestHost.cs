@@ -50,7 +50,12 @@ public sealed class TestHost : IDisposable
         FileCleanup = new FileCleanupService(
             Db, new TestWebHostEnvironment(ContentRoot), configuration, OrphanTracker,
             NullLogger<FileCleanupService>.Instance);
-        Notes = new NoteService(Db, FileCleanup, new HtmlSanitizerService(), NullLogger<NoteService>.Instance);
+        var sanitizer = new HtmlSanitizerService();
+        // NoteService delegates lifecycle/share responsibilities to these collaborators (issue #311).
+        // They share the same scoped NoteDbContext, matching the DI wiring in Program.cs.
+        var lifecycle = new NoteLifecycleService(Db, FileCleanup, NullLogger<NoteLifecycleService>.Instance);
+        var share = new NoteShareService(Db, sanitizer, NullLogger<NoteShareService>.Instance);
+        Notes = new NoteService(Db, sanitizer, lifecycle, share, NullLogger<NoteService>.Instance);
         Labels = new LabelService(Db, NullLogger<LabelService>.Instance);
         Account = new AccountService(Db, NullLogger<AccountService>.Instance);
     }

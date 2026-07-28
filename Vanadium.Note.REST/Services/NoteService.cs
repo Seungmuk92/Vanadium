@@ -1,16 +1,22 @@
-using System.Text.RegularExpressions;
-using AngleSharp.Dom;
-using AngleSharp.Html.Parser;
 using Microsoft.EntityFrameworkCore;
 using Vanadium.Note.REST.Data;
 using Vanadium.Note.REST.Models;
 
 namespace Vanadium.Note.REST.Services;
 
+/// <summary>
+/// Core note service: CRUD, listing, full-text / mention / quick-nav search, backlinks, and
+/// page-link/mention title propagation. Lifecycle transitions (archive / recycle bin / purge) and
+/// anonymous sharing were split into <see cref="NoteLifecycleService"/> and
+/// <see cref="NoteShareService"/> (issue #311); this class delegates its lifecycle and share methods
+/// to them so the public API — and therefore the controller and test surface — is unchanged. Pure
+/// content-reference rewriting lives in <see cref="NoteReferenceRewriter"/>.
+/// </summary>
 public class NoteService(
     NoteDbContext db,
-    FileCleanupService fileCleanup,
     IHtmlSanitizerService htmlSanitizer,
+    NoteLifecycleService lifecycle,
+    NoteShareService share,
     ILogger<NoteService> logger)
 {
     public async Task<PagedResult<NoteSummary>> GetPaged(
@@ -206,146 +212,37 @@ public class NoteService(
         return note;
     }
 
-    // ── Sharing ────────────────────────────────────────────────────────────────
+    // ── Sharing (delegated to NoteShareService, issue #311) ──────────────────────
 
-    /// <summary>
-    /// Sets a note's share mode. Enabling sharing mints a fresh unguessable token the first time;
-    /// switching between share modes keeps the same token (and link). <see cref="ShareMode.None"/>
-    /// is treated as unshare. Returns the resulting <see cref="ShareInfo"/>, or null if the note
-    /// does not exist (soft-deleted notes are hidden by the global filter). Does NOT bump
-    /// <c>UpdatedAt</c> — sharing is metadata and must not reorder the note in date-sorted lists.
-    /// </summary>
-    public async Task<ShareInfo?> SetShare(Guid id, ShareMode mode, CancellationToken ct = default)
-    {
-        var note = await db.Notes.FirstOrDefaultAsync(n => n.Id == id, ct);
-        if (note is null) return null;
+    /// <inheritdoc cref="NoteShareService.SetShare"/>
+    public Task<ShareInfo?> SetShare(Guid id, ShareMode mode, CancellationToken ct = default)
+        => share.SetShare(id, mode, ct);
 
-        if (mode == ShareMode.None)
-        {
-            ClearShare(note);
-        }
-        else
-        {
-            if (string.IsNullOrEmpty(note.ShareToken))
-            {
-                note.ShareToken = GenerateShareToken();
-                note.SharedAt = UtcNowMicroseconds();
-            }
-            note.ShareMode = mode;
-        }
+    /// <inheritdoc cref="NoteShareService.Unshare"/>
+    public Task<bool> Unshare(Guid id, CancellationToken ct = default)
+        => share.Unshare(id, ct);
 
-        await db.SaveChangesAsync(ct);
-        logger.LogInformation("Note {NoteId} share mode set to {ShareMode}.", id, note.ShareMode);
-        return ToShareInfo(note);
-    }
+    /// <inheritdoc cref="NoteShareService.GetShareInfo"/>
+    public Task<ShareInfo?> GetShareInfo(Guid id, CancellationToken ct = default)
+        => share.GetShareInfo(id, ct);
 
-    /// <summary>
-    /// Disables sharing for a note, clearing its token so any previously issued link stops working
-    /// immediately. Returns false when the note does not exist. Idempotent: unsharing an already
-    /// un-shared note succeeds and reports success.
-    /// </summary>
-    public async Task<bool> Unshare(Guid id, CancellationToken ct = default)
-    {
-        var note = await db.Notes.FirstOrDefaultAsync(n => n.Id == id, ct);
-        if (note is null) return false;
+    /// <inheritdoc cref="NoteShareService.GetSharedByToken"/>
+    public Task<NoteItem?> GetSharedByToken(string? token, CancellationToken ct = default)
+        => share.GetSharedByToken(token, ct);
 
-        ClearShare(note);
-        await db.SaveChangesAsync(ct);
-        logger.LogInformation("Note {NoteId} unshared.", id);
-        return true;
-    }
-
-    /// <summary>Returns the current share status of a note, or null if it does not exist.</summary>
-    public async Task<ShareInfo?> GetShareInfo(Guid id, CancellationToken ct = default)
-    {
-        var note = await db.Notes
-            .Select(n => new { n.Id, n.ShareToken, n.ShareMode, n.SharedAt })
-            .FirstOrDefaultAsync(n => n.Id == id, ct);
-        if (note is null) return null;
-        return new ShareInfo
-        {
-            IsShared = note.ShareMode != ShareMode.None && !string.IsNullOrEmpty(note.ShareToken),
-            Mode = note.ShareMode,
-            Token = note.ShareToken,
-            SharedAt = note.SharedAt
-        };
-    }
-
-    /// <summary>
-    /// Resolves a shared note by its public token for anonymous read access. Returns null when the
-    /// token is empty, does not match any note, or the note is not currently shared. Soft-deleted
-    /// notes are excluded by the global query filter, so an unshared-then-deleted link cannot leak.
-    /// </summary>
-    public async Task<NoteItem?> GetSharedByToken(string? token, CancellationToken ct = default)
-    {
-        if (string.IsNullOrEmpty(token)) return null;
-        var note = await db.Notes
-            .AsNoTracking()
-            .FirstOrDefaultAsync(n =>
-                n.ShareToken == token && n.ShareMode != ShareMode.None, ct);
-        if (note is null) return null;
-        // Defense in depth (issue #294): the persist-time sanitizer runs only on Create/Update,
-        // so legacy rows saved before it — or any future gap — could still carry active content.
-        // Sanitize once more right before the note leaves the anonymous read path so a shared
-        // page can never serve script/event handlers. AsNoTracking keeps this in-memory pass
-        // from being flushed back to the row (which would desync the persisted ContentText).
-        note.Content = htmlSanitizer.Sanitize(note.Content);
-        return note;
-    }
-
-    /// <summary>
-    /// One-time backfill (issue #294): re-sanitize every stored note's <c>Content</c> so legacy
-    /// rows saved before the persist-time sanitizer can never serve active content on the
-    /// anonymous share path. Archived and soft-deleted notes are included
-    /// (<c>IgnoreQueryFilters</c>) because either can be restored/re-shared later. Idempotent:
-    /// rows whose sanitized content is unchanged are left untouched, and <c>ContentText</c> is
-    /// re-derived only when <c>Content</c> actually changed — the same Content/ContentText
-    /// invariant the Create/Update paths maintain (the StripHtml derivation itself is unchanged).
-    /// Returns the number of notes updated.
-    /// </summary>
-    public async Task<int> ReSanitizeAllContentAsync(CancellationToken ct = default)
-    {
-        var notes = await db.Notes.IgnoreQueryFilters().ToListAsync(ct);
-        var changed = 0;
-        foreach (var note in notes)
-        {
-            var sanitized = htmlSanitizer.Sanitize(note.Content);
-            if (string.Equals(sanitized, note.Content, StringComparison.Ordinal)) continue;
-            note.Content = sanitized;
-            note.ContentText = StripHtml(sanitized);
-            changed++;
-        }
-        if (changed > 0) await db.SaveChangesAsync(ct);
-        return changed;
-    }
-
-    private static void ClearShare(NoteItem note)
-    {
-        note.ShareToken = null;
-        note.ShareMode = ShareMode.None;
-        note.SharedAt = null;
-    }
-
-    private static ShareInfo ToShareInfo(NoteItem note) => new()
-    {
-        IsShared = note.ShareMode != ShareMode.None && !string.IsNullOrEmpty(note.ShareToken),
-        Mode = note.ShareMode,
-        Token = note.ShareToken,
-        SharedAt = note.SharedAt
-    };
-
-    // 128 bits of randomness in the GUID makes the token unguessable; "N" yields 32 hex chars.
-    private static string GenerateShareToken() => Guid.NewGuid().ToString("N");
+    /// <inheritdoc cref="NoteShareService.ReSanitizeAllContentAsync"/>
+    public Task<int> ReSanitizeAllContentAsync(CancellationToken ct = default)
+        => share.ReSanitizeAllContentAsync(ct);
 
     public async Task<NoteItem> Create(NoteItem note, CancellationToken ct = default)
     {
         note.Id = Guid.NewGuid();
-        note.UpdatedAt = UtcNowMicroseconds();
+        note.UpdatedAt = NoteReferenceRewriter.UtcNowMicroseconds();
         // Sanitize before persisting so stored HTML can never carry active
         // content (script/event handlers), then derive the search text from the
         // sanitized markup.
         note.Content = htmlSanitizer.Sanitize(note.Content);
-        note.ContentText = StripHtml(note.Content);
+        note.ContentText = NoteReferenceRewriter.StripHtml(note.Content);
         // Server-owned lifecycle fields: force to the active state so a client
         // cannot over-post DeletedAt/ArchivedAt and create a note that is hidden
         // by the soft-delete filter (and silently purged) or born archived.
@@ -391,9 +288,9 @@ public class NoteService(
         // payload via PUT just as easily as via POST.
         note.Content = htmlSanitizer.Sanitize(note.Content);
         existing.Content = note.Content;
-        existing.ContentText = StripHtml(note.Content);
+        existing.ContentText = NoteReferenceRewriter.StripHtml(note.Content);
         existing.ParentNoteId = note.ParentNoteId;
-        existing.UpdatedAt = UtcNowMicroseconds();
+        existing.UpdatedAt = NoteReferenceRewriter.UtcNowMicroseconds();
 
         // Optimistic concurrency: pin the client's claimed version as the
         // concurrency token's original value so EF enforces the check in the
@@ -429,38 +326,13 @@ public class NoteService(
         return (existing, false, false);
     }
 
-    /// <summary>
-    /// Filters <paramref name="notes"/> to those whose HTML <c>Content</c> references note
-    /// <paramref name="id"/> via a <c>data-note-id="{id}"</c> attribute — the shared scan behind
-    /// backlinks, page-link title propagation and mention cleanup.
-    /// <para>
-    /// On PostgreSQL the probe is a case-sensitive <c>LIKE '%…%'</c> substring match, which the
-    /// <c>gin_trgm_ops</c> index on <c>Content</c> (issue #219) accelerates instead of a full
-    /// corpus scan (issue #220) — the reference lives in an HTML attribute value that
-    /// <c>StripHtml</c> discards, so it never reaches <c>ContentText</c> and that column's trigram
-    /// index cannot serve the scan. The needle is a fixed attribute name plus a GUID and never
-    /// contains a LIKE wildcard, so the pattern needs no escaping. Other providers (the SQLite
-    /// test host, which does not translate <c>LIKE</c> to an indexed probe) fall back to the
-    /// original case-sensitive <c>Contains</c>, preserving identical match semantics.
-    /// </para>
-    /// </summary>
-    private IQueryable<NoteItem> WhereReferencesNote(IQueryable<NoteItem> notes, Guid id)
-    {
-        var needle = $"data-note-id=\"{id}\"";
-        if (db.Database.IsNpgsql())
-        {
-            var pattern = $"%{needle}%";
-            return notes.Where(n => EF.Functions.Like(n.Content, pattern));
-        }
-        return notes.Where(n => n.Content.Contains(needle));
-    }
-
     private async Task UpdatePageLinkReferences(Guid noteId, string newTitle, CancellationToken ct = default)
     {
         // IgnoreQueryFilters so recycle-bin (soft-deleted) notes referencing this
         // note also get their page-link title refreshed — otherwise a restored note
         // keeps a stale title.
-        var referencingNotes = await WhereReferencesNote(db.Notes.IgnoreQueryFilters(), noteId)
+        var referencingNotes = await NoteReferenceRewriter
+            .WhereReferencesNote(db.Notes.IgnoreQueryFilters(), noteId, db.Database.IsNpgsql())
             .ToListAsync(ct);
 
         if (referencingNotes.Count == 0) return;
@@ -499,15 +371,15 @@ public class NoteService(
         const int maxAttempts = 3;
         for (var attempt = 1; attempt <= maxAttempts; attempt++)
         {
-            var updated = UpdatePageLinkTitleInContent(note.Content, referencedId, newTitle);
-            updated = UpdateMentionTitleInContent(updated, referencedId, newTitle);
+            var updated = NoteReferenceRewriter.UpdatePageLinkTitleInContent(note.Content, referencedId, newTitle);
+            updated = NoteReferenceRewriter.UpdateMentionTitleInContent(updated, referencedId, newTitle);
             if (updated == note.Content) return false;
 
             note.Content = updated;
-            note.ContentText = StripHtml(updated);
+            note.ContentText = NoteReferenceRewriter.StripHtml(updated);
             // Advance the version so the change is detectable by optimistic concurrency; the
             // pre-save (original) value remains the token EF places in the UPDATE's WHERE clause.
-            note.UpdatedAt = UtcNowMicroseconds();
+            note.UpdatedAt = NoteReferenceRewriter.UtcNowMicroseconds();
 
             try
             {
@@ -533,72 +405,6 @@ public class NoteService(
             note.Id, maxAttempts);
         return false;
     }
-
-    // Shared AngleSharp parser for note-content rewriting (issue #306). HtmlParser is stateless and
-    // safe to reuse across threads; each call parses into its own document, so no shared mutable state
-    // leaks between callers.
-    private static readonly HtmlParser ContentParser = new();
-
-    /// <summary>
-    /// Parses <paramref name="content"/> as a body-context HTML fragment, applies <paramref name="mutate"/>
-    /// to the parsed DOM, and returns the reserialized fragment — or the original string unchanged when
-    /// <paramref name="mutate"/> reports it edited nothing. This replaces the former <c>Regex.Replace</c>
-    /// content rewriting (issue #306): a spec-compliant parser sets attribute and text values through the
-    /// DOM API, so it is immune to the <c>'$'</c> substitution-string bug (issue #299) and to nesting or
-    /// attribute-order variations that silently broke the regexes. The user-visible title always lands in
-    /// element text content (never an attribute value), preserving the serialization hard rule, and callers
-    /// still derive <c>ContentText</c> via <c>StripHtml</c> on the result.
-    /// </summary>
-    private static string RewriteContent(string content, Func<IElement, bool> mutate)
-    {
-        if (string.IsNullOrEmpty(content)) return content;
-        var document = ContentParser.ParseDocument(string.Empty);
-        var body = document.Body!;
-        body.InnerHtml = content;
-        return mutate(body) ? body.InnerHtml : content;
-    }
-
-    private static string UpdateMentionTitleInContent(string content, Guid noteId, string newTitle) =>
-        RewriteContent(content, body =>
-        {
-            // Mentions are the only <a> elements carrying data-note-id; page-links are <div>.
-            var mentions = body.QuerySelectorAll($"a[data-note-id=\"{noteId}\"]");
-            if (mentions.Length == 0) return false;
-            foreach (var mention in mentions)
-            {
-                mention.SetAttribute("data-title", newTitle);
-                mention.TextContent = "@" + newTitle;
-            }
-            return true;
-        });
-
-    private static string StripMentionLinksFromContent(string content, Guid noteId) =>
-        RewriteContent(content, body =>
-        {
-            var mentions = body.QuerySelectorAll($"a[data-note-id=\"{noteId}\"]");
-            if (mentions.Length == 0) return false;
-            foreach (var mention in mentions)
-            {
-                // Unwrap the link: keep its visible text ("@Title"), drop the anchor wrapper.
-                var text = mention.Owner!.CreateTextNode(mention.TextContent);
-                mention.Parent!.ReplaceChild(text, mention);
-            }
-            return true;
-        });
-
-    private static string UpdatePageLinkTitleInContent(string content, Guid noteId, string newTitle) =>
-        RewriteContent(content, body =>
-        {
-            // Page-links are the only <div> elements carrying data-note-id.
-            var pageLinks = body.QuerySelectorAll($"div[data-note-id=\"{noteId}\"]");
-            if (pageLinks.Length == 0) return false;
-            foreach (var pageLink in pageLinks)
-            {
-                pageLink.SetAttribute("data-title", newTitle);
-                pageLink.TextContent = "📄 " + newTitle;
-            }
-            return true;
-        });
 
     /// <summary>
     /// Returns true if making <paramref name="proposedParentId"/> the parent of
@@ -725,7 +531,7 @@ public class NoteService(
     /// <summary>
     /// "What links here": returns notes whose HTML content references the given note via a
     /// <c>data-note-id="{id}"</c> attribute (mentions and page links). Reuses the same indexed
-    /// reference probe (<see cref="WhereReferencesNote"/>) as title propagation
+    /// reference probe (<see cref="NoteReferenceRewriter.WhereReferencesNote"/>) as title propagation
     /// (<see cref="UpdatePageLinkReferences"/>); a normalized reference table is intentionally out
     /// of scope (issue #141).
     /// Soft-deleted notes are excluded by the default global query filter (no
@@ -737,7 +543,7 @@ public class NoteService(
     {
         limit = Math.Clamp(limit, 1, 200);
 
-        var rows = await WhereReferencesNote(db.Notes, id)
+        var rows = await NoteReferenceRewriter.WhereReferencesNote(db.Notes, id, db.Database.IsNpgsql())
             .Where(n => n.Id != id)
             .OrderByDescending(n => n.UpdatedAt)
             .Take(limit)
@@ -754,467 +560,43 @@ public class NoteService(
         }).ToList();
     }
 
-    /// <summary>
-    /// Soft delete: moves the note and all its active descendants to the recycle bin.
-    /// References in other notes and uploaded files are left untouched so a
-    /// restore is lossless; cleanup is deferred to permanent deletion.
-    /// </summary>
-    public async Task<bool> Delete(Guid id, CancellationToken ct = default)
-    {
-        var note = await db.Notes.FirstOrDefaultAsync(n => n.Id == id, ct);
-        if (note is null) return false;
+    // ── Lifecycle (delegated to NoteLifecycleService, issue #311) ────────────────
 
-        var deletedAt = UtcNowMicroseconds();
-        var groupId = Guid.NewGuid();
-        note.DeletedAt = deletedAt;
-        note.IsDeletionRoot = true;
-        note.DeletionGroupId = groupId;
+    /// <inheritdoc cref="NoteLifecycleService.Delete"/>
+    public Task<bool> Delete(Guid id, CancellationToken ct = default)
+        => lifecycle.Delete(id, ct);
 
-        // Active descendants are swept into the same recycle bin group (shared group id).
-        // Descendants soft-deleted earlier keep their own group and restore independently.
-        var descendants = await CollectActiveDescendantsAsync(id, ct);
-        foreach (var descendant in descendants)
-        {
-            descendant.DeletedAt = deletedAt;
-            descendant.IsDeletionRoot = false;
-            descendant.DeletionGroupId = groupId;
-        }
+    /// <inheritdoc cref="NoteLifecycleService.GetRecycleBin"/>
+    public Task<PagedResult<RecycleBinNoteSummary>> GetRecycleBin(int page, int pageSize, CancellationToken ct = default)
+        => lifecycle.GetRecycleBin(page, pageSize, ct);
 
-        await db.SaveChangesAsync(ct);
-        logger.LogInformation(
-            "Note {NoteId} moved to recycle bin with {DescendantCount} descendant(s).",
-            id, descendants.Count);
-        return true;
-    }
+    /// <inheritdoc cref="NoteLifecycleService.Restore"/>
+    public Task<bool> Restore(Guid id, CancellationToken ct = default)
+        => lifecycle.Restore(id, ct);
 
-    public async Task<PagedResult<RecycleBinNoteSummary>> GetRecycleBin(int page, int pageSize, CancellationToken ct = default)
-    {
-        var query = db.Notes.IgnoreQueryFilters()
-            .Where(n => n.DeletedAt != null && n.IsDeletionRoot);
+    /// <inheritdoc cref="NoteLifecycleService.Archive"/>
+    public Task<bool> Archive(Guid id, CancellationToken ct = default)
+        => lifecycle.Archive(id, ct);
 
-        var totalCount = await query.CountAsync(ct);
+    /// <inheritdoc cref="NoteLifecycleService.Unarchive"/>
+    public Task<bool> Unarchive(Guid id, CancellationToken ct = default)
+        => lifecycle.Unarchive(id, ct);
 
-        var items = await query
-            .OrderByDescending(n => n.DeletedAt)
-            .Skip((page - 1) * pageSize)
-            .Take(pageSize)
-            .Select(n => new RecycleBinNoteSummary
-            {
-                Id = n.Id,
-                Title = n.Title,
-                DeletedAt = n.DeletedAt!.Value,
-                IsArchived = n.ArchivedAt != null
-            })
-            .ToListAsync(ct);
+    /// <inheritdoc cref="NoteLifecycleService.GetArchive"/>
+    public Task<PagedResult<ArchivedNoteSummary>> GetArchive(int page, int pageSize, CancellationToken ct = default)
+        => lifecycle.GetArchive(page, pageSize, ct);
 
-        // Direct soft-deleted children per listed root (two-step, mirrors GetChildCountsAsync)
-        var ids = items.Select(i => i.Id).ToList();
-        if (ids.Count > 0)
-        {
-            var childCounts = await db.Notes.IgnoreQueryFilters()
-                .Where(n => n.DeletedAt != null
-                    && n.ParentNoteId.HasValue
-                    && ids.Contains(n.ParentNoteId.Value))
-                .GroupBy(n => n.ParentNoteId!.Value)
-                .Select(g => new { ParentId = g.Key, Count = g.Count() })
-                .ToDictionaryAsync(x => x.ParentId, x => x.Count, ct);
-            foreach (var item in items)
-                item.ChildCount = childCounts.GetValueOrDefault(item.Id);
-        }
+    /// <inheritdoc cref="NoteLifecycleService.DeletePermanent"/>
+    public Task<(bool Found, bool WasInRecycleBin)> DeletePermanent(Guid id, CancellationToken ct = default)
+        => lifecycle.DeletePermanent(id, ct);
 
-        return new PagedResult<RecycleBinNoteSummary>
-        {
-            Items = items,
-            TotalCount = totalCount,
-            Page = page,
-            PageSize = pageSize
-        };
-    }
+    /// <inheritdoc cref="NoteLifecycleService.EmptyRecycleBin"/>
+    public Task<int> EmptyRecycleBin(CancellationToken ct = default)
+        => lifecycle.EmptyRecycleBin(ct);
 
-    /// <summary>
-    /// Restores a deletion root and the descendants that were soft-deleted together
-    /// with it (same DeletedAt). If the original parent is missing or itself
-    /// soft-deleted, the note is reattached as a root note.
-    /// </summary>
-    public async Task<bool> Restore(Guid id, CancellationToken ct = default)
-    {
-        var note = await db.Notes.IgnoreQueryFilters()
-            .FirstOrDefaultAsync(n =>
-                n.Id == id && n.DeletedAt != null && n.IsDeletionRoot, ct);
-        if (note is null) return false;
-
-        var groupId = note.DeletionGroupId!.Value;
-        var groupMembers = await CollectDeletedGroupDescendantsAsync(id, groupId, ct);
-
-        if (note.ParentNoteId.HasValue)
-        {
-            // Filtered query: missing or soft-deleted parent → detach. An archived
-            // parent also detaches, unless the restored root is itself archived —
-            // then it returns to the archive where an archived parent is a legal home.
-            var parentIsValid = note.ArchivedAt is not null
-                ? await db.Notes.AnyAsync(n => n.Id == note.ParentNoteId.Value, ct)
-                : await db.Notes.AnyAsync(n => n.Id == note.ParentNoteId.Value && n.ArchivedAt == null, ct);
-            if (!parentIsValid)
-                note.ParentNoteId = null;
-        }
-
-        note.DeletedAt = null;
-        note.IsDeletionRoot = false;
-        note.DeletionGroupId = null;
-        foreach (var member in groupMembers)
-        {
-            member.DeletedAt = null;
-            member.IsDeletionRoot = false;
-            member.DeletionGroupId = null;
-        }
-
-        await db.SaveChangesAsync(ct);
-        logger.LogInformation(
-            "Note {NoteId} restored from recycle bin with {DescendantCount} descendant(s).",
-            id, groupMembers.Count);
-        return true;
-    }
-
-    /// <summary>
-    /// Archives the note and all of its active descendants in one operation
-    /// (shared ArchivedAt = restore group). Already-archived subtrees keep their
-    /// own group and unarchive independently. Idempotent: archiving an archived
-    /// note is a no-op. Returns false when the note is not found (or is in the
-    /// recycle bin, which the global filter hides from this lookup).
-    /// </summary>
-    public async Task<bool> Archive(Guid id, CancellationToken ct = default)
-    {
-        var note = await db.Notes.FirstOrDefaultAsync(n => n.Id == id, ct);
-        if (note is null) return false;
-        if (note.ArchivedAt is not null) return true; // idempotent no-op
-
-        var archivedAt = UtcNowMicroseconds();
-        var groupId = Guid.NewGuid();
-        note.ArchivedAt = archivedAt;
-        note.IsArchiveRoot = true;
-        note.ArchiveGroupId = groupId;
-
-        // Sweep active descendants into the same archive group (shared group id). The
-        // BFS sees archived descendants too (archive has no global filter), so skip
-        // them: independently archived subtrees keep their own root and group id.
-        var descendants = (await CollectActiveDescendantsAsync(id, ct))
-            .Where(d => d.ArchivedAt == null)
-            .ToList();
-        foreach (var descendant in descendants)
-        {
-            descendant.ArchivedAt = archivedAt;
-            descendant.IsArchiveRoot = false;
-            descendant.ArchiveGroupId = groupId;
-        }
-
-        await db.SaveChangesAsync(ct);
-        logger.LogInformation(
-            "Note {NoteId} archived with {DescendantCount} descendant(s).",
-            id, descendants.Count);
-        return true;
-    }
-
-    /// <summary>
-    /// Unarchives the note and the descendants archived in the same operation
-    /// (same ArchivedAt). Independently archived subtrees stay archived. If the
-    /// original parent is missing, soft-deleted, or still archived, the note is
-    /// reattached as a root note. Returns false when the note is not found or
-    /// not archived.
-    /// </summary>
-    public async Task<bool> Unarchive(Guid id, CancellationToken ct = default)
-    {
-        var note = await db.Notes.FirstOrDefaultAsync(n =>
-            n.Id == id && n.ArchivedAt != null, ct);
-        if (note is null) return false;
-
-        var groupId = note.ArchiveGroupId!.Value;
-        var groupMembers = await CollectArchivedGroupDescendantsAsync(id, groupId, ct);
-
-        note.ArchivedAt = null;
-        note.IsArchiveRoot = false;
-        note.ArchiveGroupId = null;
-        foreach (var member in groupMembers)
-        {
-            member.ArchivedAt = null;
-            member.IsArchiveRoot = false;
-            member.ArchiveGroupId = null;
-        }
-
-        // Never resurrect an active note under a missing, soft-deleted, or
-        // archived parent (the filtered query hides the first two).
-        if (note.ParentNoteId.HasValue)
-        {
-            var parentIsActive = await db.Notes.AnyAsync(n =>
-                n.Id == note.ParentNoteId.Value && n.ArchivedAt == null, ct);
-            if (!parentIsActive)
-                note.ParentNoteId = null;
-        }
-
-        await db.SaveChangesAsync(ct);
-        logger.LogInformation(
-            "Note {NoteId} unarchived with {DescendantCount} descendant(s).",
-            id, groupMembers.Count);
-        return true;
-    }
-
-    /// <summary>
-    /// Paged list of archive roots, newest first. The global filter automatically
-    /// excludes archived notes that are currently in the recycle bin.
-    /// </summary>
-    public async Task<PagedResult<ArchivedNoteSummary>> GetArchive(int page, int pageSize, CancellationToken ct = default)
-    {
-        var query = db.Notes
-            .Where(n => n.ArchivedAt != null && n.IsArchiveRoot);
-
-        var totalCount = await query.CountAsync(ct);
-
-        var items = await query
-            .OrderByDescending(n => n.ArchivedAt)
-            .Skip((page - 1) * pageSize)
-            .Take(pageSize)
-            .Select(n => new ArchivedNoteSummary
-            {
-                Id = n.Id,
-                Title = n.Title,
-                ArchivedAt = n.ArchivedAt!.Value
-            })
-            .ToListAsync(ct);
-
-        // Direct children swept in the same archive operation (same group id),
-        // mirroring the recycle bin's per-root child counts.
-        var ids = items.Select(i => i.Id).ToList();
-        if (ids.Count > 0)
-        {
-            var rootGroupIds = await db.Notes
-                .Where(n => ids.Contains(n.Id))
-                .Select(n => new { n.Id, n.ArchiveGroupId })
-                .ToDictionaryAsync(x => x.Id, x => x.ArchiveGroupId, ct);
-            var children = await db.Notes
-                .Where(n => n.ArchivedAt != null
-                    && n.ParentNoteId.HasValue
-                    && ids.Contains(n.ParentNoteId.Value))
-                .Select(n => new { ParentId = n.ParentNoteId!.Value, n.ArchiveGroupId })
-                .ToListAsync(ct);
-            foreach (var item in items)
-                item.ChildCount = children.Count(c =>
-                    c.ParentId == item.Id && c.ArchiveGroupId == rootGroupIds.GetValueOrDefault(item.Id));
-        }
-
-        return new PagedResult<ArchivedNoteSummary>
-        {
-            Items = items,
-            TotalCount = totalCount,
-            Page = page,
-            PageSize = pageSize
-        };
-    }
-
-    /// <summary>
-    /// Permanently deletes a soft-deleted note. Returns (Found, WasInRecycleBin):
-    /// active notes are refused so the recycle bin cannot be bypassed.
-    /// </summary>
-    public async Task<(bool Found, bool WasInRecycleBin)> DeletePermanent(Guid id, CancellationToken ct = default)
-    {
-        var note = await db.Notes.IgnoreQueryFilters()
-            .FirstOrDefaultAsync(n => n.Id == id, ct);
-        if (note is null) return (false, false);
-        if (note.DeletedAt is null) return (true, false);
-
-        await HardDeleteAsync(note, ct);
-        return (true, true);
-    }
-
-    /// <summary>Permanently deletes every soft-deleted note of the user. Returns the root count.</summary>
-    public async Task<int> EmptyRecycleBin(CancellationToken ct = default)
-    {
-        var rootIds = await db.Notes.IgnoreQueryFilters()
-            .Where(n => n.DeletedAt != null && n.IsDeletionRoot)
-            .Select(n => n.Id)
-            .ToListAsync(ct);
-
-        var purged = 0;
-        foreach (var rootId in rootIds)
-        {
-            // Re-fetch: an earlier iteration may have cascade-deleted this root
-            // (a separately-soft-deleted sub-note of another soft-deleted parent).
-            var note = await db.Notes.IgnoreQueryFilters()
-                .FirstOrDefaultAsync(n => n.Id == rootId && n.DeletedAt != null, ct);
-            if (note is null) continue;
-            await HardDeleteAsync(note, ct);
-            purged++;
-        }
-
-        logger.LogInformation("Recycle Bin emptied: {Count} note(s) purged.", purged);
-        return purged;
-    }
-
-    /// <summary>
-    /// Permanently deletes deletion roots soft-deleted before <paramref name="cutoffUtc"/>.
-    /// Called by <see cref="RecycleBinPurgeJob"/>. Returns the number of roots purged.
-    /// </summary>
-    public async Task<int> PurgeExpired(DateTime cutoffUtc, CancellationToken ct = default)
-    {
-        var rootIds = await db.Notes.IgnoreQueryFilters()
-            .Where(n => n.IsDeletionRoot && n.DeletedAt != null && n.DeletedAt < cutoffUtc)
-            .Select(n => n.Id)
-            .ToListAsync(ct);
-
-        var purged = 0;
-        foreach (var rootId in rootIds)
-        {
-            ct.ThrowIfCancellationRequested();
-            var note = await db.Notes.IgnoreQueryFilters()
-                .FirstOrDefaultAsync(n => n.Id == rootId && n.DeletedAt != null, ct);
-            if (note is null) continue;
-            await HardDeleteAsync(note, ct);
-            purged++;
-        }
-
-        return purged;
-    }
-
-    /// <summary>
-    /// Hard delete (previous Delete behavior): strips page-link/mention references
-    /// from remaining notes, deletes the row (DB cascades the subtree), then
-    /// cleans up files orphaned by the whole subtree's content.
-    /// </summary>
-    private async Task HardDeleteAsync(NoteItem note, CancellationToken ct = default)
-    {
-        var subtree = await CollectDescendantsUnfilteredAsync(note.Id, ct);
-
-        var combinedContent = string.Join(' ',
-            subtree.Select(n => n.Content).Prepend(note.Content));
-
-        // Wrap the multi-save sequence (parent page-link strip, mention stripping,
-        // and the note removal) in a single transaction so a mid-sequence failure
-        // rolls the whole unit back instead of leaving a partial commit. The DB is
-        // configured with a retrying execution strategy (EnableRetryOnFailure),
-        // which forbids user-initiated transactions unless the whole unit runs
-        // through the strategy so it can be retried atomically — mirrors
-        // AccountService.PurgeAllDataAsync.
-        var strategy = db.Database.CreateExecutionStrategy();
-        await strategy.ExecuteAsync(async () =>
-        {
-            await using var tx = await db.Database.BeginTransactionAsync(ct);
-
-            // Remove any page-link blocks referencing this note from the parent's content
-            if (note.ParentNoteId.HasValue)
-            {
-                var parent = await db.Notes.IgnoreQueryFilters()
-                    .FirstOrDefaultAsync(n => n.Id == note.ParentNoteId.Value, ct);
-                if (parent is not null)
-                {
-                    var cleaned = RemovePageLinkFromContent(parent.Content, note.Id);
-                    if (cleaned != parent.Content)
-                    {
-                        parent.Content = cleaned;
-                        parent.ContentText = StripHtml(cleaned);
-                    }
-                }
-            }
-
-            // Strip mention links referencing any note in the subtree from active notes
-            await StripMentionReferencesAsync(note.Id, ct);
-            foreach (var descendant in subtree)
-                await StripMentionReferencesAsync(descendant.Id, ct);
-
-            db.Notes.Remove(note);
-            await db.SaveChangesAsync(ct);
-
-            await tx.CommitAsync(ct);
-        });
-
-        // File cleanup runs AFTER the transaction commits: deleting files is an
-        // irreversible filesystem side effect and must not sit inside the DB
-        // transaction (a rollback cannot un-delete files).
-        await fileCleanup.DeleteOrphanedFromContentAsync(combinedContent, ct);
-        logger.LogInformation(
-            "Note {NoteId} permanently deleted with {DescendantCount} descendant(s).",
-            note.Id, subtree.Count);
-    }
-
-    /// <summary>All active descendants only (soft-deleted notes excluded, and descent stops at them).</summary>
-    private async Task<List<NoteItem>> CollectActiveDescendantsAsync(Guid rootId, CancellationToken ct = default)
-        => await CollectDescendantsAsync(rootId, """ AND n."DeletedAt" IS NULL""", [rootId], ct);
-
-    /// <summary>All descendants regardless of recycle bin state.</summary>
-    private async Task<List<NoteItem>> CollectDescendantsUnfilteredAsync(Guid rootId, CancellationToken ct = default)
-        => await CollectDescendantsAsync(rootId, "", [rootId], ct);
-
-    /// <summary>Soft-deleted descendants sharing the given recycle-bin group id.</summary>
-    private async Task<List<NoteItem>> CollectDeletedGroupDescendantsAsync(Guid rootId, Guid groupId, CancellationToken ct = default)
-        => await CollectDescendantsAsync(rootId, """ AND n."DeletionGroupId" = {1}""", [rootId, groupId], ct);
-
-    /// <summary>Archived descendants sharing the given archive group id.
-    /// Descends only through same-group (and non-deleted, matching the old global filter) notes,
-    /// so independently archived subtrees stay put.</summary>
-    private async Task<List<NoteItem>> CollectArchivedGroupDescendantsAsync(Guid rootId, Guid groupId, CancellationToken ct = default)
-        => await CollectDescendantsAsync(rootId, """ AND n."ArchiveGroupId" = {1} AND n."DeletedAt" IS NULL""", [rootId, groupId], ct);
-
-    /// <summary>
-    /// Collects every descendant of <paramref name="rootId"/> in a single recursive CTE, replacing
-    /// the former per-level BFS round trips (issue #305). <paramref name="nodeFilter"/> is an optional
-    /// SQL predicate on the note alias <c>n</c> (e.g. <c>AND n."DeletedAt" IS NULL</c>) applied to both
-    /// the anchor and every recursive step, exactly reproducing the per-level <c>Where</c> the BFS used —
-    /// so a filtered-out note halts descent through it rather than merely being dropped from the result.
-    /// Parameter <c>{0}</c> is always the root id; any extra parameters referenced as <c>{1}</c>, <c>{2}</c>…
-    /// inside <paramref name="nodeFilter"/> follow, in order, in <paramref name="parameters"/>. The
-    /// <c>Depth &lt; 100</c> guard preserves the old maxDepth cap against a cyclic parent chain. All
-    /// filtering is explicit in the CTE, so global query filters are bypassed; entities are tracked so
-    /// callers can mutate and save them exactly as before. Standard SQL: PostgreSQL (production) + SQLite (tests).
-    /// </summary>
-    private async Task<List<NoteItem>> CollectDescendantsAsync(
-        Guid rootId, string nodeFilter, object[] parameters, CancellationToken ct = default)
-    {
-        var sql = $$"""
-            WITH RECURSIVE "descendants" AS (
-                SELECT n."Id", n."ParentNoteId", 1 AS "Depth"
-                FROM "Notes" n
-                WHERE n."ParentNoteId" = {0}{{nodeFilter}}
-                UNION ALL
-                SELECT n."Id", n."ParentNoteId", d."Depth" + 1
-                FROM "Notes" n
-                INNER JOIN "descendants" d ON n."ParentNoteId" = d."Id"
-                WHERE d."Depth" < 100{{nodeFilter}}
-            )
-            SELECT * FROM "Notes" WHERE "Id" IN (SELECT "Id" FROM "descendants")
-            """;
-
-        return await db.Notes
-            .FromSqlRaw(sql, parameters)
-            .IgnoreQueryFilters()
-            .ToListAsync(ct);
-    }
-
-    private async Task StripMentionReferencesAsync(Guid noteId, CancellationToken ct = default)
-    {
-        // IgnoreQueryFilters so recycle-bin (soft-deleted) notes referencing this
-        // note also get their dead mention links stripped — otherwise a restored
-        // note keeps a dead mention pointing at a permanently-deleted note.
-        var referencingNotes = await WhereReferencesNote(db.Notes.IgnoreQueryFilters(), noteId)
-            .ToListAsync(ct);
-
-        foreach (var n in referencingNotes)
-        {
-            var updated = StripMentionLinksFromContent(n.Content, noteId);
-            if (updated == n.Content) continue;
-            n.Content = updated;
-            n.ContentText = StripHtml(updated);
-        }
-
-        if (referencingNotes.Count > 0)
-            await db.SaveChangesAsync(ct);
-    }
-
-    private static string RemovePageLinkFromContent(string content, Guid noteId) =>
-        RewriteContent(content, body =>
-        {
-            var pageLinks = body.QuerySelectorAll($"div[data-note-id=\"{noteId}\"]");
-            if (pageLinks.Length == 0) return false;
-            foreach (var pageLink in pageLinks)
-                pageLink.Remove();
-            return true;
-        });
+    /// <inheritdoc cref="NoteLifecycleService.PurgeExpired"/>
+    public Task<int> PurgeExpired(DateTime cutoffUtc, CancellationToken ct = default)
+        => lifecycle.PurgeExpired(cutoffUtc, ct);
 
     private static IQueryable<NoteItem> ApplyFilters(
         IQueryable<NoteItem> query, string? search, Guid[]? labelIds)
@@ -1241,27 +623,6 @@ public class NoteService(
 
     private static string EscapeLikePattern(string term) =>
         term.Replace("\\", "\\\\").Replace("%", "\\%").Replace("_", "\\_");
-
-    private static readonly Regex HtmlTagRegex = new("<[^>]*>", RegexOptions.Compiled);
-    private static readonly Regex HtmlEntityRegex = new("&[a-zA-Z]+;|&#[0-9]+;", RegexOptions.Compiled);
-    private static readonly Regex WhitespaceRegex = new(@"\s+", RegexOptions.Compiled);
-
-    // PostgreSQL timestamps are stored at microsecond precision (6 digits), while .NET DateTime
-    // has 100-nanosecond precision (7 digits). Truncating before save ensures the value returned
-    // from the server matches what the DB stores, preventing false optimistic-concurrency conflicts.
-    private static DateTime UtcNowMicroseconds()
-    {
-        var now = DateTime.UtcNow;
-        return new DateTime(now.Ticks / 10 * 10, DateTimeKind.Utc);
-    }
-
-    private static string StripHtml(string html)
-    {
-        if (string.IsNullOrEmpty(html)) return string.Empty;
-        var text = HtmlTagRegex.Replace(html, " ");
-        text = HtmlEntityRegex.Replace(text, " ");
-        return WhitespaceRegex.Replace(text, " ").Trim();
-    }
 
     private async Task<Dictionary<Guid, int>> GetChildCountsAsync(IEnumerable<Guid> noteIds, CancellationToken ct = default)
     {
