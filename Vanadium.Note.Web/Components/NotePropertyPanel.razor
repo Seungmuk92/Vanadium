@@ -1,0 +1,201 @@
+@* Editor property panel between the title and the Tiptap body (issue #343, §9.2). Shows non-empty
+   values only; "Add property" reveals empty definitions. Each value change saves immediately via the
+   dedicated value endpoints — it never rides the note content auto-save, and never posts through
+   note save. Pure Blazor + MudBlazor; no tiptapInterop contact (§7.8). *@
+@using Vanadium.Note.Web.Models
+@inject PropertyService PropertyService
+@inject ISnackbar Snackbar
+@inject ILogger<NotePropertyPanel> Logger
+
+<div class="property-panel">
+    <div class="property-panel-header" @onclick="ToggleCollapsed">
+        <MudIcon Icon="@(_collapsed ? Icons.Material.Filled.ChevronRight : Icons.Material.Filled.ExpandMore)"
+                 Size="Size.Small" />
+        <span class="property-panel-title">Properties@(_rows.Count > 0 ? $" ({_rows.Count})" : "")</span>
+        @if (_saving)
+        {
+            <span class="property-panel-saving">Saving…</span>
+        }
+    </div>
+
+    @if (!_collapsed)
+    {
+        <div class="property-panel-body">
+            @if (_rows.Count == 0 && ReadOnly)
+            {
+                <div class="property-panel-empty">No properties set.</div>
+            }
+
+            @foreach (var row in _rows)
+            {
+                <div class="property-row">
+                    <span class="property-row-name">@row.Definition.Name</span>
+                    <div class="property-row-value">
+                        <PropertyValueEditor Definition="row.Definition"
+                                             Value="row.Value"
+                                             ReadOnly="ReadOnly"
+                                             OnCommit="req => CommitAsync(row, req)" />
+                    </div>
+                    @if (!ReadOnly)
+                    {
+                        <MudIconButton Icon="@Icons.Material.Filled.Close" Size="Size.Small"
+                                       Class="property-row-remove"
+                                       aria-label="@($"Clear {row.Definition.Name}")"
+                                       OnClick="() => ClearAsync(row)" />
+                    }
+                </div>
+            }
+
+            @if (!ReadOnly)
+            {
+                var addable = AddableDefinitions.ToList();
+                <MudMenu Dense="true" Disabled="addable.Count == 0" Class="property-add-menu">
+                    <ActivatorContent>
+                        <MudButton StartIcon="@Icons.Material.Filled.Add" Size="Size.Small" Variant="Variant.Text">
+                            Add property
+                        </MudButton>
+                    </ActivatorContent>
+                    <ChildContent>
+                        @foreach (var def in addable)
+                        {
+                            <MudMenuItem OnClick="() => AddRow(def)">@def.Name</MudMenuItem>
+                        }
+                    </ChildContent>
+                </MudMenu>
+            }
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter, EditorRequired] public Guid NoteId { get; set; }
+
+    /// <summary>The note's non-empty values at load time (from GET /api/notes/{id}).</summary>
+    [Parameter] public List<NotePropertyValue> Values { get; set; } = [];
+
+    [Parameter] public bool ReadOnly { get; set; }
+
+    /// <summary>Raised when a value write returns 403 — the note was archived elsewhere, so the
+    /// editor should flip to read-only (same UX rule as the archive feature, E1).</summary>
+    [Parameter] public EventCallback OnArchivedElsewhere { get; set; }
+
+    private readonly List<PanelRow> _rows = [];
+    private List<PropertyDefinition> _definitions = [];
+    private bool _collapsed;
+    private bool _saving;
+    private Guid _loadedNoteId;
+
+    private sealed class PanelRow
+    {
+        public required PropertyDefinition Definition { get; init; }
+        public NotePropertyValue? Value { get; set; }
+    }
+
+    private IEnumerable<PropertyDefinition> AddableDefinitions =>
+        _definitions
+            .Where(d => _rows.All(r => r.Definition.Id != d.Id))
+            .OrderBy(d => d.SortOrder)
+            .ThenBy(d => d.Name);
+
+    protected override async Task OnParametersSetAsync()
+    {
+        // Rebuild only when the note actually changes (the component is reused across navigations).
+        if (_loadedNoteId == NoteId && _definitions.Count > 0) return;
+        _loadedNoteId = NoteId;
+
+        var defsResult = await PropertyService.GetDefinitionsAsync();
+        _definitions = defsResult.IsSuccess ? defsResult.Value! : [];
+        RebuildRows();
+    }
+
+    private void RebuildRows()
+    {
+        _rows.Clear();
+        foreach (var value in Values.OrderBy(v => DefinitionSort(v.DefinitionId)))
+        {
+            var def = _definitions.FirstOrDefault(d => d.Id == value.DefinitionId);
+            if (def is not null)
+                _rows.Add(new PanelRow { Definition = def, Value = value });
+        }
+    }
+
+    private int DefinitionSort(Guid definitionId) =>
+        _definitions.FirstOrDefault(d => d.Id == definitionId)?.SortOrder ?? int.MaxValue;
+
+    private void AddRow(PropertyDefinition def)
+    {
+        if (_rows.Any(r => r.Definition.Id == def.Id)) return;
+        _rows.Add(new PanelRow { Definition = def, Value = null });
+    }
+
+    private async Task CommitAsync(PanelRow row, SetNotePropertyValueRequest req)
+    {
+        _saving = true;
+        try
+        {
+            var result = await PropertyService.SetValueAsync(NoteId, row.Definition.Id, req);
+            if (result.IsForbidden)
+            {
+                Snackbar.Add("This note is archived and read-only.", Severity.Warning);
+                await OnArchivedElsewhere.InvokeAsync();
+                return;
+            }
+            if (result.IsNotFound)
+            {
+                Snackbar.Add("This property or note no longer exists.", Severity.Warning);
+                PropertyService.InvalidateCache();
+                _rows.Remove(row);
+                return;
+            }
+            if (!result.IsSuccess)
+            {
+                Snackbar.Add(result.Error ?? "Failed to save property value.", Severity.Error);
+                return;
+            }
+
+            // Empty response (checkbox false / cleared) drops the row from the panel.
+            if (result.Value!.IsEmpty)
+                _rows.Remove(row);
+            else
+                row.Value = result.Value;
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+
+    private async Task ClearAsync(PanelRow row)
+    {
+        // A row that was just added but never committed has no server value — drop it locally.
+        if (row.Value is null)
+        {
+            _rows.Remove(row);
+            return;
+        }
+
+        _saving = true;
+        try
+        {
+            var result = await PropertyService.ClearValueAsync(NoteId, row.Definition.Id);
+            if (result.IsForbidden)
+            {
+                Snackbar.Add("This note is archived and read-only.", Severity.Warning);
+                await OnArchivedElsewhere.InvokeAsync();
+                return;
+            }
+            if (!result.IsSuccess && !result.IsNotFound)
+            {
+                Snackbar.Add(result.Error ?? "Failed to clear property value.", Severity.Error);
+                return;
+            }
+            _rows.Remove(row);
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+
+    private void ToggleCollapsed() => _collapsed = !_collapsed;
+}

@@ -1,0 +1,67 @@
+@* Rename / change-type dialog for a property definition (issue #343, §9.5). Surfaces the server's
+   409 (duplicate name / "in use on N notes — clear values first") inline. *@
+@using Vanadium.Note.Web.Models
+@inject PropertyService PropertyService
+
+<MudDialog>
+    <DialogContent>
+        <MudTextField T="string" @bind-Value="_name" Label="Name" MaxLength="100" Immediate="true"
+                      Class="mb-3" />
+        <MudSelect T="PropertyType" @bind-Value="_type" Label="Type" Dense="true">
+            @foreach (var type in Enum.GetValues<PropertyType>())
+            {
+                <MudSelectItem T="PropertyType" Value="@type">@type.ToString()</MudSelectItem>
+            }
+        </MudSelect>
+        @if (_type != Definition.Type)
+        {
+            <MudAlert Severity="Severity.Info" Dense="true" Class="mt-3">
+                Changing the type is only allowed while the property has no values on any note.
+            </MudAlert>
+        }
+        @if (_error is not null)
+        {
+            <MudAlert Severity="Severity.Error" Dense="true" Class="mt-3">@_error</MudAlert>
+        }
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="Cancel">Cancel</MudButton>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="Save" Disabled="_saving">Save</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance MudDialog { get; set; } = default!;
+    [Parameter, EditorRequired] public PropertyDefinition Definition { get; set; } = null!;
+
+    private string _name = string.Empty;
+    private PropertyType _type;
+    private string? _error;
+    private bool _saving;
+
+    protected override void OnInitialized()
+    {
+        _name = Definition.Name;
+        _type = Definition.Type;
+    }
+
+    private async Task Save()
+    {
+        _error = null;
+        if (string.IsNullOrWhiteSpace(_name))
+        {
+            _error = "Name is required.";
+            return;
+        }
+        _saving = true;
+        var result = await PropertyService.UpdateDefinitionAsync(
+            Definition.Id, new UpdatePropertyDefinitionRequest(_name.Trim(), _type, Definition.SortOrder));
+        _saving = false;
+        if (result.IsSuccess)
+            MudDialog.Close(DialogResult.Ok(true));
+        else
+            _error = result.Error ?? "Failed to save the property.";
+    }
+
+    private void Cancel() => MudDialog.Cancel();
+}

@@ -15,6 +15,7 @@ public class NoteService(HttpClient http, ILogger<NoteService> logger)
         string sortDir = "desc",
         IEnumerable<Guid>? labelIds = null,
         bool includeLabels = false,
+        IEnumerable<PropertyFilter>? propertyFilters = null,
         CancellationToken cancellationToken = default)
     {
         try
@@ -25,6 +26,11 @@ public class NoteService(HttpClient http, ILogger<NoteService> logger)
             if (labelIds is not null)
                 foreach (var id in labelIds)
                     sb.Append($"&labelIds={id}");
+            if (propertyFilters is not null)
+                foreach (var pf in propertyFilters)
+                    // ToQueryValue already URL-encodes the value portion; the ':' separators stay
+                    // literal, and the whole param is decoded once by the server's model binding.
+                    sb.Append($"&pf={pf.ToQueryValue()}");
             if (includeLabels)
                 sb.Append("&includeLabels=true");
 
@@ -45,17 +51,19 @@ public class NoteService(HttpClient http, ILogger<NoteService> logger)
     }
 
     public async Task<ServiceResult<IReadOnlyList<NoteSummary>>> GetAllSummariesAsync(
-        IEnumerable<Guid>? labelIds = null)
+        IEnumerable<Guid>? labelIds = null,
+        IEnumerable<PropertyFilter>? propertyFilters = null)
     {
         try
         {
-            var url = "api/notes/summaries";
+            var query = new List<string>();
             if (labelIds is not null)
-            {
-                var ids = labelIds.ToList();
-                if (ids.Count > 0)
-                    url += "?" + string.Join("&", ids.Select(id => $"labelIds={id}"));
-            }
+                query.AddRange(labelIds.Select(id => $"labelIds={id}"));
+            if (propertyFilters is not null)
+                query.AddRange(propertyFilters.Select(pf => $"pf={pf.ToQueryValue()}"));
+            var url = "api/notes/summaries";
+            if (query.Count > 0)
+                url += "?" + string.Join("&", query);
             var result = await http.GetFromJsonAsync<IReadOnlyList<NoteSummary>>(url);
             return result is not null
                 ? ServiceResult<IReadOnlyList<NoteSummary>>.Ok(result)

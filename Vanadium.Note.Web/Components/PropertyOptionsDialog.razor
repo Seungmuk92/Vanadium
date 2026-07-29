@@ -1,0 +1,139 @@
+@* Option management for a Select/MultiSelect definition (issue #343, §9.5): add / rename / reorder /
+   delete options. Delete confirms with the usage count (incl. archived + recycle-bin notes). *@
+@using Vanadium.Note.Web.Models
+@inject PropertyService PropertyService
+@inject ConfirmService Confirm
+@inject ISnackbar Snackbar
+
+<MudDialog>
+    <DialogContent>
+        @if (_options.Count == 0)
+        {
+            <MudText Typo="Typo.body2" Class="mud-text-secondary mb-2">No options yet.</MudText>
+        }
+        @foreach (var opt in _options)
+        {
+            <div class="d-flex align-center gap-2 mb-2">
+                <MudTextField T="string" Value="@opt.Name" ValueChanged="v => RenameAsync(opt, v)"
+                              Immediate="false" Margin="Margin.Dense" Class="flex-grow-1" />
+                <MudIconButton Icon="@Icons.Material.Filled.ArrowUpward" Size="Size.Small"
+                               Disabled="_options.IndexOf(opt) == 0" OnClick="() => MoveAsync(opt, -1)" />
+                <MudIconButton Icon="@Icons.Material.Filled.ArrowDownward" Size="Size.Small"
+                               Disabled="_options.IndexOf(opt) == _options.Count - 1" OnClick="() => MoveAsync(opt, 1)" />
+                <MudIconButton Icon="@Icons.Material.Filled.Delete" Size="Size.Small" Color="Color.Error"
+                               OnClick="() => DeleteAsync(opt)" />
+            </div>
+        }
+
+        <div class="d-flex align-center gap-2 mt-3">
+            <MudTextField T="string" @bind-Value="_newOption" Label="New option" MaxLength="100"
+                          Immediate="true" Margin="Margin.Dense" Class="flex-grow-1"
+                          OnKeyDown="OnNewKeyDown" />
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="AddAsync"
+                       Disabled="string.IsNullOrWhiteSpace(_newOption)">Add</MudButton>
+        </div>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="Close">Done</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance MudDialog { get; set; } = default!;
+    [Parameter, EditorRequired] public PropertyDefinition Definition { get; set; } = null!;
+
+    private List<PropertyOption> _options = [];
+    private string _newOption = string.Empty;
+    private bool _changed;
+
+    protected override void OnInitialized() => ReloadFromDefinition();
+
+    private void ReloadFromDefinition() =>
+        _options = Definition.Options.OrderBy(o => o.SortOrder).ThenBy(o => o.Name).ToList();
+
+    private async Task AddAsync()
+    {
+        var name = _newOption.Trim();
+        if (name.Length == 0) return;
+        var result = await PropertyService.AddOptionAsync(Definition.Id, new CreatePropertyOptionRequest(name));
+        if (result.IsSuccess)
+        {
+            Definition.Options.Add(result.Value!);
+            _newOption = string.Empty;
+            _changed = true;
+            ReloadFromDefinition();
+        }
+        else
+        {
+            Snackbar.Add(result.Error ?? "Failed to add option.", Severity.Error);
+        }
+    }
+
+    private Task OnNewKeyDown(KeyboardEventArgs e) =>
+        e.Key == "Enter" ? AddAsync() : Task.CompletedTask;
+
+    private async Task RenameAsync(PropertyOption opt, string newName)
+    {
+        newName = newName?.Trim() ?? string.Empty;
+        if (newName.Length == 0 || newName == opt.Name) return;
+        var result = await PropertyService.UpdateOptionAsync(
+            Definition.Id, opt.Id, new UpdatePropertyOptionRequest(newName, opt.SortOrder));
+        if (result.IsSuccess)
+        {
+            opt.Name = newName;
+            _changed = true;
+        }
+        else
+        {
+            Snackbar.Add(result.Error ?? "Failed to rename option.", Severity.Error);
+            ReloadFromDefinition();   // revert the text field to the stored name
+        }
+    }
+
+    private async Task MoveAsync(PropertyOption opt, int delta)
+    {
+        var index = _options.IndexOf(opt);
+        var target = index + delta;
+        if (target < 0 || target >= _options.Count) return;
+        var other = _options[target];
+
+        // Swap sort orders on the server, then locally.
+        var a = await PropertyService.UpdateOptionAsync(
+            Definition.Id, opt.Id, new UpdatePropertyOptionRequest(opt.Name, other.SortOrder));
+        var b = await PropertyService.UpdateOptionAsync(
+            Definition.Id, other.Id, new UpdatePropertyOptionRequest(other.Name, opt.SortOrder));
+        if (a.IsSuccess && b.IsSuccess)
+        {
+            (opt.SortOrder, other.SortOrder) = (other.SortOrder, opt.SortOrder);
+            _changed = true;
+            ReloadFromDefinition();
+        }
+        else
+        {
+            Snackbar.Add("Failed to reorder options.", Severity.Error);
+        }
+    }
+
+    private async Task DeleteAsync(PropertyOption opt)
+    {
+        var confirmed = await Confirm.ConfirmAsync(
+            "Delete option",
+            $"Delete '{opt.Name}'? It will be removed from every note that uses it, including archived and recycle-bin notes.",
+            "Delete");
+        if (!confirmed) return;
+
+        var result = await PropertyService.DeleteOptionAsync(Definition.Id, opt.Id);
+        if (result.IsSuccess)
+        {
+            Definition.Options.RemoveAll(o => o.Id == opt.Id);
+            _changed = true;
+            ReloadFromDefinition();
+        }
+        else
+        {
+            Snackbar.Add(result.Error ?? "Failed to delete option.", Severity.Error);
+        }
+    }
+
+    private void Close() => MudDialog.Close(DialogResult.Ok(_changed));
+}

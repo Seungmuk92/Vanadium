@@ -1,0 +1,185 @@
+@page "/properties"
+@attribute [Authorize]
+@using Microsoft.AspNetCore.Authorization
+@using Vanadium.Note.Web.Components
+@using Vanadium.Note.Web.Models
+@inject PropertyService PropertyService
+@inject IDialogService DialogService
+@inject ConfirmService Confirm
+@inject ISnackbar Snackbar
+
+<PageTitle>Properties</PageTitle>
+
+<div class="properties-page pa-4">
+    <div class="d-flex align-center justify-space-between mb-4">
+        <MudText Typo="Typo.h5">Properties</MudText>
+    </div>
+
+    <MudPaper Class="pa-4 mb-4" Elevation="1">
+        <MudText Typo="Typo.subtitle1" Class="mb-2">New property</MudText>
+        <div class="d-flex align-center gap-2 flex-wrap">
+            <MudTextField T="string" @bind-Value="_newName" Label="Name" MaxLength="100"
+                          Immediate="true" Margin="Margin.Dense" Style="min-width: 220px;" />
+            <MudSelect T="PropertyType" @bind-Value="_newType" Label="Type" Dense="true" Margin="Margin.Dense"
+                       Style="min-width: 160px;">
+                @foreach (var type in Enum.GetValues<PropertyType>())
+                {
+                    <MudSelectItem T="PropertyType" Value="@type">@type.ToString()</MudSelectItem>
+                }
+            </MudSelect>
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="CreateAsync"
+                       Disabled="_creating || string.IsNullOrWhiteSpace(_newName)"
+                       StartIcon="@Icons.Material.Filled.Add">Create</MudButton>
+        </div>
+    </MudPaper>
+
+    @if (_loading)
+    {
+        <MudProgressLinear Indeterminate="true" Color="Color.Primary" Class="my-4" />
+    }
+    else if (_definitions.Count == 0)
+    {
+        <MudPaper Class="pa-6 text-center" Elevation="0">
+            <MudText Typo="Typo.body1" Class="mud-text-secondary">
+                No properties yet. Create one to attach structured data — like a due date or a priority — to your notes.
+            </MudText>
+        </MudPaper>
+    }
+    else
+    {
+        <MudTable Items="_definitions" Dense="true" Hover="true" Elevation="1">
+            <HeaderContent>
+                <MudTh Style="width: 90px;">Order</MudTh>
+                <MudTh>Name</MudTh>
+                <MudTh>Type</MudTh>
+                <MudTh>Used on</MudTh>
+                <MudTh>Options</MudTh>
+                <MudTh Style="width: 220px;">Actions</MudTh>
+            </HeaderContent>
+            <RowTemplate>
+                <MudTd DataLabel="Order">
+                    <MudIconButton Icon="@Icons.Material.Filled.ArrowUpward" Size="Size.Small"
+                                   Disabled="_definitions.IndexOf(context) == 0"
+                                   OnClick="() => MoveAsync(context, -1)" />
+                    <MudIconButton Icon="@Icons.Material.Filled.ArrowDownward" Size="Size.Small"
+                                   Disabled="_definitions.IndexOf(context) == _definitions.Count - 1"
+                                   OnClick="() => MoveAsync(context, 1)" />
+                </MudTd>
+                <MudTd DataLabel="Name">@context.Name</MudTd>
+                <MudTd DataLabel="Type">@context.Type.ToString()</MudTd>
+                <MudTd DataLabel="Used on">@(context.ValueCount ?? 0) note(s)</MudTd>
+                <MudTd DataLabel="Options">
+                    @if (context.Type is PropertyType.Select or PropertyType.MultiSelect)
+                    {
+                        @context.Options.Count
+                    }
+                    else
+                    {
+                        <span class="mud-text-secondary">—</span>
+                    }
+                </MudTd>
+                <MudTd DataLabel="Actions">
+                    <MudButton Size="Size.Small" OnClick="() => EditAsync(context)">Edit</MudButton>
+                    @if (context.Type is PropertyType.Select or PropertyType.MultiSelect)
+                    {
+                        <MudButton Size="Size.Small" OnClick="() => ManageOptionsAsync(context)">Options…</MudButton>
+                    }
+                    <MudButton Size="Size.Small" Color="Color.Error" OnClick="() => DeleteAsync(context)">Delete</MudButton>
+                </MudTd>
+            </RowTemplate>
+        </MudTable>
+    }
+</div>
+
+@code {
+    private List<PropertyDefinition> _definitions = [];
+    private bool _loading = true;
+    private bool _creating;
+    private string _newName = string.Empty;
+    private PropertyType _newType = PropertyType.Text;
+
+    protected override async Task OnInitializedAsync() => await ReloadAsync();
+
+    private async Task ReloadAsync()
+    {
+        _loading = true;
+        PropertyService.InvalidateCache();
+        var result = await PropertyService.GetDefinitionsAsync(includeUsage: true);
+        _definitions = result.IsSuccess
+            ? result.Value!.OrderBy(d => d.SortOrder).ThenBy(d => d.Name).ToList()
+            : [];
+        if (!result.IsSuccess)
+            Snackbar.Add(result.Error ?? "Failed to load properties.", Severity.Error);
+        _loading = false;
+    }
+
+    private async Task CreateAsync()
+    {
+        var name = _newName.Trim();
+        if (name.Length == 0) return;
+        _creating = true;
+        var result = await PropertyService.CreateDefinitionAsync(new CreatePropertyDefinitionRequest(name, _newType));
+        _creating = false;
+        if (result.IsSuccess)
+        {
+            _newName = string.Empty;
+            _newType = PropertyType.Text;
+            await ReloadAsync();
+        }
+        else
+        {
+            Snackbar.Add(result.Error ?? "Failed to create the property.", Severity.Error);
+        }
+    }
+
+    private async Task EditAsync(PropertyDefinition def)
+    {
+        var parameters = new DialogParameters<PropertyEditDialog> { { x => x.Definition, def } };
+        var dialog = await DialogService.ShowAsync<PropertyEditDialog>($"Edit '{def.Name}'", parameters);
+        var result = await dialog.Result;
+        if (result is not null && !result.Canceled)
+            await ReloadAsync();
+    }
+
+    private async Task ManageOptionsAsync(PropertyDefinition def)
+    {
+        var parameters = new DialogParameters<PropertyOptionsDialog> { { x => x.Definition, def } };
+        var dialog = await DialogService.ShowAsync<PropertyOptionsDialog>($"Options — {def.Name}", parameters);
+        var result = await dialog.Result;
+        if (result is not null && !result.Canceled && result.Data is true)
+            await ReloadAsync();
+    }
+
+    private async Task DeleteAsync(PropertyDefinition def)
+    {
+        var count = def.ValueCount ?? 0;
+        var confirmed = await Confirm.ConfirmAsync(
+            "Delete property",
+            $"This will remove '{def.Name}' and its values from {count} note(s), including archived and recycle-bin notes. This cannot be undone.",
+            "Delete");
+        if (!confirmed) return;
+
+        var result = await PropertyService.DeleteDefinitionAsync(def.Id);
+        if (result.IsSuccess)
+            await ReloadAsync();
+        else
+            Snackbar.Add(result.Error ?? "Failed to delete the property.", Severity.Error);
+    }
+
+    private async Task MoveAsync(PropertyDefinition def, int delta)
+    {
+        var index = _definitions.IndexOf(def);
+        var target = index + delta;
+        if (target < 0 || target >= _definitions.Count) return;
+        var other = _definitions[target];
+
+        var a = await PropertyService.UpdateDefinitionAsync(
+            def.Id, new UpdatePropertyDefinitionRequest(def.Name, def.Type, other.SortOrder));
+        var b = await PropertyService.UpdateDefinitionAsync(
+            other.Id, new UpdatePropertyDefinitionRequest(other.Name, other.Type, def.SortOrder));
+        if (a.IsSuccess && b.IsSuccess)
+            await ReloadAsync();
+        else
+            Snackbar.Add("Failed to reorder properties.", Severity.Error);
+    }
+}

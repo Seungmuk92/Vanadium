@@ -1,0 +1,154 @@
+@* One property value control, switched on the definition type (issue #343, §9.2). Purely
+   presentational: it seeds its controls from Value and raises OnCommit with a request the parent
+   (NotePropertyPanel) persists. No HTTP here. *@
+@using Vanadium.Note.Web.Models
+
+@switch (Definition.Type)
+{
+    case PropertyType.Text:
+        <MudTextField T="string" @bind-Value="_text" Disabled="ReadOnly" Immediate="false"
+                      Placeholder="Empty" Variant="Variant.Text" Margin="Margin.Dense"
+                      OnBlur="CommitText" OnKeyDown="OnTextKeyDown" Class="property-value-control" />
+        break;
+
+    case PropertyType.Number:
+        <MudNumericField T="double?" @bind-Value="_number" Disabled="ReadOnly" Immediate="false"
+                         Placeholder="Empty" Variant="Variant.Text" Margin="Margin.Dense"
+                         OnBlur="CommitNumber" Class="property-value-control" />
+        break;
+
+    case PropertyType.Date:
+        <MudDatePicker Date="_date" DateChanged="OnDateChanged" Disabled="ReadOnly"
+                       DateFormat="yyyy-MM-dd" Placeholder="Empty" Variant="Variant.Text"
+                       Margin="Margin.Dense" Class="property-value-control" />
+        break;
+
+    case PropertyType.Checkbox:
+        <MudCheckBox T="bool" Value="_bool" ValueChanged="OnBoolChanged" Disabled="ReadOnly"
+                     Dense="true" Color="Color.Primary" />
+        break;
+
+    case PropertyType.Select:
+        <MudSelect T="Guid?" Value="_option" ValueChanged="OnOptionChanged" Disabled="ReadOnly"
+                   Clearable="true" Dense="true" Variant="Variant.Text" Margin="Margin.Dense"
+                   Placeholder="Empty" Class="property-value-control">
+            @foreach (var opt in OrderedOptions)
+            {
+                <MudSelectItem T="Guid?" Value="@opt.Id">@opt.Name</MudSelectItem>
+            }
+        </MudSelect>
+        break;
+
+    case PropertyType.MultiSelect:
+        <MudSelect T="Guid" SelectedValues="_options" SelectedValuesChanged="OnOptionsChanged"
+                   MultiSelection="true" Disabled="ReadOnly" Dense="true" Variant="Variant.Text"
+                   Margin="Margin.Dense" Placeholder="Empty" Class="property-value-control"
+                   MultiSelectionTextFunc="@(_ => MultiSelectionText())">
+            @foreach (var opt in OrderedOptions)
+            {
+                <MudSelectItem T="Guid" Value="@opt.Id">@opt.Name</MudSelectItem>
+            }
+        </MudSelect>
+        break;
+}
+
+@code {
+    [Parameter, EditorRequired] public PropertyDefinition Definition { get; set; } = null!;
+    [Parameter] public NotePropertyValue? Value { get; set; }
+    [Parameter] public bool ReadOnly { get; set; }
+
+    /// <summary>Raised when the control commits a change; the parent persists it.</summary>
+    [Parameter] public EventCallback<SetNotePropertyValueRequest> OnCommit { get; set; }
+
+    private string? _text;
+    private double? _number;
+    private DateTime? _date;
+    private bool _bool;
+    private Guid? _option;
+    private IReadOnlyCollection<Guid> _options = [];
+
+    private IEnumerable<PropertyOption> OrderedOptions =>
+        Definition.Options.OrderBy(o => o.SortOrder).ThenBy(o => o.Name);
+
+    protected override void OnParametersSet()
+    {
+        _text = Value?.TextValue;
+        _number = Value?.NumberValue;
+        _date = Value?.DateValue?.ToDateTime(TimeOnly.MinValue);
+        _bool = Value?.BoolValue ?? false;
+        _option = Value?.OptionId;
+        _options = Value?.OptionIds is { } ids ? ids.ToHashSet() : [];
+    }
+
+    private async Task CommitText()
+    {
+        var trimmed = _text?.Trim();
+        // An empty text box means "clear"; the parent maps that to a DELETE.
+        if (string.IsNullOrEmpty(trimmed))
+        {
+            if (Value?.TextValue is not null)
+                await OnCommit.InvokeAsync(new SetNotePropertyValueRequest());
+            return;
+        }
+        if (trimmed == Value?.TextValue) return;
+        await OnCommit.InvokeAsync(new SetNotePropertyValueRequest { TextValue = trimmed });
+    }
+
+    private Task OnTextKeyDown(KeyboardEventArgs e) =>
+        e.Key == "Enter" ? CommitText() : Task.CompletedTask;
+
+    private async Task CommitNumber()
+    {
+        if (_number is null)
+        {
+            if (Value?.NumberValue is not null)
+                await OnCommit.InvokeAsync(new SetNotePropertyValueRequest());
+            return;
+        }
+        if (_number == Value?.NumberValue) return;
+        await OnCommit.InvokeAsync(new SetNotePropertyValueRequest { NumberValue = _number });
+    }
+
+    private async Task OnDateChanged(DateTime? date)
+    {
+        _date = date;
+        if (date is null)
+        {
+            await OnCommit.InvokeAsync(new SetNotePropertyValueRequest());
+            return;
+        }
+        await OnCommit.InvokeAsync(new SetNotePropertyValueRequest
+        {
+            DateValue = DateOnly.FromDateTime(date.Value)
+        });
+    }
+
+    private async Task OnBoolChanged(bool value)
+    {
+        _bool = value;
+        // false normalizes to a clear on the server (INV-P1); we still send it via the value endpoint.
+        await OnCommit.InvokeAsync(new SetNotePropertyValueRequest { BoolValue = value });
+    }
+
+    private async Task OnOptionChanged(Guid? option)
+    {
+        _option = option;
+        await OnCommit.InvokeAsync(option is null
+            ? new SetNotePropertyValueRequest()
+            : new SetNotePropertyValueRequest { OptionId = option });
+    }
+
+    private async Task OnOptionsChanged(IReadOnlyCollection<Guid> options)
+    {
+        _options = options.ToHashSet();
+        await OnCommit.InvokeAsync(new SetNotePropertyValueRequest { OptionIds = _options.ToList() });
+    }
+
+    private string MultiSelectionText()
+    {
+        var names = _options
+            .Select(id => Definition.Options.FirstOrDefault(o => o.Id == id)?.Name)
+            .Where(n => n is not null);
+        return string.Join(", ", names);
+    }
+}

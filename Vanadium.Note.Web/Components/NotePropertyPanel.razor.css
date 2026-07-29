@@ -1,0 +1,57 @@
+.property-panel {
+    margin: 0.25rem 0 0.75rem;
+    border-top: 1px solid var(--mud-palette-lines-default, rgba(0,0,0,0.12));
+    border-bottom: 1px solid var(--mud-palette-lines-default, rgba(0,0,0,0.12));
+    padding: 0.25rem 0;
+}
+
+.property-panel-header {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    cursor: pointer;
+    padding: 0.25rem 0.25rem;
+    user-select: none;
+}
+
+.property-panel-title {
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--mud-palette-text-secondary, #666);
+}
+
+.property-panel-saving {
+    font-size: 0.75rem;
+    color: var(--mud-palette-text-secondary, #999);
+    margin-left: auto;
+}
+
+.property-panel-body {
+    padding: 0.25rem 0.25rem 0.5rem;
+}
+
+.property-panel-empty {
+    font-size: 0.85rem;
+    color: var(--mud-palette-text-secondary, #999);
+    padding: 0.25rem 0;
+}
+
+.property-row {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.15rem 0;
+}
+
+.property-row-name {
+    min-width: 120px;
+    max-width: 160px;
+    font-size: 0.85rem;
+    color: var(--mud-palette-text-secondary, #666);
+    flex-shrink: 0;
+}
+
+.property-row-value {
+    flex-grow: 1;
+    min-width: 0;
+}
