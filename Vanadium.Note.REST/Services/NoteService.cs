@@ -1,3 +1,4 @@
+using System.Globalization;
 using Microsoft.EntityFrameworkCore;
 using Vanadium.Note.REST.Data;
 using Vanadium.Note.REST.Models;
@@ -26,6 +27,7 @@ public class NoteService(
         string sortBy,
         string sortDir,
         Guid[]? labelIds,
+        IReadOnlyList<PropertyFilter>? propertyFilters = null,
         CancellationToken ct = default)
     {
         // When not searching, show active root notes only.
@@ -37,16 +39,25 @@ public class NoteService(
             ? allNotes.Where(n => n.ParentNoteId == null && n.ArchivedAt == null)
             : allNotes;
 
+        // Resolve + validate property filters and (non-search) property sort up front so a bad
+        // pf/sortBy fails fast with a 400 before any DB read (PropertyQueryException).
+        var resolvedFilters = await ResolveFiltersAsync(propertyFilters, ct);
+        var sortDefinition = rootOnly ? await ResolveSortDefinitionAsync(sortBy, ct) : null;
+
         // Lean query for COUNT — no joins to label/category tables
-        var countQuery = ApplyFilters(baseNotes, search, labelIds);
+        var countQuery = ApplyPropertyFilters(ApplyFilters(baseNotes, search, labelIds), resolvedFilters);
         var totalCount = await countQuery.CountAsync(ct);
 
         // Full query for data — projects to NoteSummary to avoid fetching large Content column
-        var baseDataQuery = ApplyFilters(baseNotes, search, labelIds);
+        var baseDataQuery = ApplyPropertyFilters(ApplyFilters(baseNotes, search, labelIds), resolvedFilters);
 
-        var orderedQuery = !string.IsNullOrWhiteSpace(search)
-            ? baseDataQuery.OrderByDescending(n => n.UpdatedAt)
-            : (sortBy.ToLowerInvariant(), sortDir.ToLowerInvariant()) switch
+        IQueryable<NoteItem> orderedQuery;
+        if (!string.IsNullOrWhiteSpace(search))
+            orderedQuery = baseDataQuery.OrderByDescending(n => n.UpdatedAt);
+        else if (sortDefinition is not null)
+            orderedQuery = ApplyPropertySort(baseDataQuery, sortDefinition, sortDir);
+        else
+            orderedQuery = (sortBy.ToLowerInvariant(), sortDir.ToLowerInvariant()) switch
             {
                 ("title", "asc")  => baseDataQuery.OrderBy(n => n.Title),
                 ("title", "desc") => baseDataQuery.OrderByDescending(n => n.Title),
@@ -70,6 +81,19 @@ public class NoteService(
                     Name = nl.Label.Name,
                     CategoryId = nl.Label.CategoryId,
                     CategoryName = nl.Label.Category == null ? null : nl.Label.Category.Name
+                }).ToList(),
+                Properties = n.PropertyValues.Select(v => new PropertyValueProjection
+                {
+                    DefinitionId = v.DefinitionId,
+                    Name = v.Definition.Name,
+                    Type = v.Definition.Type,
+                    SortOrder = v.Definition.SortOrder,
+                    TextValue = v.TextValue,
+                    NumberValue = v.NumberValue,
+                    DateValue = v.DateValue,
+                    BoolValue = v.BoolValue,
+                    OptionId = v.SelectedOptionId,
+                    OptionIds = v.SelectedOptions.Select(s => s.OptionId).ToList()
                 }).ToList()
             })
             .ToListAsync(ct);
@@ -104,7 +128,8 @@ public class NoteService(
                 ParentTitle = n.ParentNoteId.HasValue ? parentTitles.GetValueOrDefault(n.ParentNoteId.Value) : null,
                 ChildCount = childCounts.GetValueOrDefault(n.Id),
                 IsArchived = n.IsArchived,
-                Labels = OrderLabelsForDisplay(n.Labels).ToList()
+                Labels = OrderLabelsForDisplay(n.Labels).ToList(),
+                Properties = ToValueDtos(n.Properties)
             }).ToList(),
             TotalCount = totalCount,
             Page = page,
@@ -112,7 +137,10 @@ public class NoteService(
         };
     }
 
-    public async Task<List<NoteSummary>> GetAllSummaries(Guid[]? labelIds = null, CancellationToken ct = default)
+    public async Task<List<NoteSummary>> GetAllSummaries(
+        Guid[]? labelIds = null,
+        IReadOnlyList<PropertyFilter>? propertyFilters = null,
+        CancellationToken ct = default)
     {
         // The board never shows archived notes.
         var query = db.Notes.Where(n => n.ArchivedAt == null);
@@ -120,6 +148,10 @@ public class NoteService(
         // OR logic: notes that have ANY of the specified labels
         if (labelIds is { Length: > 0 })
             query = query.Where(n => n.NoteLabels.Any(nl => labelIds.Contains(nl.LabelId)));
+
+        // AND semantics across pf entries (documented asymmetry with labelIds' OR on this endpoint).
+        var resolvedFilters = await ResolveFiltersAsync(propertyFilters, ct);
+        query = ApplyPropertyFilters(query, resolvedFilters);
 
         var summaries = await query
             .OrderByDescending(n => n.UpdatedAt)
@@ -135,6 +167,19 @@ public class NoteService(
                     Name = nl.Label.Name,
                     CategoryId = nl.Label.CategoryId,
                     CategoryName = nl.Label.Category == null ? null : nl.Label.Category.Name
+                }).ToList(),
+                Properties = n.PropertyValues.Select(v => new PropertyValueProjection
+                {
+                    DefinitionId = v.DefinitionId,
+                    Name = v.Definition.Name,
+                    Type = v.Definition.Type,
+                    SortOrder = v.Definition.SortOrder,
+                    TextValue = v.TextValue,
+                    NumberValue = v.NumberValue,
+                    DateValue = v.DateValue,
+                    BoolValue = v.BoolValue,
+                    OptionId = v.SelectedOptionId,
+                    OptionIds = v.SelectedOptions.Select(s => s.OptionId).ToList()
                 }).ToList()
             })
             .ToListAsync(ct);
@@ -149,7 +194,8 @@ public class NoteService(
             UpdatedAt = n.UpdatedAt,
             ParentNoteId = n.ParentNoteId,
             ChildCount = childCounts.GetValueOrDefault(n.Id),
-            Labels = OrderLabelsForDisplay(n.Labels).ToList()
+            Labels = OrderLabelsForDisplay(n.Labels).ToList(),
+            Properties = ToValueDtos(n.Properties)
         }).ToList();
     }
 
@@ -194,11 +240,16 @@ public class NoteService(
             .Include(n => n.NoteLabels)
             .ThenInclude(nl => nl.Label)
             .ThenInclude(l => l.Category)
+            .Include(n => n.PropertyValues)
+            .ThenInclude(v => v.Definition)
+            .Include(n => n.PropertyValues)
+            .ThenInclude(v => v.SelectedOptions)
             .FirstOrDefaultAsync(n => n.Id == id, ct);
 
         if (note is null) return null;
 
         PopulateLabels(note);
+        PopulateProperties(note);
         note.ChildCount = await db.Notes.CountAsync(n => n.ParentNoteId == id, ct);
 
         if (note.ParentNoteId.HasValue)
@@ -658,4 +709,330 @@ public class NoteService(
             .OrderBy(l => l.CategoryId.HasValue ? 0 : 1)
             .ThenBy(l => l.CategoryName)
             .ThenBy(l => l.Name);
+
+    // ── Note Properties (issue #343) ─────────────────────────────────────────────
+
+    /// <summary>Thrown when a <c>pf</c> filter or a <c>sortBy=prop:</c> value is malformed, references
+    /// an unknown definition, or mismatches its type. Mapped to 400 by the controller.</summary>
+    public class PropertyQueryException(string message) : Exception(message);
+
+    /// <summary>In-memory shape projected out of EF so property DTOs can be ordered by definition
+    /// SortOrder without relying on ORDER BY translation inside a collection subquery.</summary>
+    private sealed class PropertyValueProjection
+    {
+        public Guid DefinitionId { get; init; }
+        public string Name { get; init; } = string.Empty;
+        public PropertyType Type { get; init; }
+        public int SortOrder { get; init; }
+        public string? TextValue { get; init; }
+        public double? NumberValue { get; init; }
+        public DateOnly? DateValue { get; init; }
+        public bool? BoolValue { get; init; }
+        public Guid? OptionId { get; init; }
+        public List<Guid> OptionIds { get; init; } = [];
+    }
+
+    private static List<NotePropertyValueDto> ToValueDtos(IEnumerable<PropertyValueProjection> values) =>
+        values
+            .OrderBy(v => v.SortOrder)
+            .Select(v => new NotePropertyValueDto
+            {
+                DefinitionId = v.DefinitionId,
+                Name = v.Name,
+                Type = v.Type,
+                TextValue = v.TextValue,
+                NumberValue = v.NumberValue,
+                DateValue = v.DateValue,
+                BoolValue = v.BoolValue,
+                OptionId = v.OptionId,
+                OptionIds = v.OptionIds
+            })
+            .ToList();
+
+    private static void PopulateProperties(NoteItem note) =>
+        note.Properties = note.PropertyValues
+            .OrderBy(v => v.Definition.SortOrder)
+            .Select(v => new NotePropertyValueDto
+            {
+                DefinitionId = v.DefinitionId,
+                Name = v.Definition.Name,
+                Type = v.Definition.Type,
+                TextValue = v.TextValue,
+                NumberValue = v.NumberValue,
+                DateValue = v.DateValue,
+                BoolValue = v.BoolValue,
+                OptionId = v.SelectedOptionId,
+                OptionIds = v.SelectedOptions.Select(s => s.OptionId).ToList()
+            })
+            .ToList();
+
+    // ── Property filtering (§7.3) ────────────────────────────────────────────────
+
+    /// <summary>Resolved + validated filter carrying the parsed typed value(s).</summary>
+    private sealed class ResolvedFilter
+    {
+        public required PropertyDefinition Definition { get; init; }
+        public required PropertyFilterOp Op { get; init; }
+        public string? Text { get; init; }
+        public double Number { get; init; }
+        public DateOnly Date { get; init; }
+        public bool Bool { get; init; }
+        public Guid Option { get; init; }
+        public List<Guid> Options { get; init; } = [];
+    }
+
+    private async Task<List<ResolvedFilter>> ResolveFiltersAsync(
+        IReadOnlyList<PropertyFilter>? filters, CancellationToken ct)
+    {
+        if (filters is null || filters.Count == 0) return [];
+        if (filters.Count > 20)
+            throw new PropertyQueryException("Too many property filters (maximum 20).");
+
+        var ids = filters.Select(f => f.DefinitionId).Distinct().ToList();
+        var definitions = await db.PropertyDefinitions
+            .Include(d => d.Options)
+            .Where(d => ids.Contains(d.Id))
+            .ToDictionaryAsync(d => d.Id, ct);
+
+        var resolved = new List<ResolvedFilter>(filters.Count);
+        foreach (var f in filters)
+        {
+            if (!definitions.TryGetValue(f.DefinitionId, out var def))
+                throw new PropertyQueryException($"Unknown property definition '{f.DefinitionId}'.");
+            resolved.Add(ResolveFilter(def, f));
+        }
+        return resolved;
+    }
+
+    private static ResolvedFilter ResolveFilter(PropertyDefinition def, PropertyFilter f)
+    {
+        // empty / notempty are valid for every type except Checkbox (two-state by design).
+        if (f.Op is PropertyFilterOp.Empty or PropertyFilterOp.NotEmpty)
+        {
+            if (def.Type == PropertyType.Checkbox)
+                throw new PropertyQueryException("empty/notempty is not valid for a Checkbox property.");
+            return new ResolvedFilter { Definition = def, Op = f.Op };
+        }
+
+        string RawValue()
+        {
+            if (string.IsNullOrEmpty(f.RawValue))
+                throw new PropertyQueryException($"Operator '{f.Op}' requires a value.");
+            return f.RawValue;
+        }
+
+        List<Guid> ParseOptionList()
+        {
+            var ids = RawValue().Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            var parsed = new List<Guid>(ids.Length);
+            foreach (var s in ids)
+            {
+                if (!Guid.TryParse(s, out var g))
+                    throw new PropertyQueryException($"'{s}' is not a valid option id.");
+                parsed.Add(g);
+            }
+            if (parsed.Count == 0)
+                throw new PropertyQueryException("anyof requires at least one option id.");
+            EnsureOptionsBelong(def, parsed);
+            return parsed;
+        }
+
+        Guid ParseOption()
+        {
+            if (!Guid.TryParse(RawValue(), out var g))
+                throw new PropertyQueryException($"'{f.RawValue}' is not a valid option id.");
+            EnsureOptionsBelong(def, [g]);
+            return g;
+        }
+
+        switch (def.Type)
+        {
+            case PropertyType.Text:
+                RequireOp(def, f.Op, PropertyFilterOp.Eq, PropertyFilterOp.Ne);
+                var text = RawValue();
+                if (text.Length > PropertyService.MaxTextValueLength)
+                    throw new PropertyQueryException($"Text filter value exceeds {PropertyService.MaxTextValueLength} characters.");
+                return new ResolvedFilter { Definition = def, Op = f.Op, Text = text };
+
+            case PropertyType.Number:
+                RequireOp(def, f.Op, PropertyFilterOp.Eq, PropertyFilterOp.Ne, PropertyFilterOp.Lt,
+                    PropertyFilterOp.Lte, PropertyFilterOp.Gt, PropertyFilterOp.Gte);
+                if (!double.TryParse(RawValue(), NumberStyles.Float, CultureInfo.InvariantCulture, out var num)
+                    || !double.IsFinite(num))
+                    throw new PropertyQueryException($"'{f.RawValue}' is not a valid number.");
+                return new ResolvedFilter { Definition = def, Op = f.Op, Number = num };
+
+            case PropertyType.Date:
+                RequireOp(def, f.Op, PropertyFilterOp.Eq, PropertyFilterOp.Ne, PropertyFilterOp.Lt,
+                    PropertyFilterOp.Lte, PropertyFilterOp.Gt, PropertyFilterOp.Gte);
+                if (!DateOnly.TryParseExact(RawValue(), "yyyy-MM-dd", CultureInfo.InvariantCulture,
+                        DateTimeStyles.None, out var date))
+                    throw new PropertyQueryException($"'{f.RawValue}' is not a valid date (expected yyyy-MM-dd).");
+                return new ResolvedFilter { Definition = def, Op = f.Op, Date = date };
+
+            case PropertyType.Checkbox:
+                RequireOp(def, f.Op, PropertyFilterOp.Eq);
+                var raw = RawValue();
+                var b = raw switch
+                {
+                    "true" => true,
+                    "false" => false,
+                    _ => throw new PropertyQueryException("Checkbox filter value must be 'true' or 'false'.")
+                };
+                return new ResolvedFilter { Definition = def, Op = f.Op, Bool = b };
+
+            case PropertyType.Select:
+                if (f.Op == PropertyFilterOp.AnyOf)
+                    return new ResolvedFilter { Definition = def, Op = f.Op, Options = ParseOptionList() };
+                RequireOp(def, f.Op, PropertyFilterOp.Eq, PropertyFilterOp.Ne, PropertyFilterOp.AnyOf);
+                return new ResolvedFilter { Definition = def, Op = f.Op, Option = ParseOption() };
+
+            case PropertyType.MultiSelect:
+                if (f.Op == PropertyFilterOp.AnyOf)
+                    return new ResolvedFilter { Definition = def, Op = f.Op, Options = ParseOptionList() };
+                RequireOp(def, f.Op, PropertyFilterOp.Eq, PropertyFilterOp.AnyOf);
+                return new ResolvedFilter { Definition = def, Op = f.Op, Option = ParseOption() };
+
+            default:
+                throw new PropertyQueryException($"Unknown property type '{(int)def.Type}'.");
+        }
+    }
+
+    private static void RequireOp(PropertyDefinition def, PropertyFilterOp op, params PropertyFilterOp[] allowed)
+    {
+        if (!allowed.Contains(op))
+            throw new PropertyQueryException($"Operator '{op}' is not valid for a {def.Type} property.");
+    }
+
+    private static void EnsureOptionsBelong(PropertyDefinition def, IReadOnlyCollection<Guid> optionIds)
+    {
+        var valid = def.Options.Select(o => o.Id).ToHashSet();
+        if (!optionIds.All(valid.Contains))
+            throw new PropertyQueryException("One or more options do not belong to this property.");
+    }
+
+    private static IQueryable<NoteItem> ApplyPropertyFilters(
+        IQueryable<NoteItem> query, IReadOnlyList<ResolvedFilter> filters)
+    {
+        foreach (var f in filters)
+        {
+            var d = f.Definition.Id;
+            query = (f.Definition.Type, f.Op) switch
+            {
+                (_, PropertyFilterOp.Empty) =>
+                    query.Where(n => !n.PropertyValues.Any(v => v.DefinitionId == d)),
+                (_, PropertyFilterOp.NotEmpty) =>
+                    query.Where(n => n.PropertyValues.Any(v => v.DefinitionId == d)),
+
+                (PropertyType.Text, PropertyFilterOp.Eq) =>
+                    query.Where(n => n.PropertyValues.Any(v => v.DefinitionId == d && v.TextValue == f.Text)),
+                (PropertyType.Text, PropertyFilterOp.Ne) =>
+                    query.Where(n => n.PropertyValues.Any(v => v.DefinitionId == d && v.TextValue != f.Text)),
+
+                (PropertyType.Number, PropertyFilterOp.Eq) =>
+                    query.Where(n => n.PropertyValues.Any(v => v.DefinitionId == d && v.NumberValue == f.Number)),
+                (PropertyType.Number, PropertyFilterOp.Ne) =>
+                    query.Where(n => n.PropertyValues.Any(v => v.DefinitionId == d && v.NumberValue != f.Number)),
+                (PropertyType.Number, PropertyFilterOp.Lt) =>
+                    query.Where(n => n.PropertyValues.Any(v => v.DefinitionId == d && v.NumberValue < f.Number)),
+                (PropertyType.Number, PropertyFilterOp.Lte) =>
+                    query.Where(n => n.PropertyValues.Any(v => v.DefinitionId == d && v.NumberValue <= f.Number)),
+                (PropertyType.Number, PropertyFilterOp.Gt) =>
+                    query.Where(n => n.PropertyValues.Any(v => v.DefinitionId == d && v.NumberValue > f.Number)),
+                (PropertyType.Number, PropertyFilterOp.Gte) =>
+                    query.Where(n => n.PropertyValues.Any(v => v.DefinitionId == d && v.NumberValue >= f.Number)),
+
+                (PropertyType.Date, PropertyFilterOp.Eq) =>
+                    query.Where(n => n.PropertyValues.Any(v => v.DefinitionId == d && v.DateValue == f.Date)),
+                (PropertyType.Date, PropertyFilterOp.Ne) =>
+                    query.Where(n => n.PropertyValues.Any(v => v.DefinitionId == d && v.DateValue != f.Date)),
+                (PropertyType.Date, PropertyFilterOp.Lt) =>
+                    query.Where(n => n.PropertyValues.Any(v => v.DefinitionId == d && v.DateValue < f.Date)),
+                (PropertyType.Date, PropertyFilterOp.Lte) =>
+                    query.Where(n => n.PropertyValues.Any(v => v.DefinitionId == d && v.DateValue <= f.Date)),
+                (PropertyType.Date, PropertyFilterOp.Gt) =>
+                    query.Where(n => n.PropertyValues.Any(v => v.DefinitionId == d && v.DateValue > f.Date)),
+                (PropertyType.Date, PropertyFilterOp.Gte) =>
+                    query.Where(n => n.PropertyValues.Any(v => v.DefinitionId == d && v.DateValue >= f.Date)),
+
+                // Checkbox eq:true → a true row exists; eq:false → no true row (missing = unchecked).
+                (PropertyType.Checkbox, PropertyFilterOp.Eq) when f.Bool =>
+                    query.Where(n => n.PropertyValues.Any(v => v.DefinitionId == d && v.BoolValue == true)),
+                (PropertyType.Checkbox, PropertyFilterOp.Eq) =>
+                    query.Where(n => !n.PropertyValues.Any(v => v.DefinitionId == d && v.BoolValue == true)),
+
+                (PropertyType.Select, PropertyFilterOp.Eq) =>
+                    query.Where(n => n.PropertyValues.Any(v => v.DefinitionId == d && v.SelectedOptionId == f.Option)),
+                (PropertyType.Select, PropertyFilterOp.Ne) =>
+                    query.Where(n => n.PropertyValues.Any(v => v.DefinitionId == d && v.SelectedOptionId != f.Option)),
+                (PropertyType.Select, PropertyFilterOp.AnyOf) =>
+                    query.Where(n => n.PropertyValues.Any(v =>
+                        v.DefinitionId == d && v.SelectedOptionId != null && f.Options.Contains(v.SelectedOptionId.Value))),
+
+                (PropertyType.MultiSelect, PropertyFilterOp.Eq) =>
+                    query.Where(n => n.PropertyValues.Any(v =>
+                        v.DefinitionId == d && v.SelectedOptions.Any(s => s.OptionId == f.Option))),
+                (PropertyType.MultiSelect, PropertyFilterOp.AnyOf) =>
+                    query.Where(n => n.PropertyValues.Any(v =>
+                        v.DefinitionId == d && v.SelectedOptions.Any(s => f.Options.Contains(s.OptionId)))),
+
+                _ => throw new PropertyQueryException(
+                    $"Operator '{f.Op}' is not valid for a {f.Definition.Type} property.")
+            };
+        }
+        return query;
+    }
+
+    // ── Property sorting (§7.5) ──────────────────────────────────────────────────
+
+    private async Task<PropertyDefinition?> ResolveSortDefinitionAsync(string sortBy, CancellationToken ct)
+    {
+        const string prefix = "prop:";
+        if (string.IsNullOrEmpty(sortBy) || !sortBy.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+            return null;
+
+        var idText = sortBy[prefix.Length..];
+        if (!Guid.TryParse(idText, out var id))
+            throw new PropertyQueryException($"'{idText}' is not a valid property definition id.");
+
+        var def = await db.PropertyDefinitions.FirstOrDefaultAsync(d => d.Id == id, ct);
+        if (def is null)
+            throw new PropertyQueryException($"Unknown property definition '{id}'.");
+        if (def.Type == PropertyType.MultiSelect)
+            throw new PropertyQueryException("A MultiSelect property cannot be used for sorting.");
+        return def;
+    }
+
+    /// <summary>Orders notes by a property value with empties always last (independent of direction),
+    /// then by <c>UpdatedAt</c> desc as a stable tiebreak. A missing value row means empty (INV-P1),
+    /// so the presence key is simply "has a row for this definition".</summary>
+    private static IQueryable<NoteItem> ApplyPropertySort(
+        IQueryable<NoteItem> query, PropertyDefinition def, string sortDir)
+    {
+        var d = def.Id;
+        var asc = string.Equals(sortDir, "asc", StringComparison.OrdinalIgnoreCase);
+        var withPresence = query.OrderBy(n => n.PropertyValues.Any(v => v.DefinitionId == d) ? 0 : 1);
+
+        IOrderedQueryable<NoteItem> ordered = def.Type switch
+        {
+            PropertyType.Text => asc
+                ? withPresence.ThenBy(n => n.PropertyValues.Where(v => v.DefinitionId == d).Select(v => v.TextValue).FirstOrDefault())
+                : withPresence.ThenByDescending(n => n.PropertyValues.Where(v => v.DefinitionId == d).Select(v => v.TextValue).FirstOrDefault()),
+            PropertyType.Number => asc
+                ? withPresence.ThenBy(n => n.PropertyValues.Where(v => v.DefinitionId == d).Select(v => v.NumberValue).FirstOrDefault())
+                : withPresence.ThenByDescending(n => n.PropertyValues.Where(v => v.DefinitionId == d).Select(v => v.NumberValue).FirstOrDefault()),
+            PropertyType.Date => asc
+                ? withPresence.ThenBy(n => n.PropertyValues.Where(v => v.DefinitionId == d).Select(v => v.DateValue).FirstOrDefault())
+                : withPresence.ThenByDescending(n => n.PropertyValues.Where(v => v.DefinitionId == d).Select(v => v.DateValue).FirstOrDefault()),
+            PropertyType.Checkbox => asc
+                ? withPresence.ThenBy(n => n.PropertyValues.Where(v => v.DefinitionId == d).Select(v => v.BoolValue).FirstOrDefault())
+                : withPresence.ThenByDescending(n => n.PropertyValues.Where(v => v.DefinitionId == d).Select(v => v.BoolValue).FirstOrDefault()),
+            PropertyType.Select => asc
+                ? withPresence.ThenBy(n => n.PropertyValues.Where(v => v.DefinitionId == d).Select(v => (int?)v.SelectedOption!.SortOrder).FirstOrDefault())
+                : withPresence.ThenByDescending(n => n.PropertyValues.Where(v => v.DefinitionId == d).Select(v => (int?)v.SelectedOption!.SortOrder).FirstOrDefault()),
+            _ => withPresence
+        };
+
+        return ordered.ThenByDescending(n => n.UpdatedAt);
+    }
 }

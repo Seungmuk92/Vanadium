@@ -21,6 +21,7 @@ public class NotesController(NoteService noteService, LabelService labelService,
         [FromQuery] string sortBy = "date",
         [FromQuery] string sortDir = "desc",
         [FromQuery] Guid[]? labelIds = null,
+        [FromQuery] string[]? pf = null,
         [FromQuery] bool includeLabels = false,
         CancellationToken ct = default)
     {
@@ -28,10 +29,19 @@ public class NotesController(NoteService noteService, LabelService labelService,
         pageSize = Math.Clamp(pageSize, 1, 200);
         if (labelIds is { Length: > 50 })
             return Problem(detail: "Too many label IDs (maximum 50).", statusCode: StatusCodes.Status400BadRequest);
-        var result = await noteService.GetPaged(page, pageSize, search, sortBy, sortDir, labelIds, ct);
-        if (includeLabels)
-            result.Labels = await labelService.GetAllLabelsAsync();
-        return Ok(result);
+        try
+        {
+            var propertyFilters = ParsePropertyFilters(pf);
+            var result = await noteService.GetPaged(page, pageSize, search, sortBy, sortDir, labelIds, propertyFilters, ct);
+            if (includeLabels)
+                result.Labels = await labelService.GetAllLabelsAsync();
+            return Ok(result);
+        }
+        catch (NoteService.PropertyQueryException ex)
+        {
+            logger.LogWarning("Rejected note list query — invalid property filter/sort: {Message}", ex.Message);
+            return Problem(detail: ex.Message, statusCode: StatusCodes.Status400BadRequest);
+        }
     }
 
     [HttpGet("mention-search")]
@@ -61,11 +71,55 @@ public class NotesController(NoteService noteService, LabelService labelService,
     [HttpGet("summaries")]
     public async Task<ActionResult<List<NoteSummary>>> GetSummaries(
         [FromQuery] Guid[]? labelIds = null,
+        [FromQuery] string[]? pf = null,
         CancellationToken ct = default)
     {
         if (labelIds is { Length: > 50 })
             return Problem(detail: "Too many label IDs (maximum 50).", statusCode: StatusCodes.Status400BadRequest);
-        return Ok(await noteService.GetAllSummaries(labelIds, ct));
+        try
+        {
+            var propertyFilters = ParsePropertyFilters(pf);
+            return Ok(await noteService.GetAllSummaries(labelIds, propertyFilters, ct));
+        }
+        catch (NoteService.PropertyQueryException ex)
+        {
+            logger.LogWarning("Rejected board summaries query — invalid property filter: {Message}", ex.Message);
+            return Problem(detail: ex.Message, statusCode: StatusCodes.Status400BadRequest);
+        }
+    }
+
+    /// <summary>Parses repeatable <c>pf={definitionId}:{op}[:{value}]</c> query entries (§6.3). The
+    /// value is split with a limit of 3 so a colon inside a Text value is preserved. Malformed
+    /// triplets / unknown operators throw <see cref="NoteService.PropertyQueryException"/> (→ 400);
+    /// definition/type/value validation happens in the service.</summary>
+    private static List<PropertyFilter>? ParsePropertyFilters(string[]? pf)
+    {
+        if (pf is null || pf.Length == 0) return null;
+        var filters = new List<PropertyFilter>(pf.Length);
+        foreach (var entry in pf)
+        {
+            var parts = entry.Split(':', 3);
+            if (parts.Length < 2)
+                throw new NoteService.PropertyQueryException($"Malformed property filter '{entry}'.");
+            if (!Guid.TryParse(parts[0], out var definitionId))
+                throw new NoteService.PropertyQueryException($"'{parts[0]}' is not a valid property definition id.");
+            var op = parts[1].ToLowerInvariant() switch
+            {
+                "eq" => PropertyFilterOp.Eq,
+                "ne" => PropertyFilterOp.Ne,
+                "lt" => PropertyFilterOp.Lt,
+                "lte" => PropertyFilterOp.Lte,
+                "gt" => PropertyFilterOp.Gt,
+                "gte" => PropertyFilterOp.Gte,
+                "empty" => PropertyFilterOp.Empty,
+                "notempty" => PropertyFilterOp.NotEmpty,
+                "anyof" => PropertyFilterOp.AnyOf,
+                _ => throw new NoteService.PropertyQueryException($"Unknown filter operator '{parts[1]}'.")
+            };
+            var value = parts.Length == 3 ? parts[2] : null;
+            filters.Add(new PropertyFilter(definitionId, op, value));
+        }
+        return filters;
     }
 
     [HttpGet("{id:guid}/children")]

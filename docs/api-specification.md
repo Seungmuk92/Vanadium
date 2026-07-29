@@ -141,13 +141,20 @@ Route prefix `/api/notes`. **Auth: Bearer (JWT or PAT)** for every endpoint.
 ### GET `/api/notes`
 
 - **Query:** `page` (default 1, min 1), `pageSize` (default 30, clamped 1–200),
-  `search` (≤200 chars), `sortBy` (default `date`), `sortDir` (default `desc`),
-  `labelIds` (Guid[], max 50), `includeLabels` (bool, default false).
+  `search` (≤200 chars), `sortBy` (default `date`; also `title` or `prop:{definitionId}`),
+  `sortDir` (default `desc`), `labelIds` (Guid[], max 50), `pf` (repeatable property filter,
+  max 20 — see [Property filter grammar](#property-filter-grammar-pf)), `includeLabels` (bool, default false).
 - **Response `200`:** `PagedResult<NoteSummary>` — `{ items: NoteSummary[], totalCount, page, pageSize, labels? }`.
   `labels` is populated only when `includeLabels=true`. Search results include archived notes
   (`NoteSummary.isArchived = true`); the non-search list excludes them.
-- **Status codes:** `200` · `400` more than 50 label IDs.
-- **`NoteSummary`:** `{ id, title, updatedAt, parentNoteId?, parentTitle?, childCount, isArchived, labels: LabelSummary[] }`.
+- **Sorting by a property** (`sortBy=prop:{definitionId}`) applies only to the non-search branch;
+  notes with an empty value always sort **after** notes with a value regardless of `sortDir`, with
+  `updatedAt` desc as tiebreak. `MultiSelect` and unknown definitions → `400`. Ignored during search.
+- **`pf` filters** apply in both the search and non-search branches, AND across entries, and combine
+  with `search`/`labelIds`.
+- **Status codes:** `200` · `400` more than 50 label IDs, malformed `pf`, or invalid `sortBy=prop:`.
+- **`NoteSummary`:** `{ id, title, updatedAt, parentNoteId?, parentTitle?, childCount, isArchived, labels: LabelSummary[], properties: NotePropertyValueDto[] }`.
+  `properties` holds the note's non-empty property values, ordered by definition sort order.
 
 ### GET `/api/notes/mention-search`
 
@@ -161,9 +168,10 @@ Route prefix `/api/notes`. **Auth: Bearer (JWT or PAT)** for every endpoint.
 
 ### GET `/api/notes/summaries`
 
-- **Query:** `labelIds` (Guid[], max 50).
+- **Query:** `labelIds` (Guid[], max 50, OR semantics), `pf` (repeatable property filter, max 20,
+  AND semantics — see [Property filter grammar](#property-filter-grammar-pf)).
 - **Response `200`:** `NoteSummary[]`. Excludes archived notes.
-- **Status codes:** `200` · `400` more than 50 label IDs.
+- **Status codes:** `200` · `400` more than 50 label IDs or malformed `pf`.
 
 ### GET `/api/notes/{id:guid}/children`
 
@@ -305,6 +313,107 @@ others in the same category).
 ### DELETE `/api/notes/{noteId:guid}/labels/{labelId:guid}`
 
 - **Status codes:** `204` · `404` note not found or label not assigned · `403` note is archived and read-only.
+
+---
+
+## Note properties — `PropertiesController`
+
+Notion-style typed metadata (issue #343). Property **definitions** are global (name + type + option
+list for Select kinds); notes carry only **values**. Six value types: `Text` (0), `Number` (1),
+`Select` (2), `MultiSelect` (3), `Date` (4), `Checkbox` (5). Values are **server-owned** — never read
+from the `POST/PUT /api/notes` payload; the value endpoints below are the only mutation path, and they
+do **not** bump `NoteItem.updatedAt`. All routes require Bearer auth.
+
+Caps (all `400` on the server, mirrored client-side): max **50** definitions, **100** options per
+definition, **500** chars for a `Text` value, **20** `pf` filters per request.
+
+| Method | Route | Notes |
+|---|---|---|
+| GET | `/api/properties?includeUsage=` | All definitions with options, ordered by sort order. `includeUsage=true` adds `valueCount` per definition and `noteCount` per option (counted across all notes incl. recycle-bin/archived). |
+| POST | `/api/properties` | Create a definition. |
+| PUT | `/api/properties/{id:guid}` | Update name / sort order / type. |
+| DELETE | `/api/properties/{id:guid}` | Delete a definition (cascades options + all value/selection rows). |
+| POST | `/api/properties/{id:guid}/options` | Add an option (Select/MultiSelect only). |
+| PUT | `/api/properties/{id:guid}/options/{optionId:guid}` | Rename / reorder an option. |
+| DELETE | `/api/properties/{id:guid}/options/{optionId:guid}` | Delete an option (cascades values/selections). |
+| PUT | `/api/notes/{noteId:guid}/properties/{definitionId:guid}` | Upsert one value. |
+| DELETE | `/api/notes/{noteId:guid}/properties/{definitionId:guid}` | Clear one value (idempotent). |
+
+### POST `/api/properties`
+
+- **Request body:** `CreatePropertyDefinitionRequest` — `{ "name": string (required, ≤100), "type": PropertyType }`.
+- **Response `201`:** `PropertyDefinitionDto`.
+- **Status codes:** `201` · `409` duplicate name (case-insensitive) · `400` over 50 definitions or invalid type.
+
+### PUT `/api/properties/{id:guid}`
+
+- **Request body:** `UpdatePropertyDefinitionRequest` — `{ "name": string (required, ≤100), "type": PropertyType, "sortOrder": int }`.
+- A **type change** is allowed only while the definition has **zero** values across all notes
+  (incl. recycle-bin/archived); otherwise `409` with the value count. Changing away from a Select kind
+  (with zero values) deletes its options.
+- **Status codes:** `200` · `404` not found · `409` duplicate name or type change with existing values · `400` invalid type/name.
+
+### DELETE `/api/properties/{id:guid}`
+
+- **Status codes:** `204` · `404` not found.
+
+### POST `/api/properties/{id:guid}/options`
+
+- **Request body:** `CreatePropertyOptionRequest` — `{ "name": string (required, ≤100) }`.
+- **Response `201`:** `PropertyOptionDto`.
+- **Status codes:** `201` · `404` definition not found · `409` duplicate option name · `400` non-Select definition or over 100 options.
+
+### PUT `/api/properties/{id:guid}/options/{optionId:guid}`
+
+- **Request body:** `UpdatePropertyOptionRequest` — `{ "name": string (required, ≤100), "sortOrder": int }`.
+- **Status codes:** `200` · `404` not found · `409` duplicate option name · `400` invalid name.
+
+### DELETE `/api/properties/{id:guid}/options/{optionId:guid}`
+
+- **Status codes:** `204` · `404` not found.
+
+### PUT `/api/notes/{noteId:guid}/properties/{definitionId:guid}`
+
+Upserts one value. Exactly the member matching the definition's type must be set; all others null.
+
+- **Request body:** `SetNotePropertyValueRequest` — `{ "textValue"?, "numberValue"?, "dateValue"? (yyyy-MM-dd), "boolValue"?, "optionId"? (Guid), "optionIds"? (Guid[]) }`.
+- **Normalization:** `boolValue=false` and an empty `optionIds` clear the value (a value row exists iff
+  the value is non-empty). A `Checkbox` row only ever stores `true`.
+- **Response `200`:** `NotePropertyValueDto` (empty members when the write cleared the value).
+- **Status codes:** `200` · `403` note is archived and read-only · `404` note (recycle-bin/unknown) or definition unknown · `400` type mismatch, empty text, non-finite number, or foreign option.
+
+### DELETE `/api/notes/{noteId:guid}/properties/{definitionId:guid}`
+
+- **Status codes:** `204` (idempotent — missing value row still `204`) · `403` note is archived · `404` note unknown/recycle-bin.
+
+### Property filter grammar (`pf`)
+
+Repeatable `GET /api/notes` / `GET /api/notes/summaries` query parameter, AND across entries, max 20:
+
+```
+pf={definitionId}:{op}[:{value}]
+```
+
+`value` is URL-encoded and omitted for `empty`/`notempty`; for `anyof` it is a comma-separated list of
+option GUIDs. Operators per type:
+
+| Type | Operators | Value | Notes |
+|---|---|---|---|
+| `Text` | `eq`, `ne`, `empty`, `notempty` | literal (≤500) | Exact, case-sensitive. `ne` matches only notes whose value exists and differs. |
+| `Number` | `eq`, `ne`, `lt`, `lte`, `gt`, `gte`, `empty`, `notempty` | invariant double | Two range entries express *between*. |
+| `Date` | `eq`, `ne`, `lt`, `lte`, `gt`, `gte`, `empty`, `notempty` | `yyyy-MM-dd` | |
+| `Checkbox` | `eq` | `true`/`false` | `eq:false` matches unchecked **and** never-set notes. `empty`/`notempty` → `400`. |
+| `Select` | `eq`, `ne`, `anyof`, `empty`, `notempty` | option GUID(s) | Options must belong to the definition. |
+| `MultiSelect` | `eq`, `anyof`, `empty`, `notempty` | option GUID(s) | `eq` = option is selected; `anyof` = any listed option selected. |
+
+Malformed triplets, unknown ops, op/type mismatches, unparsable values, unknown definitions, or foreign
+options → `400`.
+
+### DTO shapes
+
+- **`PropertyDefinitionDto`:** `{ id, name, type: PropertyType, sortOrder, options: PropertyOptionDto[], valueCount? }`.
+- **`PropertyOptionDto`:** `{ id, name, sortOrder, noteCount? }`.
+- **`NotePropertyValueDto`:** `{ definitionId, name, type: PropertyType, textValue?, numberValue?, dateValue?, boolValue?, optionId?, optionIds: Guid[] }`.
 
 ---
 
