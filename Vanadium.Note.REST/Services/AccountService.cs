@@ -47,6 +47,10 @@ public class AccountService(NoteDbContext db, ILogger<AccountService> logger)
             var labelsRemoved = await db.Labels.ExecuteDeleteAsync(ct);
             var categoriesRemoved = await db.LabelCategories.ExecuteDeleteAsync(ct);
 
+            // Property definitions cascade their options; note-value rows and their
+            // selection rows were already removed by the Notes delete above (NoteId FK cascade).
+            var propertyDefinitionsRemoved = await db.PropertyDefinitions.ExecuteDeleteAsync(ct);
+
             var tokensRemoved = await db.ApiTokens.ExecuteDeleteAsync(ct);
 
             var settingsRemoved = await db.UserSettings.ExecuteDeleteAsync(ct);
@@ -55,9 +59,11 @@ public class AccountService(NoteDbContext db, ILogger<AccountService> logger)
 
             logger.LogInformation(
                 "Purged all data: {Notes} note(s), {Labels} label(s), " +
-                "{Categories} category(ies), {Tokens} token(s), {Settings} settings row(s). " +
+                "{Categories} category(ies), {PropertyDefinitions} property definition(s), " +
+                "{Tokens} token(s), {Settings} settings row(s). " +
                 "Orphaned files/images will be reclaimed by the periodic cleanup job.",
-                notesRemoved, labelsRemoved, categoriesRemoved, tokensRemoved, settingsRemoved);
+                notesRemoved, labelsRemoved, categoriesRemoved, propertyDefinitionsRemoved,
+                tokensRemoved, settingsRemoved);
         });
 
         return true;
