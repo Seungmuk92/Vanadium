@@ -1,6 +1,8 @@
 @page "/"
 @attribute [Authorize]
+@using Vanadium.Note.Web.Components
 @inject NoteService NoteService
+@inject PropertyService PropertyService
 @inject SettingsService SettingsService
 @inject NavigationManager Nav
 @inject ConfirmService Confirm
@@ -125,6 +127,33 @@
         </div>
     }
 
+    @if (propertyDefinitions.Count > 0)
+    {
+        <div class="property-controls-bar">
+            <PropertyFilterBar Filters="propertyFilters" OnChanged="OnPropertyFiltersChanged" />
+            @if (SortableProperties.Any())
+            {
+                <MudMenu Dense="true" Class="property-sort-menu">
+                    <ActivatorContent>
+                        <MudButton Size="Size.Small" Variant="Variant.Text"
+                                   StartIcon="@Icons.Material.Filled.Sort"
+                                   EndIcon="@(sortPropertyId is not null ? (sortAscending ? Icons.Material.Filled.ArrowUpward : Icons.Material.Filled.ArrowDownward) : null)">
+                            @(sortPropertyId is { } sid
+                                ? $"Sort: {propertyDefinitions.FirstOrDefault(d => d.Id == sid)?.Name}"
+                                : "Sort by property")
+                        </MudButton>
+                    </ActivatorContent>
+                    <ChildContent>
+                        @foreach (var def in SortableProperties)
+                        {
+                            <MudMenuItem OnClick="() => SortByProperty(def.Id)">@def.Name</MudMenuItem>
+                        }
+                    </ChildContent>
+                </MudMenu>
+            }
+        </div>
+    }
+
     @if (isLoading && !notes.Any())
     {
         <p class="empty-message">Loading...</p>
@@ -220,6 +249,14 @@
                                     Archive
                                 </button>
                             }
+                            @{
+                                var sortChip = SortPropertyChip(note);
+                            }
+                            @if (!string.IsNullOrEmpty(sortChip))
+                            {
+                                var sortDef = propertyDefinitions.FirstOrDefault(d => d.Id == sortPropertyId);
+                                <span class="property-sort-chip" title="@sortDef?.Name">@sortDef?.Name: @sortChip</span>
+                            }
                         </div>
                         @if (note.Labels?.Any() == true)
                         {
@@ -261,6 +298,9 @@
 @code {
     private List<NoteSummary> notes = [];
     private List<Label> allLabels = [];
+    private List<PropertyDefinition> propertyDefinitions = [];
+    private readonly List<PropertyFilter> propertyFilters = [];
+    private Guid? sortPropertyId;
     private HashSet<Guid> selectedIds = [];
     private HashSet<Guid> activeFilters = [];
     private HashSet<Guid> expandedNoteIds = [];
@@ -296,15 +336,71 @@
 
     private string SortIcon(SortColumn col)
     {
-        if (currentSort != col) return "⇅";
+        if (sortPropertyId is not null || currentSort != col) return "⇅";
         return sortAscending ? "↑" : "↓";
     }
 
     protected override async Task OnInitializedAsync()
     {
         await ApplyUserSettings();
+        var defs = await PropertyService.GetDefinitionsAsync();
+        if (defs.IsSuccess)
+            propertyDefinitions = defs.Value!.OrderBy(d => d.SortOrder).ThenBy(d => d.Name).ToList();
         await LoadNotes(includeLabels: true);
         StartBackgroundRefresh();
+    }
+
+    // Sortable property types (MultiSelect is not sortable, matching the server).
+    private IEnumerable<PropertyDefinition> SortableProperties =>
+        propertyDefinitions.Where(d => d.Type != PropertyType.MultiSelect);
+
+    private string CurrentSortBy() =>
+        sortPropertyId is { } id ? $"prop:{id}" : (currentSort == SortColumn.Title ? "title" : "date");
+
+    private async Task OnPropertyFiltersChanged()
+    {
+        currentPage = 1;
+        selectedIds.Clear();
+        await LoadNotes();
+    }
+
+    // When a property sort is active, the row shows that property's value as a trailing chip
+    // (data already present in NoteSummary.Properties — no extra fetch).
+    private string? SortPropertyChip(NoteSummary note)
+    {
+        if (sortPropertyId is not { } id) return null;
+        var value = note.Properties.FirstOrDefault(p => p.DefinitionId == id);
+        if (value is null) return null;
+        var def = propertyDefinitions.FirstOrDefault(d => d.Id == id);
+        return FormatValue(def, value);
+    }
+
+    private static string FormatValue(PropertyDefinition? def, NotePropertyValue value) => value.Type switch
+    {
+        PropertyType.Text => value.TextValue ?? "",
+        PropertyType.Number => value.NumberValue?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "",
+        PropertyType.Date => value.DateValue?.ToString("yyyy-MM-dd") ?? "",
+        PropertyType.Checkbox => value.BoolValue == true ? "✓" : "",
+        PropertyType.Select => def?.Options.FirstOrDefault(o => o.Id == value.OptionId)?.Name ?? "",
+        PropertyType.MultiSelect => string.Join(", ",
+            value.OptionIds.Select(oid => def?.Options.FirstOrDefault(o => o.Id == oid)?.Name).Where(n => n is not null)),
+        _ => ""
+    };
+
+    private async Task SortByProperty(Guid definitionId)
+    {
+        if (sortPropertyId == definitionId)
+        {
+            sortAscending = !sortAscending;
+        }
+        else
+        {
+            sortPropertyId = definitionId;
+            sortAscending = true;
+        }
+        currentPage = 1;
+        selectedIds.Clear();
+        await LoadNotes();
     }
 
     // Seed the sort column/direction and page size from the user's saved settings so the
@@ -352,10 +448,11 @@
                     currentPage,
                     pageSize,
                     string.IsNullOrWhiteSpace(_searchText) ? null : _searchText,
-                    currentSort == SortColumn.Title ? "title" : "date",
+                    CurrentSortBy(),
                     sortAscending ? "asc" : "desc",
                     activeFilters.Count > 0 ? activeFilters : null,
                     includeLabels: includeLabels,
+                    propertyFilters: propertyFilters.Count > 0 ? propertyFilters : null,
                     cancellationToken: token);
 
                 if (!result.IsSuccess)
@@ -460,10 +557,11 @@
             currentPage,
             pageSize,
             string.IsNullOrWhiteSpace(_searchText) ? null : _searchText,
-            currentSort == SortColumn.Title ? "title" : "date",
+            CurrentSortBy(),
             sortAscending ? "asc" : "desc",
             activeFilters.Count > 0 ? activeFilters : null,
             includeLabels: false,
+            propertyFilters: propertyFilters.Count > 0 ? propertyFilters : null,
             cancellationToken: CancellationToken.None);
 
         if (isLoading || !result.IsSuccess || result.Value is null)
@@ -545,13 +643,14 @@
 
     private async Task SetSort(SortColumn col)
     {
-        if (currentSort == col)
+        if (sortPropertyId is null && currentSort == col)
             sortAscending = !sortAscending;
         else
         {
             currentSort = col;
             sortAscending = true;
         }
+        sortPropertyId = null;   // a column-header sort clears any active property sort
         currentPage = 1;
         selectedIds.Clear();
         await LoadNotes();
