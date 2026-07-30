@@ -85,4 +85,13 @@ public class NoteItem
 
     [JsonIgnore]
     public ICollection<NoteLabel> NoteLabels { get; set; } = [];
+
+    /// <summary>Read-model projection of the note's non-empty property values, ordered by
+    /// definition SortOrder. Populated like <see cref="Labels"/>; never persisted directly.
+    /// Server-owned (INV-P5): ignored on the create/update write path.</summary>
+    [NotMapped]
+    public List<NotePropertyValueDto> Properties { get; set; } = [];
+
+    [JsonIgnore]
+    public ICollection<NotePropertyValue> PropertyValues { get; set; } = [];
 }

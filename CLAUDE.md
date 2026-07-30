@@ -126,6 +126,19 @@ Labels have an optional `LabelCategory`. Within a category, labels are mutually 
 
 `NoteItem.Labels` (`[NotMapped]`) is populated from `NoteLabels` navigation property by `NoteService.PopulateLabels()` — it is never persisted directly.
 
+### Note properties
+
+Notion-style **typed metadata** (issue #343): global `PropertyDefinition`s (name + `PropertyType` + `SortOrder`, and for Select kinds an ordered `PropertyOption` list) plus per-note **values**. Six v1 types: `Text`, `Number`, `Select`, `MultiSelect`, `Date`, `Checkbox`. Managed by `PropertyService` + `PropertiesController`; full design in `docs/plannings/note-property/note-properties-feature.md`.
+
+- **Storage is EAV, not JSONB** (decision §4.1): one `NotePropertyValues` row per (note, definition) with one nullable typed column each (`TextValue`/`NumberValue`/`DateValue`/`BoolValue`/`SelectedOptionId`), plus a `NotePropertySelectedOptions` join table for MultiSelect. This mirrors the `NoteLabel` pattern (composite PKs, matching soft-delete query filters, DB cascades) and keeps every filter/sort translatable + SQLite-testable. A composite alternate key `PropertyOption (DefinitionId, Id)` makes "option belongs to its definition" (INV-P3) a DB guarantee.
+- **INV-P1 (row ⇔ non-empty)**: a value row exists **iff** the value is non-empty. Exactly the typed column for the definition's type is set; Checkbox rows only ever hold `true` (writing `false` deletes the row), and MultiSelect rows always have ≥1 selection (empty selection deletes the row). `empty`/`notempty` filters therefore reduce to `NOT EXISTS`/`EXISTS`.
+- **INV-P4 `IgnoreQueryFilters()` rule**: `NotePropertyValue`/`NotePropertySelectedOption` carry `DeletedAt == null` query filters like `NoteLabel`. **Any definition-level scan — type-change guard, usage counts, MultiSelect empty-row cleanup — MUST use `IgnoreQueryFilters()`** or it undercounts recycle-bin notes' values and breaks lossless restore (see `PropertyService`). Note *value* endpoints use the default-filtered set (a recycle-bin note is invisible → 404).
+- **Values are server-owned (INV-P5)**: never read from the `POST/PUT /api/notes` payload (`Properties` is `[NotMapped]`, `PropertyValues` is `[JsonIgnore]`). The dedicated `PUT/DELETE /api/notes/{noteId}/properties/{definitionId}` endpoints are the only mutation path, and they do **not** bump `NoteItem.UpdatedAt` (same reasoning as label add/remove and `SetShare`).
+- **Read model**: `NoteItem.Properties` / `NoteSummary.Properties` (both `[NotMapped]`/projected) carry non-empty values ordered by definition `SortOrder`, populated like `Labels`.
+- **Filter/sort**: `GET /api/notes` + `/api/notes/summaries` take repeatable `pf={definitionId}:{op}[:{value}]` (grammar §6.3, AND semantics, max 20), applied in both search and non-search branches via `NoteService.ApplyPropertyFilters`. `GET /api/notes` also takes `sortBy=prop:{definitionId}` (non-search branch only; MultiSelect/unknown → 400); empty-valued notes always sort last regardless of direction. Malformed `pf`/`sortBy` → 400 (`NoteService.PropertyQueryException`).
+- **Caps** (server 400 + client mirror): 50 definitions, 100 options/definition, 500-char Text value, 20 `pf`/request.
+- **Frontend**: `NotePropertyPanel` (editor, between title and Tiptap body — pure Blazor, no `tiptapInterop`), `PropertyValueEditor`, `PropertyFilterBar` (Home/Board), `/properties` management page. Web `PropertyService` caches definitions per circuit (invalidated after any definition/option mutation).
+
 ### Frontend pages
 
 | Route | Component |
@@ -134,6 +147,7 @@ Labels have an optional `LabelCategory`. Within a category, labels are mutually 
 | `/board` | `Board.razor` — kanban-style board view |
 | `/editor` | `NoteEditor.razor` — new note |
 | `/editor/{id}` | `NoteEditor.razor` — edit existing note (read-only when archived) |
+| `/properties` | `Properties.razor` — property definition management (create / rename / type change / reorder / options / delete) |
 | `/archive` | `Archive.razor` — archive list (unarchive / delete to recycle bin) |
 | `/recycle-bin` | `RecycleBin.razor` — recycle bin list (restore / delete forever / empty) |
 | `/login` | `Login.razor` |

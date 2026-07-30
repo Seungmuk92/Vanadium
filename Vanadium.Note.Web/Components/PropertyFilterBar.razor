@@ -1,0 +1,233 @@
+@* Property filter bar for Home and Board (issue #343, §9.4). Renders the active property filters as
+   removable chips and an inline "Add filter" builder (definition → operator → value). Filters are
+   owned by the parent (kept in memory, like the existing search/label filter state) and applied on
+   change via OnChanged. *@
+@using Vanadium.Note.Web.Models
+@inject PropertyService PropertyService
+
+@if (_definitions.Count > 0)
+{
+    <div class="property-filter-bar">
+        <span class="property-filter-label">Properties:</span>
+
+        @foreach (var filter in Filters)
+        {
+            <MudChip T="string" Size="Size.Small" Color="Color.Primary" Variant="Variant.Filled"
+                     OnClose="() => RemoveFilter(filter)">
+                @DescribeFilter(filter)
+            </MudChip>
+        }
+
+        @if (_adding)
+        {
+            <div class="property-filter-builder">
+                <MudSelect T="Guid" Value="_addDefinitionId" ValueChanged="OnDefinitionChosen" Dense="true"
+                           Margin="Margin.Dense" Placeholder="Property" Style="min-width: 130px;">
+                    @foreach (var def in _definitions)
+                    {
+                        <MudSelectItem T="Guid" Value="@def.Id">@def.Name</MudSelectItem>
+                    }
+                </MudSelect>
+
+                @if (_addDefinition is not null)
+                {
+                    <MudSelect T="PropertyFilterOp" @bind-Value="_addOp" Dense="true" Margin="Margin.Dense"
+                               Style="min-width: 110px;">
+                        @foreach (var op in OperatorsFor(_addDefinition.Type))
+                        {
+                            <MudSelectItem T="PropertyFilterOp" Value="@op">@OpLabel(op)</MudSelectItem>
+                        }
+                    </MudSelect>
+
+                    @if (NeedsValue(_addOp))
+                    {
+                        @switch (_addDefinition.Type)
+                        {
+                            case PropertyType.Text:
+                                <MudTextField T="string" @bind-Value="_addText" Margin="Margin.Dense"
+                                              Placeholder="Value" Style="min-width: 120px;" />
+                                break;
+                            case PropertyType.Number:
+                                <MudNumericField T="double?" @bind-Value="_addNumber" Margin="Margin.Dense"
+                                                 Placeholder="Value" Style="min-width: 100px;" />
+                                break;
+                            case PropertyType.Date:
+                                <MudDatePicker Date="_addDate" DateChanged="d => _addDate = d" Margin="Margin.Dense"
+                                               DateFormat="yyyy-MM-dd" Placeholder="Date" Style="min-width: 140px;" />
+                                break;
+                            case PropertyType.Checkbox:
+                                <MudSelect T="bool" @bind-Value="_addBool" Dense="true" Margin="Margin.Dense"
+                                           Style="min-width: 110px;">
+                                    <MudSelectItem T="bool" Value="true">checked</MudSelectItem>
+                                    <MudSelectItem T="bool" Value="false">unchecked (or not set)</MudSelectItem>
+                                </MudSelect>
+                                break;
+                            case PropertyType.Select:
+                            case PropertyType.MultiSelect:
+                                <MudSelect T="Guid" SelectedValues="_addOptions"
+                                           SelectedValuesChanged="v => _addOptions = v.ToHashSet()"
+                                           MultiSelection="true" Dense="true" Margin="Margin.Dense"
+                                           Placeholder="Options" Style="min-width: 150px;">
+                                    @foreach (var opt in _addDefinition.Options.OrderBy(o => o.SortOrder))
+                                    {
+                                        <MudSelectItem T="Guid" Value="@opt.Id">@opt.Name</MudSelectItem>
+                                    }
+                                </MudSelect>
+                                break;
+                        }
+                    }
+
+                    <MudButton Size="Size.Small" Variant="Variant.Filled" Color="Color.Primary"
+                               OnClick="AddFilter">Add</MudButton>
+                }
+
+                <MudButton Size="Size.Small" OnClick="CancelAdd">Cancel</MudButton>
+            </div>
+        }
+        else
+        {
+            <MudButton Size="Size.Small" StartIcon="@Icons.Material.Filled.FilterAlt" Variant="Variant.Text"
+                       OnClick="StartAdd">Add filter</MudButton>
+            @if (Filters.Count > 0)
+            {
+                <MudButton Size="Size.Small" OnClick="ClearAll">Clear</MudButton>
+            }
+        }
+    </div>
+}
+
+@code {
+    [Parameter, EditorRequired] public List<PropertyFilter> Filters { get; set; } = [];
+    [Parameter] public EventCallback OnChanged { get; set; }
+
+    private List<PropertyDefinition> _definitions = [];
+    private bool _adding;
+    private Guid _addDefinitionId;
+    private PropertyDefinition? _addDefinition;
+    private PropertyFilterOp _addOp = PropertyFilterOp.Eq;
+    private string? _addText;
+    private double? _addNumber;
+    private DateTime? _addDate;
+    private bool _addBool = true;
+    private IReadOnlyCollection<Guid> _addOptions = [];
+
+    protected override async Task OnInitializedAsync()
+    {
+        var result = await PropertyService.GetDefinitionsAsync();
+        _definitions = result.IsSuccess
+            ? result.Value!.OrderBy(d => d.SortOrder).ThenBy(d => d.Name).ToList()
+            : [];
+    }
+
+    private void StartAdd()
+    {
+        _adding = true;
+        _addDefinitionId = _definitions.FirstOrDefault()?.Id ?? Guid.Empty;
+        OnDefinitionChosen(_addDefinitionId);
+    }
+
+    private void OnDefinitionChosen(Guid id)
+    {
+        _addDefinitionId = id;
+        _addDefinition = _definitions.FirstOrDefault(d => d.Id == id);
+        _addOp = OperatorsFor(_addDefinition?.Type ?? PropertyType.Text).First();
+        _addText = null;
+        _addNumber = null;
+        _addDate = null;
+        _addBool = true;
+        _addOptions = [];
+    }
+
+    private void CancelAdd()
+    {
+        _adding = false;
+        _addDefinition = null;
+    }
+
+    private async Task AddFilter()
+    {
+        if (_addDefinition is null) return;
+        var value = BuildValue();
+        if (NeedsValue(_addOp) && value is null) return;   // incomplete builder — ignore
+
+        Filters.Add(new PropertyFilter { DefinitionId = _addDefinition.Id, Op = _addOp, Value = value });
+        _adding = false;
+        _addDefinition = null;
+        await OnChanged.InvokeAsync();
+    }
+
+    private async Task RemoveFilter(PropertyFilter filter)
+    {
+        Filters.Remove(filter);
+        await OnChanged.InvokeAsync();
+    }
+
+    private async Task ClearAll()
+    {
+        Filters.Clear();
+        await OnChanged.InvokeAsync();
+    }
+
+    private string? BuildValue()
+    {
+        if (!NeedsValue(_addOp)) return null;
+        return _addDefinition!.Type switch
+        {
+            PropertyType.Text => string.IsNullOrWhiteSpace(_addText) ? null : _addText.Trim(),
+            PropertyType.Number => _addNumber?.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            PropertyType.Date => _addDate?.ToString("yyyy-MM-dd"),
+            PropertyType.Checkbox => _addBool ? "true" : "false",
+            PropertyType.Select or PropertyType.MultiSelect =>
+                _addOptions.Count == 0 ? null : string.Join(",", _addOptions),
+            _ => null
+        };
+    }
+
+    private static bool NeedsValue(PropertyFilterOp op) =>
+        op is not (PropertyFilterOp.Empty or PropertyFilterOp.NotEmpty);
+
+    private static IReadOnlyList<PropertyFilterOp> OperatorsFor(PropertyType type) => type switch
+    {
+        PropertyType.Text => [PropertyFilterOp.Eq, PropertyFilterOp.Ne, PropertyFilterOp.Empty, PropertyFilterOp.NotEmpty],
+        PropertyType.Number or PropertyType.Date =>
+            [PropertyFilterOp.Eq, PropertyFilterOp.Ne, PropertyFilterOp.Lt, PropertyFilterOp.Lte,
+             PropertyFilterOp.Gt, PropertyFilterOp.Gte, PropertyFilterOp.Empty, PropertyFilterOp.NotEmpty],
+        PropertyType.Checkbox => [PropertyFilterOp.Eq],
+        PropertyType.Select => [PropertyFilterOp.AnyOf, PropertyFilterOp.Eq, PropertyFilterOp.Empty, PropertyFilterOp.NotEmpty],
+        PropertyType.MultiSelect => [PropertyFilterOp.AnyOf, PropertyFilterOp.Eq, PropertyFilterOp.Empty, PropertyFilterOp.NotEmpty],
+        _ => [PropertyFilterOp.Eq]
+    };
+
+    private static string OpLabel(PropertyFilterOp op) => op switch
+    {
+        PropertyFilterOp.Eq => "is",
+        PropertyFilterOp.Ne => "is not",
+        PropertyFilterOp.Lt => "<",
+        PropertyFilterOp.Lte => "≤",
+        PropertyFilterOp.Gt => ">",
+        PropertyFilterOp.Gte => "≥",
+        PropertyFilterOp.Empty => "is empty",
+        PropertyFilterOp.NotEmpty => "is not empty",
+        PropertyFilterOp.AnyOf => "any of",
+        _ => op.ToString()
+    };
+
+    private string DescribeFilter(PropertyFilter filter)
+    {
+        var def = _definitions.FirstOrDefault(d => d.Id == filter.DefinitionId);
+        var name = def?.Name ?? "property";
+        if (!NeedsValue(filter.Op))
+            return $"{name} {OpLabel(filter.Op)}";
+
+        var value = filter.Value ?? "";
+        if (def is not null && def.Type is PropertyType.Select or PropertyType.MultiSelect)
+        {
+            var names = value.Split(',', StringSplitOptions.RemoveEmptyEntries)
+                .Select(idText => Guid.TryParse(idText, out var g)
+                    ? def.Options.FirstOrDefault(o => o.Id == g)?.Name ?? idText
+                    : idText);
+            value = string.Join(", ", names);
+        }
+        return $"{name} {OpLabel(filter.Op)} {value}";
+    }
+}

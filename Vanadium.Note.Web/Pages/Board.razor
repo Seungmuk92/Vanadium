@@ -1,5 +1,6 @@
 @page "/board"
 @attribute [Authorize]
+@using Vanadium.Note.Web.Components
 @inject NoteService NoteService
 @inject LabelService LabelService
 @inject NavigationManager Nav
@@ -30,6 +31,7 @@
                 }
             }
         </div>
+        <PropertyFilterBar Filters="propertyFilters" OnChanged="OnPropertyFiltersChanged" />
     </div>
 
     @if (isLoading && !notes.Any())
@@ -278,6 +280,7 @@
 
     private IReadOnlyList<NoteSummary> notes = [];
     private List<LabelCategory> categories = [];
+    private readonly List<PropertyFilter> propertyFilters = [];
     private Guid? selectedCategoryId;
     private bool isLoading = false;
     // Label ids whose column has been expanded past CardsPerColumnLimit.
@@ -319,6 +322,8 @@
         isLoading = false;
     }
 
+    private async Task OnPropertyFiltersChanged() => await LoadNotesForCurrentCategory();
+
     private async Task LoadNotesForCurrentCategory()
     {
         // A fresh load collapses every column back to the cap.
@@ -334,7 +339,8 @@
         // Load every non-archived note (no label filter) so notes that carry none of this
         // category's labels are available client-side for the "No label" virtual column (#272).
         // Server-side label filtering would drop them entirely, making them invisible on the board.
-        var notesResult = await NoteService.GetAllSummariesAsync();
+        var notesResult = await NoteService.GetAllSummariesAsync(
+            propertyFilters: propertyFilters.Count > 0 ? propertyFilters : null);
         if (!notesResult.IsSuccess)
             Snackbar.Add(notesResult.Error ?? "Failed to load notes.", Severity.Error);
         notes = notesResult.Value ?? [];

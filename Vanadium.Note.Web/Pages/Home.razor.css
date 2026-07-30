@@ -518,3 +518,27 @@ a.note-title-text:hover {
         display: none;
     }
 }
+
+/* Property filter/sort controls (issue #343) */
+.property-controls-bar {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.6rem;
+    margin: 0.4rem 0 0.6rem;
+}
+
+.property-sort-chip {
+    display: inline-block;
+    margin-left: 0.5rem;
+    padding: 0.05rem 0.4rem;
+    font-size: 0.72rem;
+    border-radius: 10px;
+    background: var(--mud-palette-primary, #594ae2);
+    color: #fff;
+    white-space: nowrap;
+    max-width: 220px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    vertical-align: middle;
+}

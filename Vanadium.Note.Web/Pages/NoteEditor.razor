@@ -130,6 +130,14 @@
         </Footer>
     </LabelPicker>
 
+    @if (Id is not null)
+    {
+        <NotePropertyPanel NoteId="Id.Value"
+                           Values="noteProperties"
+                           ReadOnly="IsArchived"
+                           OnArchivedElsewhere="OnPropertyArchivedElsewhere" />
+    }
+
     @if (showLabelManager)
     {
         <div class="label-manager">
@@ -265,6 +273,15 @@
     private bool isNew => Id is null;
     private DateTime? archivedAt;
     private bool IsArchived => archivedAt is not null;
+
+    /// <summary>A property value write returned 403 — the note was archived in another session.
+    /// Flip the whole editor to read-only, mirroring the archive feature's E1/E5 handling.</summary>
+    private void OnPropertyArchivedElsewhere()
+    {
+        archivedAt = DateTime.UtcNow;
+        StateHasChanged();
+    }
+
     private Guid? parentNoteId;
     private string? parentTitle;
     private int childCount;
@@ -330,6 +347,9 @@
     private bool _backlinksLoading = false;
     private bool _backlinksFailed = false;
 
+    // Property state (issue #343): the note's non-empty values at load; the panel manages edits.
+    private List<NotePropertyValue> noteProperties = [];
+
     // Label state
     private List<Label> noteLabels = [];
     private List<Label> availableLabels = [];
@@ -377,6 +397,7 @@
         parentTitle = null;
         childCount = 0;
         noteLabels = [];
+        noteProperties = [];
         backlinks = [];
         _backlinksFailed = false;
         _hasConflict = false;
@@ -397,6 +418,7 @@
                 content = result.Value!.Content;
                 archivedAt = result.Value!.ArchivedAt;
                 noteLabels = result.Value!.Labels ?? [];
+                noteProperties = result.Value!.Properties ?? [];
                 parentNoteId = result.Value!.ParentNoteId;
                 parentTitle = result.Value!.ParentTitle;
                 childCount = result.Value!.ChildCount;

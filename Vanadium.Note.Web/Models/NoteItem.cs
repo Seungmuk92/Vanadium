@@ -24,4 +24,8 @@ public class NoteItem
     public string? ParentTitle { get; set; }
     public int ChildCount { get; set; }
     public List<Label> Labels { get; set; } = [];
+
+    /// <summary>Non-empty property values (issue #343). Server-owned — read-only here; edited via
+    /// the dedicated property value endpoints, never posted back through note save.</summary>
+    public List<NotePropertyValue> Properties { get; set; } = [];
 }

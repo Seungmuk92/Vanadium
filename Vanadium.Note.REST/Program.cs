@@ -169,6 +169,7 @@ builder.Services.AddScoped<NoteService>();
 builder.Services.AddScoped<NoteLifecycleService>();
 builder.Services.AddScoped<NoteShareService>();
 builder.Services.AddScoped<LabelService>();
+builder.Services.AddScoped<PropertyService>();
 builder.Services.AddScoped<SettingsService>();
 builder.Services.AddScoped<ApiTokenService>();
 builder.Services.AddScoped<FileCleanupService>();

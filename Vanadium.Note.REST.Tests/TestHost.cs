@@ -23,6 +23,7 @@ public sealed class TestHost : IDisposable
     public NoteDbContext Db { get; }
     public NoteService Notes { get; }
     public LabelService Labels { get; }
+    public PropertyService Properties { get; }
     public AccountService Account { get; }
     public FileCleanupService FileCleanup { get; }
     public OrphanReferenceTracker OrphanTracker { get; }
@@ -57,6 +58,7 @@ public sealed class TestHost : IDisposable
         var share = new NoteShareService(Db, sanitizer, NullLogger<NoteShareService>.Instance);
         Notes = new NoteService(Db, sanitizer, lifecycle, share, NullLogger<NoteService>.Instance);
         Labels = new LabelService(Db, NullLogger<LabelService>.Instance);
+        Properties = new PropertyService(Db, NullLogger<PropertyService>.Instance);
         Account = new AccountService(Db, NullLogger<AccountService>.Instance);
     }
 
