@@ -120,7 +120,7 @@ Route prefix `/api/notes`. **Auth: Bearer (JWT or PAT)** for every endpoint.
 | GET | `/api/notes` | Bearer | Paged, filterable, searchable note list. |
 | GET | `/api/notes/mention-search` | Bearer | Note suggestions for `@`-mentions. |
 | GET | `/api/notes/quick-search` | Bearer | Quick Navigation palette search (includes archived). |
-| GET | `/api/notes/summaries` | Bearer | All note summaries (optionally label-filtered). |
+| GET | `/api/notes/summaries` | Bearer | All note summaries (optionally property-filtered). |
 | GET | `/api/notes/{id:guid}/children` | Bearer | Direct child notes. |
 | GET | `/api/notes/{id:guid}/backlinks` | Bearer | Notes that reference this note. |
 | GET | `/api/notes/{id:guid}` | Bearer | Single note (full `NoteItem`). |
@@ -142,18 +142,18 @@ Route prefix `/api/notes`. **Auth: Bearer (JWT or PAT)** for every endpoint.
 
 - **Query:** `page` (default 1, min 1), `pageSize` (default 30, clamped 1–200),
   `search` (≤200 chars), `sortBy` (default `date`; also `title` or `prop:{definitionId}`),
-  `sortDir` (default `desc`), `labelIds` (Guid[], max 50), `pf` (repeatable property filter,
-  max 20 — see [Property filter grammar](#property-filter-grammar-pf)), `includeLabels` (bool, default false).
-- **Response `200`:** `PagedResult<NoteSummary>` — `{ items: NoteSummary[], totalCount, page, pageSize, labels? }`.
-  `labels` is populated only when `includeLabels=true`. Search results include archived notes
+  `sortDir` (default `desc`), `pf` (repeatable property filter,
+  max 20 — see [Property filter grammar](#property-filter-grammar-pf)).
+- **Response `200`:** `PagedResult<NoteSummary>` — `{ items: NoteSummary[], totalCount, page, pageSize }`.
+  Search results include archived notes
   (`NoteSummary.isArchived = true`); the non-search list excludes them.
 - **Sorting by a property** (`sortBy=prop:{definitionId}`) applies only to the non-search branch;
   notes with an empty value always sort **after** notes with a value regardless of `sortDir`, with
   `updatedAt` desc as tiebreak. `MultiSelect` and unknown definitions → `400`. Ignored during search.
 - **`pf` filters** apply in both the search and non-search branches, AND across entries, and combine
-  with `search`/`labelIds`.
-- **Status codes:** `200` · `400` more than 50 label IDs, malformed `pf`, or invalid `sortBy=prop:`.
-- **`NoteSummary`:** `{ id, title, updatedAt, parentNoteId?, parentTitle?, childCount, isArchived, labels: LabelSummary[], properties: NotePropertyValueDto[] }`.
+  with `search`.
+- **Status codes:** `200` · `400` malformed `pf`, or invalid `sortBy=prop:`.
+- **`NoteSummary`:** `{ id, title, updatedAt, parentNoteId?, parentTitle?, childCount, isArchived, properties: NotePropertyValueDto[] }`.
   `properties` holds the note's non-empty property values, ordered by definition sort order.
 
 ### GET `/api/notes/mention-search`
@@ -168,10 +168,10 @@ Route prefix `/api/notes`. **Auth: Bearer (JWT or PAT)** for every endpoint.
 
 ### GET `/api/notes/summaries`
 
-- **Query:** `labelIds` (Guid[], max 50, OR semantics), `pf` (repeatable property filter, max 20,
+- **Query:** `pf` (repeatable property filter, max 20,
   AND semantics — see [Property filter grammar](#property-filter-grammar-pf)).
 - **Response `200`:** `NoteSummary[]`. Excludes archived notes.
-- **Status codes:** `200` · `400` more than 50 label IDs or malformed `pf`.
+- **Status codes:** `200` · `400` malformed `pf`.
 
 ### GET `/api/notes/{id:guid}/children`
 
@@ -256,63 +256,6 @@ Empties the recycle bin (permanent delete of all recycle-bin notes).
 Unshares the note, immediately and permanently invalidating any previously issued link.
 
 - **Status codes:** `204` · `404` not found.
-
----
-
-## Labels & categories — `LabelsController`
-
-**Auth: Bearer (JWT or PAT)** for every endpoint. Routes are explicit (not the controller name).
-
-| Method | Path | Auth | Description |
-|---|---|---|---|
-| GET | `/api/label-categories` | Bearer | List categories (with their labels). |
-| POST | `/api/label-categories` | Bearer | Create a category. |
-| DELETE | `/api/label-categories/{id:guid}` | Bearer | Delete a category. |
-| GET | `/api/labels` | Bearer | List all labels. |
-| POST | `/api/labels` | Bearer | Create a label. |
-| DELETE | `/api/labels/{id:guid}` | Bearer | Delete a label. |
-| POST | `/api/notes/{noteId:guid}/labels` | Bearer | Assign a label to a note. |
-| DELETE | `/api/notes/{noteId:guid}/labels/{labelId:guid}` | Bearer | Remove a label from a note. |
-
-### GET `/api/label-categories`
-
-- **Response `200`:** `LabelCategoryDto[]` — `{ id, name, labels: LabelSummary[] }`.
-
-### POST `/api/label-categories`
-
-- **Request body:** `NameRequest` — `{ "name": string (required, ≤100) }`.
-- **Response `201`:** `LabelCategoryDto`.
-- **Status codes:** `201` · `409` duplicate name.
-
-### DELETE `/api/label-categories/{id:guid}`
-
-- **Status codes:** `204` · `404` not found.
-
-### GET `/api/labels`
-
-- **Response `200`:** `LabelSummary[]` — `{ id, name, categoryId?, categoryName? }`.
-
-### POST `/api/labels`
-
-- **Request body:** `CreateLabelRequest` — `{ "name": string (required, ≤100), "categoryId": Guid? }`.
-- **Response `201`:** `LabelSummary`.
-- **Status codes:** `201` · `409` duplicate name.
-
-### DELETE `/api/labels/{id:guid}`
-
-- **Status codes:** `204` · `404` not found.
-
-### POST `/api/notes/{noteId:guid}/labels`
-
-Assigns a label to a note. Within a category, labels are mutually exclusive (adding one removes
-others in the same category).
-
-- **Request body:** `AddLabelRequest` — `{ "labelId": Guid }`.
-- **Status codes:** `200` · `404` note or label not found · `403` note is archived and read-only.
-
-### DELETE `/api/notes/{noteId:guid}/labels/{labelId:guid}`
-
-- **Status codes:** `204` · `404` note not found or label not assigned · `403` note is archived and read-only.
 
 ---
 
@@ -487,7 +430,7 @@ Route prefix `/api/settings`. **Auth: Bearer (JWT or PAT).** `UserSettings` is a
 
 ### DELETE `/api/settings/all-data`
 
-Permanently deletes all notes, labels, label categories, API tokens, settings, and orphaned
+Permanently deletes all notes, property definitions, API tokens, settings, and orphaned
 uploads. The owner password lives in configuration, so login remains possible afterward.
 
 As the most destructive endpoint, it is locked down beyond the shared smart scheme: it accepts
@@ -512,7 +455,7 @@ This is the only content endpoint reachable without authentication.
 
 - **Path:** `token` — the unguessable share token.
 - **Response `200`:** `SharedNote` — `{ id, title, content, updatedAt }`. Lean, read-only; never exposes
-  the token, structure, labels, or lifecycle fields. Cross-note reference markup (page-link / note-mention)
+  the token, structure, properties, or lifecycle fields. Cross-note reference markup (page-link / note-mention)
   is redacted from `content` — each node is replaced with a `🔒 private page` placeholder so a referenced
   (possibly non-shared) note's GUID and title are never disclosed. `content` is also re-sanitized
   at read time, so a shared page never serves active content (scripts / event handlers) even if a
@@ -542,18 +485,13 @@ Returned by `GET /api/notes/{id}`, `POST /api/notes`, `PUT /api/notes/{id}`.
 | `parentNoteId` | Guid? | |
 | `childCount` | int | Computed |
 | `parentTitle` | string? | Computed |
-| `labels` | LabelSummary[] | Computed |
 
 > `contentText`, `isDeletionRoot`, `isArchiveRoot`, and navigation properties are `[JsonIgnore]` and
 > not part of the wire contract.
 
 ### `PagedResult<T>`
 
-`{ items: T[], totalCount: int, page: int, pageSize: int, labels: LabelSummary[]? }`
-
-### `LabelSummary`
-
-`{ id: Guid, name: string, categoryId: Guid?, categoryName: string? }`
+`{ items: T[], totalCount: int, page: int, pageSize: int }`
 
 ### `UserSettings`
 
