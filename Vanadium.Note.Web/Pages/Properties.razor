@@ -66,7 +66,12 @@
                                    OnClick="() => MoveAsync(context, 1)" />
                 </MudTd>
                 <MudTd DataLabel="Name">@context.Name</MudTd>
-                <MudTd DataLabel="Type">@context.Type.ToString()</MudTd>
+                <MudTd DataLabel="Type">
+                    <span class="d-inline-flex align-center gap-1">
+                        <MudIcon Icon="@PropertyTypeIcons.For(context.Type)" Size="Size.Small" />
+                        @context.Type.ToString()
+                    </span>
+                </MudTd>
                 <MudTd DataLabel="Used on">@(context.ValueCount ?? 0) note(s)</MudTd>
                 <MudTd DataLabel="Options">
                     @if (context.Type is PropertyType.Select or PropertyType.MultiSelect)

@@ -30,7 +30,11 @@
             @foreach (var row in _rows)
             {
                 <div class="property-row">
-                    <span class="property-row-name">@row.Definition.Name</span>
+                    <span class="property-row-name">
+                        <MudIcon Icon="@TypeIcon(row.Definition.Type)" Size="Size.Small"
+                                 Class="property-type-icon" Title="@row.Definition.Type.ToString()" />
+                        @row.Definition.Name
+                    </span>
                     <div class="property-row-value">
                         <PropertyValueEditor Definition="row.Definition"
                                              Value="row.Value"
@@ -54,7 +58,7 @@
                          Variant="Variant.Text" Size="Size.Small" Dense="true" Class="property-add-menu">
                     @foreach (var def in addable)
                     {
-                        <MudMenuItem OnClick="@(() => AddRow(def))">@def.Name</MudMenuItem>
+                        <MudMenuItem Icon="@TypeIcon(def.Type)" OnClick="@(() => AddRow(def))">@def.Name</MudMenuItem>
                     }
                     @if (addable.Count == 0)
                     {
@@ -205,4 +209,6 @@
     private void ToggleCollapsed() => _collapsed = !_collapsed;
 
     private void GoToProperties() => Nav.NavigateTo("/properties");
+
+    private static string TypeIcon(PropertyType type) => PropertyTypeIcons.For(type);
 }
