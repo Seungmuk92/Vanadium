@@ -4,6 +4,7 @@
    note save. Pure Blazor + MudBlazor; no tiptapInterop contact (§7.8). *@
 @using Vanadium.Note.Web.Models
 @inject PropertyService PropertyService
+@inject NavigationManager Nav
 @inject ISnackbar Snackbar
 @inject ILogger<NotePropertyPanel> Logger
 
@@ -49,18 +50,22 @@
             @if (!ReadOnly)
             {
                 var addable = AddableDefinitions.ToList();
-                <MudMenu Dense="true" Disabled="addable.Count == 0" Class="property-add-menu">
-                    <ActivatorContent>
-                        <MudButton StartIcon="@Icons.Material.Filled.Add" Size="Size.Small" Variant="Variant.Text">
-                            Add property
-                        </MudButton>
-                    </ActivatorContent>
-                    <ChildContent>
-                        @foreach (var def in addable)
-                        {
-                            <MudMenuItem OnClick="() => AddRow(def)">@def.Name</MudMenuItem>
-                        }
-                    </ChildContent>
+                <MudMenu Label="Add property" StartIcon="@Icons.Material.Filled.Add"
+                         Variant="Variant.Text" Size="Size.Small" Dense="true" Class="property-add-menu">
+                    @foreach (var def in addable)
+                    {
+                        <MudMenuItem OnClick="@(() => AddRow(def))">@def.Name</MudMenuItem>
+                    }
+                    @if (addable.Count == 0)
+                    {
+                        <MudMenuItem Disabled="true">
+                            @(_definitions.Count == 0 ? "No properties defined yet" : "All properties added")
+                        </MudMenuItem>
+                    }
+                    <MudDivider />
+                    <MudMenuItem Icon="@Icons.Material.Filled.Settings" OnClick="GoToProperties">
+                        Manage properties…
+                    </MudMenuItem>
                 </MudMenu>
             }
         </div>
@@ -198,4 +203,6 @@
     }
 
     private void ToggleCollapsed() => _collapsed = !_collapsed;
+
+    private void GoToProperties() => Nav.NavigateTo("/properties");
 }

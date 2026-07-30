@@ -133,22 +133,12 @@
             <PropertyFilterBar Filters="propertyFilters" OnChanged="OnPropertyFiltersChanged" />
             @if (SortableProperties.Any())
             {
-                <MudMenu Dense="true" Class="property-sort-menu">
-                    <ActivatorContent>
-                        <MudButton Size="Size.Small" Variant="Variant.Text"
-                                   StartIcon="@Icons.Material.Filled.Sort"
-                                   EndIcon="@(sortPropertyId is not null ? (sortAscending ? Icons.Material.Filled.ArrowUpward : Icons.Material.Filled.ArrowDownward) : null)">
-                            @(sortPropertyId is { } sid
-                                ? $"Sort: {propertyDefinitions.FirstOrDefault(d => d.Id == sid)?.Name}"
-                                : "Sort by property")
-                        </MudButton>
-                    </ActivatorContent>
-                    <ChildContent>
-                        @foreach (var def in SortableProperties)
-                        {
-                            <MudMenuItem OnClick="() => SortByProperty(def.Id)">@def.Name</MudMenuItem>
-                        }
-                    </ChildContent>
+                <MudMenu Label="@SortMenuLabel()" StartIcon="@Icons.Material.Filled.Sort"
+                         Variant="Variant.Text" Size="Size.Small" Dense="true" Class="property-sort-menu">
+                    @foreach (var def in SortableProperties)
+                    {
+                        <MudMenuItem OnClick="@(() => SortByProperty(def.Id))">@def.Name</MudMenuItem>
+                    }
                 </MudMenu>
             }
         </div>
@@ -348,6 +338,13 @@
             propertyDefinitions = defs.Value!.OrderBy(d => d.SortOrder).ThenBy(d => d.Name).ToList();
         await LoadNotes(includeLabels: true);
         StartBackgroundRefresh();
+    }
+
+    private string SortMenuLabel()
+    {
+        if (sortPropertyId is not { } id) return "Sort by property";
+        var name = propertyDefinitions.FirstOrDefault(d => d.Id == id)?.Name ?? "property";
+        return $"Sort: {name} {(sortAscending ? "↑" : "↓")}";
     }
 
     // Sortable property types (MultiSelect is not sortable, matching the server).
