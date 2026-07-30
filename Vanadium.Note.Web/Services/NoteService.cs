@@ -43,6 +43,34 @@ public class NoteService(HttpClient http, ILogger<NoteService> logger)
         }
     }
 
+    /// <summary>Every non-archived note in one unpaged call, used by the Board so notes that carry
+    /// no value for the grouping property are still available client-side for the "No value" column.</summary>
+    public async Task<ServiceResult<IReadOnlyList<NoteSummary>>> GetAllSummariesAsync(
+        IEnumerable<PropertyFilter>? propertyFilters = null)
+    {
+        try
+        {
+            var url = "api/notes/summaries";
+            if (propertyFilters is not null)
+            {
+                // ToQueryValue already URL-encodes the value portion; the ':' separators stay
+                // literal, and the whole param is decoded once by the server's model binding.
+                var query = propertyFilters.Select(pf => $"pf={pf.ToQueryValue()}").ToList();
+                if (query.Count > 0)
+                    url += "?" + string.Join("&", query);
+            }
+            var result = await http.GetFromJsonAsync<IReadOnlyList<NoteSummary>>(url);
+            return result is not null
+                ? ServiceResult<IReadOnlyList<NoteSummary>>.Ok(result)
+                : ServiceResult<IReadOnlyList<NoteSummary>>.Fail("Failed to load note summaries.");
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Failed to load note summaries.");
+            return ServiceResult<IReadOnlyList<NoteSummary>>.Fail("Failed to load note summaries.");
+        }
+    }
+
     public async Task<ServiceResult<NoteItem>> GetAsync(Guid id)
     {
         try

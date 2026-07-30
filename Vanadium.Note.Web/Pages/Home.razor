@@ -310,20 +310,8 @@
         var value = note.Properties.FirstOrDefault(p => p.DefinitionId == id);
         if (value is null) return null;
         var def = propertyDefinitions.FirstOrDefault(d => d.Id == id);
-        return FormatValue(def, value);
+        return PropertyValueFormatter.Format(def, value);
     }
-
-    private static string FormatValue(PropertyDefinition? def, NotePropertyValue value) => value.Type switch
-    {
-        PropertyType.Text => value.TextValue ?? "",
-        PropertyType.Number => value.NumberValue?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "",
-        PropertyType.Date => value.DateValue?.ToString("yyyy-MM-dd") ?? "",
-        PropertyType.Checkbox => value.BoolValue == true ? "✓" : "",
-        PropertyType.Select => def?.Options.FirstOrDefault(o => o.Id == value.OptionId)?.Name ?? "",
-        PropertyType.MultiSelect => string.Join(", ",
-            value.OptionIds.Select(oid => def?.Options.FirstOrDefault(o => o.Id == oid)?.Name).Where(n => n is not null)),
-        _ => ""
-    };
 
     private async Task SortByProperty(Guid definitionId)
     {
