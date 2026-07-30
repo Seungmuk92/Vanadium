@@ -6,8 +6,8 @@ namespace Vanadium.Note.REST.Services;
 
 /// <summary>
 /// Note Properties (issue #343): global property definitions + options + per-note typed values.
-/// Mirrors the <see cref="LabelService"/> precedent (case-insensitive uniqueness enforced in the
-/// service, archived-note 403, immediate saves that never touch <c>NoteItem.UpdatedAt</c>).
+/// Case-insensitive uniqueness is enforced in the service, archived notes are rejected with 403,
+/// and saves are immediate and never touch <c>NoteItem.UpdatedAt</c>.
 /// Definition-level scans use <c>IgnoreQueryFilters()</c> so recycle-bin notes' values are counted
 /// and cleaned up (INV-P4). See docs/plannings/note-property/note-properties-feature.md.
 /// </summary>

@@ -11,8 +11,8 @@ public class AccountService(NoteDbContext db, ILogger<AccountService> logger)
 {
     /// <summary>
     /// Permanently removes all content: every note (including child notes and their
-    /// label associations), labels, label categories, API tokens, and personal
-    /// settings. The owner's password lives in configuration, so login is unaffected.
+    /// property values), property definitions, API tokens, and personal settings.
+    /// The owner's password lives in configuration, so login is unaffected.
     /// </summary>
     /// <remarks>
     /// This method only deletes database rows. Uploaded files and images on disk
@@ -36,16 +36,11 @@ public class AccountService(NoteDbContext db, ILogger<AccountService> logger)
         {
             await using var tx = await db.Database.BeginTransactionAsync(ct);
 
-            // Notes first — the DB cascades NoteLabels (via NoteId) and any child
-            // notes (self-referencing ParentNoteId cascade).
+            // Notes first — the DB cascades their property values (via NoteId) and any
+            // child notes (self-referencing ParentNoteId cascade).
             // IgnoreQueryFilters: soft-deleted notes must also be wiped — the global
             // soft-delete filter would otherwise let them survive an account wipe.
             var notesRemoved = await db.Notes.IgnoreQueryFilters().ExecuteDeleteAsync(ct);
-
-            // Labels before categories: a category cascade would also clear labels,
-            // but deleting labels explicitly first keeps the intent obvious.
-            var labelsRemoved = await db.Labels.ExecuteDeleteAsync(ct);
-            var categoriesRemoved = await db.LabelCategories.ExecuteDeleteAsync(ct);
 
             // Property definitions cascade their options; note-value rows and their
             // selection rows were already removed by the Notes delete above (NoteId FK cascade).
@@ -58,11 +53,11 @@ public class AccountService(NoteDbContext db, ILogger<AccountService> logger)
             await tx.CommitAsync(ct);
 
             logger.LogInformation(
-                "Purged all data: {Notes} note(s), {Labels} label(s), " +
-                "{Categories} category(ies), {PropertyDefinitions} property definition(s), " +
+                "Purged all data: {Notes} note(s), " +
+                "{PropertyDefinitions} property definition(s), " +
                 "{Tokens} token(s), {Settings} settings row(s). " +
                 "Orphaned files/images will be reclaimed by the periodic cleanup job.",
-                notesRemoved, labelsRemoved, categoriesRemoved, propertyDefinitionsRemoved,
+                notesRemoved, propertyDefinitionsRemoved,
                 tokensRemoved, settingsRemoved);
         });
 

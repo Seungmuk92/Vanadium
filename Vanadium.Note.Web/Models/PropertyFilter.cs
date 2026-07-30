@@ -14,7 +14,7 @@ public enum PropertyFilterOp
 }
 
 /// <summary>Client-side representation of one <c>pf</c> filter. Serializes to and parses from the
-/// <c>{definitionId}:{op}[:{value}]</c> wire form used by the note list / board queries (§6.3).</summary>
+/// <c>{definitionId}:{op}[:{value}]</c> wire form used by the note list / summaries queries (§6.3).</summary>
 public class PropertyFilter
 {
     public Guid DefinitionId { get; set; }

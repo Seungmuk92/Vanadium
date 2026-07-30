@@ -39,7 +39,6 @@ namespace Vanadium.Note.Web
             });
 
             builder.Services.AddScoped<NoteService>();
-            builder.Services.AddScoped<LabelService>();
             builder.Services.AddScoped<PropertyService>();
             builder.Services.AddScoped<SettingsService>();
             builder.Services.AddScoped<ApiTokenService>();

@@ -29,7 +29,7 @@ public class SettingsController(
     }
 
     /// <summary>
-    /// Permanently deletes all content — notes, labels, label categories, API tokens,
+    /// Permanently deletes all content — notes, property definitions, API tokens,
     /// settings, and orphaned uploads. The owner's password lives in configuration,
     /// so login remains possible afterward.
     /// </summary>

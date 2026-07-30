@@ -7,8 +7,7 @@ namespace Vanadium.Note.REST.Controllers;
 
 /// <summary>
 /// Note Properties (issue #343): definition CRUD, option CRUD, and per-note value upsert/clear.
-/// Hosts both the definition/option routes and the note-value routes, mirroring how
-/// <see cref="LabelsController"/> hosts label CRUD plus note-label assignment.
+/// Hosts both the definition/option routes and the note-value routes.
 /// </summary>
 [Authorize]
 [ApiController]

@@ -25,7 +25,7 @@ public class NoteServiceCancellationTests
         await h.CreateNoteAsync("A");
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
-            h.Notes.GetPaged(1, 30, null, "date", "desc", null, null, Cancelled()));
+            h.Notes.GetPaged(1, 30, null, "date", "desc", null, Cancelled()));
     }
 
     [Fact]
