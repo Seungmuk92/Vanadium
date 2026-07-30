@@ -54,7 +54,7 @@
                 <MudTh>Type</MudTh>
                 <MudTh>Used on</MudTh>
                 <MudTh>Options</MudTh>
-                <MudTh Style="width: 220px;">Actions</MudTh>
+                <MudTh Style="width: 140px; white-space: nowrap;">Actions</MudTh>
             </HeaderContent>
             <RowTemplate>
                 <MudTd DataLabel="Order">
@@ -78,13 +78,22 @@
                         <span class="mud-text-secondary">—</span>
                     }
                 </MudTd>
-                <MudTd DataLabel="Actions">
-                    <MudButton Size="Size.Small" OnClick="() => EditAsync(context)">Edit</MudButton>
+                <MudTd DataLabel="Actions" Style="white-space: nowrap;">
+                    <MudTooltip Text="Edit">
+                        <MudIconButton Icon="@Icons.Material.Filled.Edit" Size="Size.Small"
+                                       OnClick="() => EditAsync(context)" />
+                    </MudTooltip>
                     @if (context.Type is PropertyType.Select or PropertyType.MultiSelect)
                     {
-                        <MudButton Size="Size.Small" OnClick="() => ManageOptionsAsync(context)">Options…</MudButton>
+                        <MudTooltip Text="Manage options">
+                            <MudIconButton Icon="@Icons.Material.Filled.Tune" Size="Size.Small"
+                                           OnClick="() => ManageOptionsAsync(context)" />
+                        </MudTooltip>
                     }
-                    <MudButton Size="Size.Small" Color="Color.Error" OnClick="() => DeleteAsync(context)">Delete</MudButton>
+                    <MudTooltip Text="Delete">
+                        <MudIconButton Icon="@Icons.Material.Filled.Delete" Size="Size.Small" Color="Color.Error"
+                                       OnClick="() => DeleteAsync(context)" />
+                    </MudTooltip>
                 </MudTd>
             </RowTemplate>
         </MudTable>
