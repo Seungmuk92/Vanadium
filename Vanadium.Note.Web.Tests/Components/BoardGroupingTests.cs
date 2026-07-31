@@ -23,6 +23,7 @@ public sealed class BoardGroupingTests : TestContext
     private const string StatusId = "11111111-1111-1111-1111-111111111111";
     private const string TodoId = "22222222-2222-2222-2222-222222222222";
     private const string DoingId = "33333333-3333-3333-3333-333333333333";
+    private const string TodoNoteId = "aaaaaaaa-0000-0000-0000-000000000001";
     private const string UnsetNoteId = "aaaaaaaa-0000-0000-0000-000000000003";
 
     // "type" is the numeric PropertyType (2 = Select, 3 = MultiSelect) — the wire form the client mirrors.
@@ -51,16 +52,17 @@ public sealed class BoardGroupingTests : TestContext
         ]
         """;
 
-    /// <summary>Renders the board against a fake API; <paramref name="setValueStatus"/> is what the
-    /// property-value PUT answers, so a move can be exercised as success, failure, or 403.</summary>
+    /// <summary>Renders the board against a fake API; <paramref name="writeStatus"/> is what the
+    /// property-value PUT/DELETE answers, so a move or a clear can be exercised as success,
+    /// failure, or 403.</summary>
     private (IRenderedComponent<Board> Board, BoardApiHandler Api) RenderBoard(
-        HttpStatusCode setValueStatus = HttpStatusCode.OK)
+        HttpStatusCode writeStatus = HttpStatusCode.OK)
     {
         Services.AddMudServices();
         Services.AddLogging();
         JSInterop.Mode = JSRuntimeMode.Loose;
 
-        var handler = new BoardApiHandler(setValueStatus);
+        var handler = new BoardApiHandler(writeStatus);
         var http = new HttpClient(handler) { BaseAddress = new Uri("http://localhost/") };
         Services.AddScoped(_ => new PropertyService(http, NullLogger<PropertyService>.Instance));
         Services.AddScoped(_ => new NoteService(http, NullLogger<NoteService>.Instance));
@@ -204,12 +206,83 @@ public sealed class BoardGroupingTests : TestContext
             s => s.Severity == Severity.Error && s.Message?.Contains("archived") == true);
     }
 
+    [Fact]
+    public void MoveSheet_OnOptionCard_OffersClearEntry_OnNoValueCard_MarksItCurrent()
+    {
+        var (cut, _) = RenderBoard();
+        cut.WaitForElement(".board-column-unclassified");
+
+        // A card that HAS a value: "No value" is an available action, not the current state.
+        cut.Find($".board-column[data-option-id='{TodoId}'] .board-card-move").Click();
+        var clear = cut.Find(".board-move-option-clear");
+        Assert.Equal("No value", clear.QuerySelector(".board-move-option-name")!.TextContent.Trim());
+        Assert.False(clear.HasAttribute("disabled"));
+        Assert.Null(clear.QuerySelector(".board-move-option-badge"));
+        cut.Find(".board-dialog-close").Click();
+
+        // A card that has NO value: the same entry is the disabled "Current" one, mirroring how an
+        // option entry behaves for the column the card already sits in.
+        cut.Find(".board-column-unclassified .board-card-move").Click();
+        var clearOnUnset = cut.Find(".board-move-option-clear");
+        Assert.True(clearOnUnset.HasAttribute("disabled"));
+        Assert.Equal("Current",
+            clearOnUnset.QuerySelector(".board-move-option-badge")!.TextContent.Trim());
+    }
+
+    [Fact]
+    public void ClearViaMoveSheet_SendsNoteBackToNoValue_WithOneDelete()
+    {
+        var (cut, api) = RenderBoard();
+        cut.WaitForElement(".board-column-unclassified");
+
+        cut.Find($".board-column[data-option-id='{TodoId}'] .board-card-move").Click();
+        cut.Find(".board-move-option-clear").Click();
+
+        // One DELETE, no compensating PUT: clearing is a single write like a move (#271).
+        var write = Assert.Single(api.Writes);
+        Assert.Equal(HttpMethod.Delete, write.Method);
+        Assert.Equal($"/api/notes/{TodoNoteId}/properties/{StatusId}", write.Path);
+
+        cut.WaitForAssertion(() =>
+        {
+            var unclassified = cut.Find(".board-column-unclassified");
+            Assert.Contains(unclassified.QuerySelectorAll(".board-card-title"),
+                t => t.TextContent.Trim() == "Todo note");
+            var todo = cut.Find($".board-column[data-option-id='{TodoId}']");
+            Assert.Equal("0", todo.QuerySelector(".board-column-count")!.TextContent.Trim());
+            Assert.Empty(todo.QuerySelectorAll(".board-card"));
+        });
+    }
+
+    [Fact]
+    public void ClearFailure_RollsBackToTheOriginalColumn()
+    {
+        var (cut, _) = RenderBoard(HttpStatusCode.InternalServerError);
+        cut.WaitForElement(".board-column-unclassified");
+
+        cut.Find($".board-column[data-option-id='{TodoId}'] .board-card-move").Click();
+        cut.Find(".board-move-option-clear").Click();
+
+        cut.WaitForAssertion(() =>
+        {
+            var todo = cut.Find($".board-column[data-option-id='{TodoId}']");
+            Assert.Contains(todo.QuerySelectorAll(".board-card-title"),
+                t => t.TextContent.Trim() == "Todo note");
+            Assert.DoesNotContain(cut.Find(".board-column-unclassified").QuerySelectorAll(".board-card-title"),
+                t => t.TextContent.Trim() == "Todo note");
+        });
+
+        var snackbar = Services.GetRequiredService<ISnackbar>();
+        Assert.Contains(snackbar.ShownSnackbars,
+            s => s.Severity == Severity.Error && s.Message?.Contains("Failed to clear the value") == true);
+    }
+
     /// <summary>A recorded non-GET request (the property-value writes the board issues).</summary>
     private sealed record RecordedWrite(HttpMethod Method, string Path, string Body);
 
     /// <summary>Serves the two GETs the board issues, keyed by path, and records/answers the
     /// property-value PUT so a move can be asserted end to end.</summary>
-    private sealed class BoardApiHandler(HttpStatusCode setValueStatus) : HttpMessageHandler
+    private sealed class BoardApiHandler(HttpStatusCode writeStatus) : HttpMessageHandler
     {
         public List<RecordedWrite> Writes { get; } = [];
 
@@ -224,8 +297,8 @@ public sealed class BoardGroupingTests : TestContext
                     ? ""
                     : await request.Content.ReadAsStringAsync(cancellationToken);
                 Writes.Add(new RecordedWrite(request.Method, path, body));
-                if (setValueStatus != HttpStatusCode.OK)
-                    return new HttpResponseMessage(setValueStatus);
+                if (writeStatus != HttpStatusCode.OK)
+                    return new HttpResponseMessage(writeStatus);
                 // Echo a value row back; the board only checks success, but SetValueAsync
                 // deserializes the response and fails on a null body.
                 return Json($$"""

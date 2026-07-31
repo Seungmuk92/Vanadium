@@ -461,6 +461,13 @@
     opacity: 0.55;
 }
 
+/* The "No value" entry clears the grouping property instead of moving the note between
+   options, so it echoes the dashed styling of the "No value" column (#375 review). */
+.board-move-option-clear {
+    border-style: dashed;
+    font-style: italic;
+}
+
 .board-move-option-badge {
     flex-shrink: 0;
     font-size: 0.68rem;
