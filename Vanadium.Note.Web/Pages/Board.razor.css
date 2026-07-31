@@ -229,7 +229,9 @@
 }
 
 /* "No value" virtual column (#272): notes with no value for the grouping property.
-   Dashed border marks it as a non-droppable, display-only column. */
+   Dashed border marks it as a non-droppable column — nothing can be dropped INTO it,
+   but its cards can be dragged OUT to assign a value (#375), so they keep the shared
+   .board-card grab cursor. */
 .board-column-unclassified {
     border-style: dashed;
     background-color: transparent;
@@ -238,11 +240,6 @@
 .board-column-unclassified .board-column-title {
     opacity: 0.7;
     font-style: italic;
-}
-
-/* Its cards are not draggable — only clickable to open the note. */
-.board-column-unclassified .board-card {
-    cursor: pointer;
 }
 
 .board-card-header {
@@ -462,6 +459,13 @@
 .board-move-option.current {
     cursor: default;
     opacity: 0.55;
+}
+
+/* The "No value" entry clears the grouping property instead of moving the note between
+   options, so it echoes the dashed styling of the "No value" column (#375 review). */
+.board-move-option-clear {
+    border-style: dashed;
+    font-style: italic;
 }
 
 .board-move-option-badge {

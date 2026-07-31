@@ -124,8 +124,11 @@
             @if (unclassifiedNotes.Any())
             {
                 // "No value" virtual column: notes carrying no value for the grouping property. It is
-                // display-only — no data-option-id (so drag-drop ignores it as a drop target) and
-                // its cards are not draggable, keeping the set-value move semantics one-directional (#272).
+                // not a drop TARGET — it has no data-option-id, so drag-drop never resolves it as a
+                // column and dropping onto it cannot clear a value (#272). Its cards ARE drag
+                // SOURCES though: dragging one onto an option column sets that option on the note
+                // with the same single write as any other move (#375). The cards carry no
+                // data-option-id either, so the drag reports "no source option" (null).
                 var unclassifiedExpanded = expandedColumns.Contains(UnclassifiedColumnKey);
                 var unclassifiedVisible = unclassifiedExpanded ? unclassifiedNotes : unclassifiedNotes.Take(CardsPerColumnLimit).ToList();
                 var unclassifiedHidden = unclassifiedNotes.Count - unclassifiedVisible.Count;
@@ -140,10 +143,24 @@
                         {
                             var capturedNote = note;
                             <div class="board-card"
+                                 draggable="true"
                                  data-note-id="@capturedNote.Id"
                                  @onclick="() => EditNote(capturedNote.Id)">
-                                <div class="board-card-title">
-                                    @(string.IsNullOrWhiteSpace(capturedNote.Title) ? "(No title)" : capturedNote.Title)
+                                <div class="board-card-header">
+                                    <div class="board-card-title">
+                                        @(string.IsNullOrWhiteSpace(capturedNote.Title) ? "(No title)" : capturedNote.Title)
+                                    </div>
+                                    @* Touch fallback (#273/#375): the kebab sheet is the only way to assign a
+                                       value on touch, where dragstart/drop never fire. No source option here. *@
+                                    <button class="board-card-move"
+                                            type="button"
+                                            draggable="false"
+                                            title="Move to another column"
+                                            aria-label="Move to another column"
+                                            @onclick="() => OpenMoveSheet(capturedNote, null)"
+                                            @onclick:stopPropagation="true">
+                                        &#8942;
+                                    </button>
                                 </div>
                                 @OtherPropertyChips(capturedNote)
                                 <div class="board-card-date">
@@ -206,7 +223,10 @@
 
 @* Move sheet: touch-friendly fallback (#273) to change a card's column when HTML5
    drag-drop is unavailable. Lists the grouping property's options; tapping one moves
-   the note via the same persistence path as a desktop drop. *@
+   the note via the same persistence path as a desktop drop. It also carries the only
+   "No value" (clear the value) action on the board: once every note has a value the
+   virtual "No value" column is not rendered at all, so there is no column to drag a
+   card back into — the sheet entry is what keeps clearing reachable (#375 review). *@
 @if (showMoveSheet)
 {
     <div class="board-dialog-overlay" @onclick="CloseMoveSheet">
@@ -234,6 +254,18 @@
                         }
                     </button>
                 }
+                @{
+                    var hasNoValue = moveFromOptionId is null;
+                }
+                <button class="board-move-option board-move-option-clear @(hasNoValue ? "current" : "")"
+                        disabled="@hasNoValue"
+                        @onclick="ClearViaSheet">
+                    <span class="board-move-option-name">No value</span>
+                    @if (hasNoValue)
+                    {
+                        <span class="board-move-option-badge">Current</span>
+                    }
+                </button>
             </div>
         </div>
     </div>
@@ -274,7 +306,8 @@
     // ── Move sheet state (touch fallback for HTML5 drag-drop, #273) ───────────
     private bool showMoveSheet = false;
     private Guid moveNoteId;
-    private Guid moveFromOptionId;
+    // null when the sheet was opened from a "No value" card — no option is the current one (#375).
+    private Guid? moveFromOptionId;
     private string moveNoteTitle = "";
     private IReadOnlyList<PropertyOption> moveSheetOptions = [];
 
@@ -346,49 +379,57 @@
 
     // ── Called by JS when a card is dropped on a different column ─────────────
 
+    /// <summary><paramref name="fromOptionIdStr"/> is null for a card dragged out of the "No value"
+    /// column — the note simply has no value for the grouping property yet (#375). It is reported
+    /// for logging only; the move itself is the same single set-value write either way.</summary>
     [JSInvokable]
-    public async Task OnDropFromJs(string noteIdStr, string fromOptionIdStr, string toOptionIdStr)
+    public async Task OnDropFromJs(string noteIdStr, string? fromOptionIdStr, string toOptionIdStr)
     {
         if (!Guid.TryParse(noteIdStr, out var noteId)) return;
-        if (!Guid.TryParse(fromOptionIdStr, out var fromOptionId)) return;
         if (!Guid.TryParse(toOptionIdStr, out var toOptionId)) return;
+        Guid? fromOptionId = Guid.TryParse(fromOptionIdStr, out var parsedFrom) ? parsedFrom : null;
         await MoveNoteToOptionAsync(noteId, fromOptionId, toOptionId);
     }
 
     // Shared move logic used by both the desktop HTML5 drop (OnDropFromJs) and the
-    // touch move sheet (MoveViaSheet) so both paths persist identically (#273).
-    private async Task MoveNoteToOptionAsync(Guid noteId, Guid fromOptionId, Guid toOptionId)
+    // touch move sheet (MoveViaSheet / ClearViaSheet) so every path persists identically (#273).
+    // A null fromOptionId means the note had no value for the grouping property, i.e. it came
+    // from the "No value" column (#375); assigning a value is the same single write as a move.
+    // A null toOptionId means the value is being CLEARED — the note moves back to "No value"
+    // (#375 review). Clearing is only reachable from the move sheet, never from a drop: the
+    // "No value" column carries no data-option-id and is not rendered at all once every note
+    // has a value, so a drop target for it cannot be relied on.
+    private async Task MoveNoteToOptionAsync(Guid noteId, Guid? fromOptionId, Guid? toOptionId)
     {
         var definition = groupDefinition;
         if (definition is null) return;
 
-        // Resolve target option from the current grouping property
-        var targetOption = definition.Options.FirstOrDefault(o => o.Id == toOptionId);
-        if (targetOption is null)
+        // Resolve target option from the current grouping property (skipped when clearing)
+        if (toOptionId is { } targetId && !definition.Options.Any(o => o.Id == targetId))
         {
             Logger.LogWarning("Drop target option {OptionId} not found on property {DefinitionId}.",
-                toOptionId, definition.Id);
+                targetId, definition.Id);
             return;
         }
 
         var note = notes.FirstOrDefault(n => n.Id == noteId);
 
-        // Snapshot the note's property values before mutation for rollback
+        // Snapshot the note's property values before mutation for rollback. The optimistic update
+        // below never mutates an existing NotePropertyValue in place — it replaces or removes the
+        // entry — so this shallow list copy is a faithful snapshot to restore on failure.
         var originalProperties = note?.Properties.ToList();
 
         // Optimistic update — move card immediately
         if (note is not null)
         {
-            var existing = note.Properties.FirstOrDefault(p => p.DefinitionId == definition.Id);
-            if (existing is not null)
-                existing.OptionId = toOptionId;
-            else
+            note.Properties.RemoveAll(p => p.DefinitionId == definition.Id);
+            if (toOptionId is { } newOptionId)
                 note.Properties.Add(new NotePropertyValue
                 {
                     DefinitionId = definition.Id,
                     Name = definition.Name,
                     Type = PropertyType.Select,
-                    OptionId = toOptionId
+                    OptionId = newOptionId
                 });
         }
 
@@ -401,11 +442,22 @@
         // both clears the old column and fills the new one atomically. A separate clear-then-set would
         // leave a window where a mid-move failure strips the value and drops the note out of every
         // column; the single set has no such partial-failure mode — on failure the server is unchanged
-        // and the note keeps its original option (#271).
-        var setResult = await PropertyService.SetValueAsync(
-            noteId, definition.Id, new SetNotePropertyValueRequest { OptionId = toOptionId });
+        // and the note keeps its original option (#271). Clearing is likewise one DELETE.
+        bool isSuccess;
+        bool isForbidden;
+        if (toOptionId is { } optionId)
+        {
+            var setResult = await PropertyService.SetValueAsync(
+                noteId, definition.Id, new SetNotePropertyValueRequest { OptionId = optionId });
+            (isSuccess, isForbidden) = (setResult.IsSuccess, setResult.IsForbidden);
+        }
+        else
+        {
+            var clearResult = await PropertyService.ClearValueAsync(noteId, definition.Id);
+            (isSuccess, isForbidden) = (clearResult.IsSuccess, clearResult.IsForbidden);
+        }
 
-        if (!setResult.IsSuccess)
+        if (!isSuccess)
         {
             Logger.LogError(
                 "Failed to persist property move for note {NoteId} ({FromOption} → {ToOption}).",
@@ -421,9 +473,11 @@
             // Reload from server to guarantee UI matches DB
             await LoadNotesForCurrentGroup();
             Snackbar.Add(
-                setResult.IsForbidden
+                isForbidden
                     ? "That note is archived and is read-only. Changes have been reverted."
-                    : "Failed to move note. Changes have been reverted.",
+                    : toOptionId is null
+                        ? "Failed to clear the value. Changes have been reverted."
+                        : "Failed to move note. Changes have been reverted.",
                 Severity.Error);
         }
     }
@@ -491,7 +545,7 @@
 
     // ── Move sheet (touch fallback for HTML5 drag-drop, #273) ─────────────────
 
-    private void OpenMoveSheet(NoteSummary note, Guid fromOptionId)
+    private void OpenMoveSheet(NoteSummary note, Guid? fromOptionId)
     {
         moveNoteId = note.Id;
         moveFromOptionId = fromOptionId;
@@ -513,6 +567,19 @@
         CloseMoveSheet();
         if (toOptionId == fromOptionId) return;
         await MoveNoteToOptionAsync(noteId, fromOptionId, toOptionId);
+    }
+
+    /// <summary>Clears the grouping property's value, sending the note back to the "No value"
+    /// column. This is the only way to unset it from the board: the "No value" column is not a
+    /// drop target, and once every note has a value it is not rendered at all, so there would
+    /// otherwise be nothing to drag a card back into (#375 review).</summary>
+    private async Task ClearViaSheet()
+    {
+        var noteId = moveNoteId;
+        var fromOptionId = moveFromOptionId;
+        CloseMoveSheet();
+        if (fromOptionId is null) return;
+        await MoveNoteToOptionAsync(noteId, fromOptionId, toOptionId: null);
     }
 
     // ── Add note dialog ───────────────────────────────────────────────────────
