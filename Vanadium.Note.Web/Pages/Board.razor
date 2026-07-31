@@ -124,8 +124,11 @@
             @if (unclassifiedNotes.Any())
             {
                 // "No value" virtual column: notes carrying no value for the grouping property. It is
-                // display-only — no data-option-id (so drag-drop ignores it as a drop target) and
-                // its cards are not draggable, keeping the set-value move semantics one-directional (#272).
+                // not a drop TARGET — it has no data-option-id, so drag-drop never resolves it as a
+                // column and dropping onto it cannot clear a value (#272). Its cards ARE drag
+                // SOURCES though: dragging one onto an option column sets that option on the note
+                // with the same single write as any other move (#375). The cards carry no
+                // data-option-id either, so the drag reports "no source option" (null).
                 var unclassifiedExpanded = expandedColumns.Contains(UnclassifiedColumnKey);
                 var unclassifiedVisible = unclassifiedExpanded ? unclassifiedNotes : unclassifiedNotes.Take(CardsPerColumnLimit).ToList();
                 var unclassifiedHidden = unclassifiedNotes.Count - unclassifiedVisible.Count;
@@ -140,10 +143,24 @@
                         {
                             var capturedNote = note;
                             <div class="board-card"
+                                 draggable="true"
                                  data-note-id="@capturedNote.Id"
                                  @onclick="() => EditNote(capturedNote.Id)">
-                                <div class="board-card-title">
-                                    @(string.IsNullOrWhiteSpace(capturedNote.Title) ? "(No title)" : capturedNote.Title)
+                                <div class="board-card-header">
+                                    <div class="board-card-title">
+                                        @(string.IsNullOrWhiteSpace(capturedNote.Title) ? "(No title)" : capturedNote.Title)
+                                    </div>
+                                    @* Touch fallback (#273/#375): the kebab sheet is the only way to assign a
+                                       value on touch, where dragstart/drop never fire. No source option here. *@
+                                    <button class="board-card-move"
+                                            type="button"
+                                            draggable="false"
+                                            title="Move to another column"
+                                            aria-label="Move to another column"
+                                            @onclick="() => OpenMoveSheet(capturedNote, null)"
+                                            @onclick:stopPropagation="true">
+                                        &#8942;
+                                    </button>
                                 </div>
                                 @OtherPropertyChips(capturedNote)
                                 <div class="board-card-date">
@@ -274,7 +291,8 @@
     // ── Move sheet state (touch fallback for HTML5 drag-drop, #273) ───────────
     private bool showMoveSheet = false;
     private Guid moveNoteId;
-    private Guid moveFromOptionId;
+    // null when the sheet was opened from a "No value" card — no option is the current one (#375).
+    private Guid? moveFromOptionId;
     private string moveNoteTitle = "";
     private IReadOnlyList<PropertyOption> moveSheetOptions = [];
 
@@ -346,18 +364,23 @@
 
     // ── Called by JS when a card is dropped on a different column ─────────────
 
+    /// <summary><paramref name="fromOptionIdStr"/> is null for a card dragged out of the "No value"
+    /// column — the note simply has no value for the grouping property yet (#375). It is reported
+    /// for logging only; the move itself is the same single set-value write either way.</summary>
     [JSInvokable]
-    public async Task OnDropFromJs(string noteIdStr, string fromOptionIdStr, string toOptionIdStr)
+    public async Task OnDropFromJs(string noteIdStr, string? fromOptionIdStr, string toOptionIdStr)
     {
         if (!Guid.TryParse(noteIdStr, out var noteId)) return;
-        if (!Guid.TryParse(fromOptionIdStr, out var fromOptionId)) return;
         if (!Guid.TryParse(toOptionIdStr, out var toOptionId)) return;
+        Guid? fromOptionId = Guid.TryParse(fromOptionIdStr, out var parsedFrom) ? parsedFrom : null;
         await MoveNoteToOptionAsync(noteId, fromOptionId, toOptionId);
     }
 
     // Shared move logic used by both the desktop HTML5 drop (OnDropFromJs) and the
     // touch move sheet (MoveViaSheet) so both paths persist identically (#273).
-    private async Task MoveNoteToOptionAsync(Guid noteId, Guid fromOptionId, Guid toOptionId)
+    // A null fromOptionId means the note had no value for the grouping property, i.e. it came
+    // from the "No value" column (#375); assigning a value is the same single write as a move.
+    private async Task MoveNoteToOptionAsync(Guid noteId, Guid? fromOptionId, Guid toOptionId)
     {
         var definition = groupDefinition;
         if (definition is null) return;
@@ -491,7 +514,7 @@
 
     // ── Move sheet (touch fallback for HTML5 drag-drop, #273) ─────────────────
 
-    private void OpenMoveSheet(NoteSummary note, Guid fromOptionId)
+    private void OpenMoveSheet(NoteSummary note, Guid? fromOptionId)
     {
         moveNoteId = note.Id;
         moveFromOptionId = fromOptionId;

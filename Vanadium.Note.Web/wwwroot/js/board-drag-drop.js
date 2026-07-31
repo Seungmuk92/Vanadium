@@ -27,7 +27,10 @@ window.boardDragDrop = (() => {
         if (!card) return;
 
         _draggingNoteId = card.dataset.noteId;
-        _draggingFromOptionId = card.dataset.optionId;
+        // Cards in the "No value" column carry no data-option-id: the note has no value for the
+        // grouping property yet (#375). Normalize the missing attribute to null so it stays a
+        // valid drag source — the drop still resolves to a single set-value write on the target.
+        _draggingFromOptionId = card.dataset.optionId ?? null;
         console.debug(`[board] Drag started: noteId=${_draggingNoteId}, fromOption=${_draggingFromOptionId}`);
 
         // Required: without setData the drag simply won't start in most browsers
