@@ -55,6 +55,8 @@ dotnet ef database update --project Vanadium.Note.REST
 
 ### Docker (production)
 
+Server-side runbook (install, env vars, HTTPS/proxy, backup, rollback, troubleshooting): `docs/deployment.md`.
+
 ```bash
 docker compose up -d
 ```
@@ -71,6 +73,8 @@ Required env vars for `docker-compose.yml`: `DB_PASSWORD`, `AUTH_JWT_SECRET`, `A
 docker login
 .\publish.ps1 -Version 0.2.0
 ```
+
+Operator-facing version of the same procedure, plus the deploy/rollback steps that follow it: `docs/deployment.md`.
 
 It fails fast before any Docker work: Docker Hub login pre-check, no pre-existing git tag, clean working tree, and `dotnet test Vanadium.slnx` must pass. Build and push are a single `docker buildx build --push`, so a partial publish cannot leave one tag pushed and the other not. Switches: `-Platform` (default `linux/amd64` — pin it, because a Windows Docker Desktop build silently produces host-arch-only images; a comma-separated list builds a multi-arch manifest through an auto-created `docker-container` buildx builder), `-NoLatest` (do not move `:latest` — use when re-publishing an older line), `-SkipTests`, `-SkipLoginCheck`, `-NoGitTag`, `-AllowDirty`.
 
