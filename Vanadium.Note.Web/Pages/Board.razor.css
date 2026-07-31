@@ -8,21 +8,21 @@
     overflow: hidden;
 }
 
-/* ── Top bar (category selector) ─────────────────────────────────────────── */
+/* ── Top bar (grouping property selector) ────────────────────────────────── */
 
 .board-top-bar {
     flex-shrink: 0;
     padding-bottom: 0.75rem;
 }
 
-.board-category-selector {
+.board-group-selector {
     display: flex;
     align-items: center;
     gap: 0.4rem;
     flex-wrap: wrap;
 }
 
-.board-cat-label {
+.board-group-label {
     font-size: 0.82rem;
     font-weight: 600;
     opacity: 0.5;
@@ -30,7 +30,7 @@
     white-space: nowrap;
 }
 
-.board-cat-btn {
+.board-group-btn {
     padding: 0.28rem 0.85rem;
     border-radius: 999px;
     border: 1px solid var(--mud-palette-divider);
@@ -42,17 +42,17 @@
     white-space: nowrap;
 }
 
-.board-cat-btn:hover {
+.board-group-btn:hover {
     background-color: var(--vn-note-hover-bg);
 }
 
-.board-cat-btn.active {
+.board-group-btn.active {
     background-color: var(--mud-palette-primary);
     border-color: var(--mud-palette-primary);
     color: #fff;
 }
 
-.board-no-categories {
+.board-no-properties {
     font-size: 0.85rem;
     opacity: 0.55;
 }
@@ -228,7 +228,7 @@
     border-bottom-color: var(--mud-palette-primary);
 }
 
-/* "No label" virtual column (#272): notes with none of this category's labels.
+/* "No value" virtual column (#272): notes with no value for the grouping property.
    Dashed border marks it as a non-droppable, display-only column. */
 .board-column-unclassified {
     border-style: dashed;
@@ -305,7 +305,7 @@
     }
 }
 
-.board-card-labels {
+.board-card-props {
     display: flex;
     flex-wrap: wrap;
     gap: 0.2rem;
@@ -321,10 +321,6 @@
     border-radius: 999px;
     border: 1px solid var(--mud-palette-divider);
     opacity: 0.7;
-}
-
-.board-card-chip-cat {
-    border-color: var(--mud-palette-primary-darken);
 }
 
 .board-card-chip-prefix {

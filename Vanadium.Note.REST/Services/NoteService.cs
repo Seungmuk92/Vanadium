@@ -26,7 +26,6 @@ public class NoteService(
         string? search,
         string sortBy,
         string sortDir,
-        Guid[]? labelIds,
         IReadOnlyList<PropertyFilter>? propertyFilters = null,
         CancellationToken ct = default)
     {
@@ -44,12 +43,12 @@ public class NoteService(
         var resolvedFilters = await ResolveFiltersAsync(propertyFilters, ct);
         var sortDefinition = rootOnly ? await ResolveSortDefinitionAsync(sortBy, ct) : null;
 
-        // Lean query for COUNT — no joins to label/category tables
-        var countQuery = ApplyPropertyFilters(ApplyFilters(baseNotes, search, labelIds), resolvedFilters);
+        // Lean query for COUNT — no projection of per-note collections
+        var countQuery = ApplyPropertyFilters(ApplyFilters(baseNotes, search), resolvedFilters);
         var totalCount = await countQuery.CountAsync(ct);
 
         // Full query for data — projects to NoteSummary to avoid fetching large Content column
-        var baseDataQuery = ApplyPropertyFilters(ApplyFilters(baseNotes, search, labelIds), resolvedFilters);
+        var baseDataQuery = ApplyPropertyFilters(ApplyFilters(baseNotes, search), resolvedFilters);
 
         IQueryable<NoteItem> orderedQuery;
         if (!string.IsNullOrWhiteSpace(search))
@@ -75,13 +74,6 @@ public class NoteService(
                 n.UpdatedAt,
                 n.ParentNoteId,
                 IsArchived = n.ArchivedAt != null,
-                Labels = n.NoteLabels.Select(nl => new LabelSummary
-                {
-                    Id = nl.Label.Id,
-                    Name = nl.Label.Name,
-                    CategoryId = nl.Label.CategoryId,
-                    CategoryName = nl.Label.Category == null ? null : nl.Label.Category.Name
-                }).ToList(),
                 Properties = n.PropertyValues.Select(v => new PropertyValueProjection
                 {
                     DefinitionId = v.DefinitionId,
@@ -128,7 +120,6 @@ public class NoteService(
                 ParentTitle = n.ParentNoteId.HasValue ? parentTitles.GetValueOrDefault(n.ParentNoteId.Value) : null,
                 ChildCount = childCounts.GetValueOrDefault(n.Id),
                 IsArchived = n.IsArchived,
-                Labels = OrderLabelsForDisplay(n.Labels).ToList(),
                 Properties = ToValueDtos(n.Properties)
             }).ToList(),
             TotalCount = totalCount,
@@ -138,18 +129,13 @@ public class NoteService(
     }
 
     public async Task<List<NoteSummary>> GetAllSummaries(
-        Guid[]? labelIds = null,
         IReadOnlyList<PropertyFilter>? propertyFilters = null,
         CancellationToken ct = default)
     {
-        // The board never shows archived notes.
+        // Summaries never include archived notes.
         var query = db.Notes.Where(n => n.ArchivedAt == null);
 
-        // OR logic: notes that have ANY of the specified labels
-        if (labelIds is { Length: > 0 })
-            query = query.Where(n => n.NoteLabels.Any(nl => labelIds.Contains(nl.LabelId)));
-
-        // AND semantics across pf entries (documented asymmetry with labelIds' OR on this endpoint).
+        // AND semantics across pf entries.
         var resolvedFilters = await ResolveFiltersAsync(propertyFilters, ct);
         query = ApplyPropertyFilters(query, resolvedFilters);
 
@@ -161,13 +147,6 @@ public class NoteService(
                 n.Title,
                 n.UpdatedAt,
                 n.ParentNoteId,
-                Labels = n.NoteLabels.Select(nl => new LabelSummary
-                {
-                    Id = nl.Label.Id,
-                    Name = nl.Label.Name,
-                    CategoryId = nl.Label.CategoryId,
-                    CategoryName = nl.Label.Category == null ? null : nl.Label.Category.Name
-                }).ToList(),
                 Properties = n.PropertyValues.Select(v => new PropertyValueProjection
                 {
                     DefinitionId = v.DefinitionId,
@@ -194,7 +173,6 @@ public class NoteService(
             UpdatedAt = n.UpdatedAt,
             ParentNoteId = n.ParentNoteId,
             ChildCount = childCounts.GetValueOrDefault(n.Id),
-            Labels = OrderLabelsForDisplay(n.Labels).ToList(),
             Properties = ToValueDtos(n.Properties)
         }).ToList();
     }
@@ -209,14 +187,7 @@ public class NoteService(
                 n.Id,
                 n.Title,
                 n.UpdatedAt,
-                n.ParentNoteId,
-                Labels = n.NoteLabels.Select(nl => new LabelSummary
-                {
-                    Id = nl.Label.Id,
-                    Name = nl.Label.Name,
-                    CategoryId = nl.Label.CategoryId,
-                    CategoryName = nl.Label.Category == null ? null : nl.Label.Category.Name
-                }).ToList()
+                n.ParentNoteId
             })
             .ToListAsync(ct);
 
@@ -229,17 +200,13 @@ public class NoteService(
             Title = n.Title,
             UpdatedAt = n.UpdatedAt,
             ParentNoteId = n.ParentNoteId,
-            ChildCount = childCounts.GetValueOrDefault(n.Id),
-            Labels = OrderLabelsForDisplay(n.Labels).ToList()
+            ChildCount = childCounts.GetValueOrDefault(n.Id)
         }).ToList();
     }
 
     public async Task<NoteItem?> Get(Guid id, CancellationToken ct = default)
     {
         var note = await db.Notes
-            .Include(n => n.NoteLabels)
-            .ThenInclude(nl => nl.Label)
-            .ThenInclude(l => l.Category)
             .Include(n => n.PropertyValues)
             .ThenInclude(v => v.Definition)
             .Include(n => n.PropertyValues)
@@ -248,7 +215,6 @@ public class NoteService(
 
         if (note is null) return null;
 
-        PopulateLabels(note);
         PopulateProperties(note);
         note.ChildCount = await db.Notes.CountAsync(n => n.ParentNoteId == id, ct);
 
@@ -650,7 +616,7 @@ public class NoteService(
         => lifecycle.PurgeExpired(cutoffUtc, ct);
 
     private static IQueryable<NoteItem> ApplyFilters(
-        IQueryable<NoteItem> query, string? search, Guid[]? labelIds)
+        IQueryable<NoteItem> query, string? search)
     {
         if (!string.IsNullOrWhiteSpace(search))
         {
@@ -664,10 +630,6 @@ public class NoteService(
                     EF.Functions.ILike(n.ContentText, pattern));
             }
         }
-
-        if (labelIds is { Length: > 0 })
-            foreach (var id in labelIds)
-                query = query.Where(n => n.NoteLabels.Any(nl => nl.LabelId == id));
 
         return query;
     }
@@ -685,30 +647,6 @@ public class NoteService(
             .Select(g => new { ParentId = g.Key, Count = g.Count() })
             .ToDictionaryAsync(x => x.ParentId, x => x.Count, ct);
     }
-
-    private static void PopulateLabels(NoteItem note)
-    {
-        note.Labels = OrderLabelsForDisplay(
-            note.NoteLabels.Select(nl => new LabelSummary
-            {
-                Id = nl.Label.Id,
-                Name = nl.Label.Name,
-                CategoryId = nl.Label.CategoryId,
-                CategoryName = nl.Label.Category?.Name
-            }))
-            .ToList();
-    }
-
-    /// <summary>
-    /// Orders labels for display so category and general labels do not interleave
-    /// (issue #186): category labels first, grouped by category name, then general
-    /// labels, sorted alphabetically by name within each group.
-    /// </summary>
-    private static IOrderedEnumerable<LabelSummary> OrderLabelsForDisplay(IEnumerable<LabelSummary> labels) =>
-        labels
-            .OrderBy(l => l.CategoryId.HasValue ? 0 : 1)
-            .ThenBy(l => l.CategoryName)
-            .ThenBy(l => l.Name);
 
     // ── Note Properties (issue #343) ─────────────────────────────────────────────
 

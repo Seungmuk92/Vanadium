@@ -11,7 +11,7 @@ namespace Vanadium.Note.REST.Controllers;
 [Authorize]
 [ApiController]
 [Route("api/[controller]")]
-public class NotesController(NoteService noteService, LabelService labelService, NoteDbContext db, ILogger<NotesController> logger) : ControllerBase
+public class NotesController(NoteService noteService, NoteDbContext db, ILogger<NotesController> logger) : ControllerBase
 {
     [HttpGet]
     public async Task<ActionResult<PagedResult<NoteSummary>>> GetAll(
@@ -20,21 +20,15 @@ public class NotesController(NoteService noteService, LabelService labelService,
         [FromQuery][MaxLength(200)] string? search = null,
         [FromQuery] string sortBy = "date",
         [FromQuery] string sortDir = "desc",
-        [FromQuery] Guid[]? labelIds = null,
         [FromQuery] string[]? pf = null,
-        [FromQuery] bool includeLabels = false,
         CancellationToken ct = default)
     {
         page = Math.Max(1, page);
         pageSize = Math.Clamp(pageSize, 1, 200);
-        if (labelIds is { Length: > 50 })
-            return Problem(detail: "Too many label IDs (maximum 50).", statusCode: StatusCodes.Status400BadRequest);
         try
         {
             var propertyFilters = ParsePropertyFilters(pf);
-            var result = await noteService.GetPaged(page, pageSize, search, sortBy, sortDir, labelIds, propertyFilters, ct);
-            if (includeLabels)
-                result.Labels = await labelService.GetAllLabelsAsync();
+            var result = await noteService.GetPaged(page, pageSize, search, sortBy, sortDir, propertyFilters, ct);
             return Ok(result);
         }
         catch (NoteService.PropertyQueryException ex)
@@ -70,20 +64,17 @@ public class NotesController(NoteService noteService, LabelService labelService,
 
     [HttpGet("summaries")]
     public async Task<ActionResult<List<NoteSummary>>> GetSummaries(
-        [FromQuery] Guid[]? labelIds = null,
         [FromQuery] string[]? pf = null,
         CancellationToken ct = default)
     {
-        if (labelIds is { Length: > 50 })
-            return Problem(detail: "Too many label IDs (maximum 50).", statusCode: StatusCodes.Status400BadRequest);
         try
         {
             var propertyFilters = ParsePropertyFilters(pf);
-            return Ok(await noteService.GetAllSummaries(labelIds, propertyFilters, ct));
+            return Ok(await noteService.GetAllSummaries(propertyFilters, ct));
         }
         catch (NoteService.PropertyQueryException ex)
         {
-            logger.LogWarning("Rejected board summaries query — invalid property filter: {Message}", ex.Message);
+            logger.LogWarning("Rejected note summaries query — invalid property filter: {Message}", ex.Message);
             return Problem(detail: ex.Message, statusCode: StatusCodes.Status400BadRequest);
         }
     }

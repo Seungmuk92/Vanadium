@@ -15,7 +15,7 @@ public class PropertyFilterSortTests
 
     private static async Task<HashSet<Guid>> FilterIds(TestHost h, params PropertyFilter[] filters)
     {
-        var result = await h.Notes.GetPaged(1, 50, null, "date", "desc", null, Pf(filters));
+        var result = await h.Notes.GetPaged(1, 50, null, "date", "desc", Pf(filters));
         return result.Items.Select(n => n.Id).ToHashSet();
     }
 
@@ -130,10 +130,10 @@ public class PropertyFilterSortTests
         await h.Properties.SetValueAsync(three.Id, num.Id, new SetNotePropertyValueRequest { NumberValue = 3 });
         await h.Properties.SetValueAsync(one.Id, num.Id, new SetNotePropertyValueRequest { NumberValue = 1 });
 
-        var asc = await h.Notes.GetPaged(1, 50, null, $"prop:{num.Id}", "asc", null);
+        var asc = await h.Notes.GetPaged(1, 50, null, $"prop:{num.Id}", "asc");
         Assert.Equal([one.Id, three.Id, empty.Id], asc.Items.Select(n => n.Id));
 
-        var desc = await h.Notes.GetPaged(1, 50, null, $"prop:{num.Id}", "desc", null);
+        var desc = await h.Notes.GetPaged(1, 50, null, $"prop:{num.Id}", "desc");
         // Empties still last, values descending.
         Assert.Equal([three.Id, one.Id, empty.Id], desc.Items.Select(n => n.Id));
     }
@@ -151,7 +151,7 @@ public class PropertyFilterSortTests
         await h.Properties.SetValueAsync(noteDoing.Id, sel.Id, new SetNotePropertyValueRequest { OptionId = doing!.Id });
         await h.Properties.SetValueAsync(noteTodo.Id, sel.Id, new SetNotePropertyValueRequest { OptionId = todo!.Id });
 
-        var asc = await h.Notes.GetPaged(1, 50, null, $"prop:{sel.Id}", "asc", null);
+        var asc = await h.Notes.GetPaged(1, 50, null, $"prop:{sel.Id}", "asc");
         Assert.Equal([noteTodo.Id, noteDoing.Id], asc.Items.Select(n => n.Id));
     }
 
@@ -165,22 +165,22 @@ public class PropertyFilterSortTests
 
         // Unknown definition id.
         await Assert.ThrowsAsync<NoteService.PropertyQueryException>(
-            () => h.Notes.GetPaged(1, 50, null, "date", "desc", null,
+            () => h.Notes.GetPaged(1, 50, null, "date", "desc",
                 Pf(new PropertyFilter(Guid.NewGuid(), PropertyFilterOp.Eq, "1"))));
         // Op/type mismatch (lt on nothing… actually contains-like op on Number is fine; use anyof on Number).
         await Assert.ThrowsAsync<NoteService.PropertyQueryException>(
-            () => h.Notes.GetPaged(1, 50, null, "date", "desc", null,
+            () => h.Notes.GetPaged(1, 50, null, "date", "desc",
                 Pf(new PropertyFilter(num.Id, PropertyFilterOp.AnyOf, "x"))));
         // Unparsable number.
         await Assert.ThrowsAsync<NoteService.PropertyQueryException>(
-            () => h.Notes.GetPaged(1, 50, null, "date", "desc", null,
+            () => h.Notes.GetPaged(1, 50, null, "date", "desc",
                 Pf(new PropertyFilter(num.Id, PropertyFilterOp.Gt, "notanumber"))));
         // Sort by unknown definition.
         await Assert.ThrowsAsync<NoteService.PropertyQueryException>(
-            () => h.Notes.GetPaged(1, 50, null, $"prop:{Guid.NewGuid()}", "asc", null));
+            () => h.Notes.GetPaged(1, 50, null, $"prop:{Guid.NewGuid()}", "asc"));
         // Sort by MultiSelect is rejected.
         await Assert.ThrowsAsync<NoteService.PropertyQueryException>(
-            () => h.Notes.GetPaged(1, 50, null, $"prop:{multi.Id}", "asc", null));
+            () => h.Notes.GetPaged(1, 50, null, $"prop:{multi.Id}", "asc"));
     }
 
     // T-11 (filter cap)
@@ -192,7 +192,7 @@ public class PropertyFilterSortTests
         var filters = Enumerable.Range(0, 21)
             .Select(_ => new PropertyFilter(num.Id, PropertyFilterOp.Gt, "0")).ToArray();
         await Assert.ThrowsAsync<NoteService.PropertyQueryException>(
-            () => h.Notes.GetPaged(1, 50, null, "date", "desc", null, Pf(filters)));
+            () => h.Notes.GetPaged(1, 50, null, "date", "desc", Pf(filters)));
     }
 
     // T-21
@@ -205,7 +205,7 @@ public class PropertyFilterSortTests
         var no = await h.CreateNoteAsync("no");
         await h.Properties.SetValueAsync(yes.Id, done.Id, new SetNotePropertyValueRequest { BoolValue = true });
 
-        var summaries = await h.Notes.GetAllSummaries(null, Pf(new PropertyFilter(done.Id, PropertyFilterOp.Eq, "true")));
+        var summaries = await h.Notes.GetAllSummaries(Pf(new PropertyFilter(done.Id, PropertyFilterOp.Eq, "true")));
         Assert.Equal([yes.Id], summaries.Select(s => s.Id));
         // The projected Properties carry the value for list chips.
         Assert.True(summaries.Single().Properties.Single(p => p.DefinitionId == done.Id).BoolValue);

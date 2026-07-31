@@ -35,7 +35,7 @@ public class ArchiveServiceTests
         Assert.False(c1.IsArchiveRoot);
         Assert.False(c2.IsArchiveRoot);
 
-        // Hidden from the Home list (non-search) and the Board summaries.
+        // Hidden from the Home list (non-search) and the summaries list.
         var paged = await h.Notes.GetPaged(1, 30, null, "date", "desc", null);
         Assert.DoesNotContain(paged.Items, i => i.Id == root.Id);
         var summaries = await h.Notes.GetAllSummaries();
@@ -249,23 +249,6 @@ public class ArchiveServiceTests
         Assert.False(conflict);
         Assert.True(archived);
         Assert.Equal("Read-only", (await h.FindAsync(note.Id))!.Title);
-    }
-
-    [Fact]
-    public async Task LabelMutations_OnArchivedNote_Throw()
-    {
-        using var h = new TestHost();
-        var note = await h.CreateNoteAsync("Labelled");
-        var label = await h.Labels.CreateLabelAsync("todo", null);
-        await h.Labels.AddLabelToNoteAsync(note.Id, label.Id);
-        await h.Notes.Archive(note.Id);
-
-        var other = await h.Labels.CreateLabelAsync("later", null);
-
-        await Assert.ThrowsAsync<LabelService.NoteArchivedException>(() =>
-            h.Labels.AddLabelToNoteAsync(note.Id, other.Id));
-        await Assert.ThrowsAsync<LabelService.NoteArchivedException>(() =>
-            h.Labels.RemoveLabelFromNoteAsync(note.Id, label.Id));
     }
 
     // ── T-10: wrong-state targets ─────────────────────────────────────────────

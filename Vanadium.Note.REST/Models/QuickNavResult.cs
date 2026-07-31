@@ -2,7 +2,7 @@ namespace Vanadium.Note.REST.Models;
 
 /// <summary>
 /// Lean search hit for the Quick Navigation palette.
-/// Intentionally smaller than <see cref="NoteSummary"/>: no labels, child counts, or parent title.
+/// Intentionally smaller than <see cref="NoteSummary"/>: no properties, child counts, or parent title.
 /// </summary>
 public class QuickNavResult
 {

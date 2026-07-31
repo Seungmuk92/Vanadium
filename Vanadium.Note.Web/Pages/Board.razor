@@ -2,7 +2,7 @@
 @attribute [Authorize]
 @using Vanadium.Note.Web.Components
 @inject NoteService NoteService
-@inject LabelService LabelService
+@inject PropertyService PropertyService
 @inject NavigationManager Nav
 @inject IJSRuntime JS
 @inject ILogger<Board> Logger
@@ -13,20 +13,22 @@
 
 <div class="board-page">
     <div class="board-top-bar">
-        <div class="board-category-selector">
-            <span class="board-cat-label">Category:</span>
-            @if (!categories.Any())
+        <div class="board-group-selector">
+            <span class="board-group-label">Group by:</span>
+            @if (!selectProperties.Any())
             {
-                <span class="board-no-categories">No categories yet. Create one in the note editor.</span>
+                <span class="board-no-properties">
+                    No Select properties yet. Create one on the <a href="/properties">Properties</a> page.
+                </span>
             }
             else
             {
-                @foreach (var cat in categories)
+                @foreach (var def in selectProperties)
                 {
-                    var catId = cat.Id;
-                    <button class="board-cat-btn @(selectedCategoryId == catId ? "active" : "")"
-                            @onclick="() => SelectCategory(catId)">
-                        @cat.Name
+                    var defId = def.Id;
+                    <button class="board-group-btn @(groupDefinitionId == defId ? "active" : "")"
+                            @onclick="() => SelectGroupProperty(defId)">
+                        @def.Name
                     </button>
                 }
             }
@@ -38,35 +40,35 @@
     {
         <p class="board-loading-msg">Loading...</p>
     }
-    else if (selectedCategory is null || !selectedCategory.Labels.Any())
+    else if (groupDefinition is null || !groupDefinition.Options.Any())
     {
         <p class="board-empty-msg">
-            @if (!categories.Any())
+            @if (!selectProperties.Any())
             {
-                <span>No categories found. Create a label category in the note editor first.</span>
+                <span>No Select property found. Create one on the Properties page first.</span>
             }
             else
             {
-                <span>This category has no labels.</span>
+                <span>This property has no options.</span>
             }
         </p>
     }
     else
     {
         <div class="board-columns">
-            @foreach (var label in selectedCategory.Labels.OrderBy(l => l.Name))
+            @foreach (var option in groupDefinition.Options.OrderBy(o => o.SortOrder).ThenBy(o => o.Name))
             {
-                var columnLabel = label;
-                var notesForLabel = GetNotesForLabel(columnLabel.Id);
-                var isExpanded = expandedColumns.Contains(columnLabel.Id);
-                var visibleNotes = isExpanded ? notesForLabel : notesForLabel.Take(CardsPerColumnLimit).ToList();
-                var hiddenCount = notesForLabel.Count - visibleNotes.Count;
+                var columnOption = option;
+                var notesForOption = GetNotesForOption(columnOption.Id);
+                var isExpanded = expandedColumns.Contains(columnOption.Id);
+                var visibleNotes = isExpanded ? notesForOption : notesForOption.Take(CardsPerColumnLimit).ToList();
+                var hiddenCount = notesForOption.Count - visibleNotes.Count;
 
                 <div class="board-column"
-                     data-label-id="@columnLabel.Id">
+                     data-option-id="@columnOption.Id">
                     <div class="board-column-header">
-                        <span class="board-column-title">@columnLabel.Name</span>
-                        <span class="board-column-count">@notesForLabel.Count</span>
+                        <span class="board-column-title">@columnOption.Name</span>
+                        <span class="board-column-count">@notesForOption.Count</span>
                     </div>
                     <div class="board-column-cards">
                         @foreach (var note in visibleNotes)
@@ -75,7 +77,7 @@
                             <div class="board-card"
                                  draggable="true"
                                  data-note-id="@capturedNote.Id"
-                                 data-label-id="@columnLabel.Id"
+                                 data-option-id="@columnOption.Id"
                                  @onclick="() => EditNote(capturedNote.Id)">
                                 <div class="board-card-header">
                                     <div class="board-card-title">
@@ -88,29 +90,12 @@
                                             draggable="false"
                                             title="Move to another column"
                                             aria-label="Move to another column"
-                                            @onclick="() => OpenMoveSheet(capturedNote, columnLabel.Id)"
+                                            @onclick="() => OpenMoveSheet(capturedNote, columnOption.Id)"
                                             @onclick:stopPropagation="true">
                                         &#8942;
                                     </button>
                                 </div>
-                                @{
-                                    var otherLabels = capturedNote.Labels.Where(l => l.Id != columnLabel.Id).ToList();
-                                }
-                                @if (otherLabels.Any())
-                                {
-                                    <div class="board-card-labels">
-                                        @foreach (var lbl in otherLabels)
-                                        {
-                                            <span class="board-card-chip @(lbl.CategoryId.HasValue ? "board-card-chip-cat" : "")">
-                                                @if (lbl.CategoryId.HasValue)
-                                                {
-                                                    <span class="board-card-chip-prefix">@lbl.CategoryName:</span>
-                                                }
-                                                @lbl.Name
-                                            </span>
-                                        }
-                                    </div>
-                                }
+                                @OtherPropertyChips(capturedNote)
                                 <div class="board-card-date">
                                     @capturedNote.UpdatedAt.ToLocalTime().ToString("MM-dd HH:mm")
                                 </div>
@@ -120,13 +105,13 @@
                     @if (hiddenCount > 0)
                     {
                         <div class="board-column-showmore">
-                            <button class="board-showmore-btn" @onclick="() => ShowMore(columnLabel.Id)">
+                            <button class="board-showmore-btn" @onclick="() => ShowMore(columnOption.Id)">
                                 Show @hiddenCount more
                             </button>
                         </div>
                     }
                     <div class="board-column-footer">
-                        <button class="board-add-btn" @onclick="() => OpenAddDialog(columnLabel)">
+                        <button class="board-add-btn" @onclick="() => OpenAddDialog(columnOption)">
                             + Add a note
                         </button>
                     </div>
@@ -138,16 +123,16 @@
             }
             @if (unclassifiedNotes.Any())
             {
-                // "No label" virtual column: notes with none of this category's labels. It is
-                // display-only — no data-label-id (so drag-drop ignores it as a drop target) and
-                // its cards are not draggable, keeping the label-move semantics untouched (#272).
+                // "No value" virtual column: notes carrying no value for the grouping property. It is
+                // display-only — no data-option-id (so drag-drop ignores it as a drop target) and
+                // its cards are not draggable, keeping the set-value move semantics one-directional (#272).
                 var unclassifiedExpanded = expandedColumns.Contains(UnclassifiedColumnKey);
                 var unclassifiedVisible = unclassifiedExpanded ? unclassifiedNotes : unclassifiedNotes.Take(CardsPerColumnLimit).ToList();
                 var unclassifiedHidden = unclassifiedNotes.Count - unclassifiedVisible.Count;
 
                 <div class="board-column board-column-unclassified">
                     <div class="board-column-header">
-                        <span class="board-column-title">No label</span>
+                        <span class="board-column-title">No value</span>
                         <span class="board-column-count">@unclassifiedNotes.Count</span>
                     </div>
                     <div class="board-column-cards">
@@ -160,21 +145,7 @@
                                 <div class="board-card-title">
                                     @(string.IsNullOrWhiteSpace(capturedNote.Title) ? "(No title)" : capturedNote.Title)
                                 </div>
-                                @if (capturedNote.Labels.Any())
-                                {
-                                    <div class="board-card-labels">
-                                        @foreach (var lbl in capturedNote.Labels)
-                                        {
-                                            <span class="board-card-chip @(lbl.CategoryId.HasValue ? "board-card-chip-cat" : "")">
-                                                @if (lbl.CategoryId.HasValue)
-                                                {
-                                                    <span class="board-card-chip-prefix">@lbl.CategoryName:</span>
-                                                }
-                                                @lbl.Name
-                                            </span>
-                                        }
-                                    </div>
-                                }
+                                @OtherPropertyChips(capturedNote)
                                 <div class="board-card-date">
                                     @capturedNote.UpdatedAt.ToLocalTime().ToString("MM-dd HH:mm")
                                 </div>
@@ -205,7 +176,7 @@
              @ref="_dialogRef"
              @onclick:stopPropagation="true">
             <div class="board-dialog-header">
-                <h4>New note in &ldquo;<strong>@dialogLabel?.Name</strong>&rdquo;</h4>
+                <h4>New note in &ldquo;<strong>@dialogOption?.Name</strong>&rdquo;</h4>
                 <button class="board-dialog-close" @onclick="CancelDialog">×</button>
             </div>
             <input class="board-dialog-input"
@@ -234,7 +205,7 @@
 }
 
 @* Move sheet: touch-friendly fallback (#273) to change a card's column when HTML5
-   drag-drop is unavailable. Lists the current category's labels; tapping one moves
+   drag-drop is unavailable. Lists the grouping property's options; tapping one moves
    the note via the same persistence path as a desktop drop. *@
 @if (showMoveSheet)
 {
@@ -249,14 +220,14 @@
                 <button class="board-dialog-close" @onclick="CloseMoveSheet">×</button>
             </div>
             <div class="board-move-options">
-                @foreach (var lbl in moveSheetLabels)
+                @foreach (var opt in moveSheetOptions)
                 {
-                    var targetId = lbl.Id;
-                    var isCurrent = targetId == moveFromLabelId;
+                    var targetId = opt.Id;
+                    var isCurrent = targetId == moveFromOptionId;
                     <button class="board-move-option @(isCurrent ? "current" : "")"
                             disabled="@isCurrent"
                             @onclick="() => MoveViaSheet(targetId)">
-                        <span class="board-move-option-name">@lbl.Name</span>
+                        <span class="board-move-option-name">@opt.Name</span>
                         @if (isCurrent)
                         {
                             <span class="board-move-option-badge">Current</span>
@@ -269,27 +240,30 @@
 }
 
 @code {
-    // Cap the cards initially rendered per column so a category with many notes
+    // Cap the cards initially rendered per column so a property with many notes
     // does not grow the board's DOM/render cost without bound (#206). The rest
     // stay reachable behind a per-column "Show more" toggle.
     private const int CardsPerColumnLimit = 50;
 
-    // Sentinel key for the "No label" virtual column in expandedColumns. Real label ids
+    // Sentinel key for the "No value" virtual column in expandedColumns. Real option ids
     // are never Guid.Empty, so it can never collide with an actual column (#272).
     private static readonly Guid UnclassifiedColumnKey = Guid.Empty;
 
     private IReadOnlyList<NoteSummary> notes = [];
-    private List<LabelCategory> categories = [];
+    // Every definition (needed to resolve card chips of any type); the board can only group by
+    // the Select subset.
+    private List<PropertyDefinition> allDefinitions = [];
+    private List<PropertyDefinition> selectProperties = [];
     private readonly List<PropertyFilter> propertyFilters = [];
-    private Guid? selectedCategoryId;
+    private Guid? groupDefinitionId;
     private bool isLoading = false;
-    // Label ids whose column has been expanded past CardsPerColumnLimit.
+    // Option ids whose column has been expanded past CardsPerColumnLimit.
     private readonly HashSet<Guid> expandedColumns = [];
     private DotNetObjectReference<Board>? _dotNetRef;
 
     // ── Dialog state ──────────────────────────────────────────────────────────
     private bool showDialog = false;
-    private Label? dialogLabel;
+    private PropertyOption? dialogOption;
     private string newNoteTitle = "";
     private string? dialogError;
     private bool isAdding = false;
@@ -300,35 +274,42 @@
     // ── Move sheet state (touch fallback for HTML5 drag-drop, #273) ───────────
     private bool showMoveSheet = false;
     private Guid moveNoteId;
-    private Guid moveFromLabelId;
+    private Guid moveFromOptionId;
     private string moveNoteTitle = "";
-    private IReadOnlyList<Label> moveSheetLabels = [];
+    private IReadOnlyList<PropertyOption> moveSheetOptions = [];
 
-    private LabelCategory? selectedCategory =>
-        categories.FirstOrDefault(c => c.Id == selectedCategoryId);
+    private PropertyDefinition? groupDefinition =>
+        selectProperties.FirstOrDefault(d => d.Id == groupDefinitionId);
 
     protected override async Task OnInitializedAsync()
     {
         isLoading = true;
-        var catResult = await LabelService.GetCategoriesAsync();
-        if (!catResult.IsSuccess)
-            Snackbar.Add(catResult.Error ?? "Failed to load categories.", Severity.Error);
-        categories = catResult.Value ?? [];
-        if (categories.Any())
+        var defResult = await PropertyService.GetDefinitionsAsync();
+        if (!defResult.IsSuccess)
+            Snackbar.Add(defResult.Error ?? "Failed to load properties.", Severity.Error);
+        allDefinitions = defResult.Value ?? [];
+        // Columns come from a single-valued Select: a note sits in exactly one column, which is what
+        // makes a drag a plain "set this note's value" write. MultiSelect would put one note in
+        // several columns at once and has no single-source-of-truth column to move it out of.
+        selectProperties = allDefinitions
+            .Where(d => d.Type == PropertyType.Select)
+            .OrderBy(d => d.SortOrder).ThenBy(d => d.Name)
+            .ToList();
+        if (selectProperties.Any())
         {
-            selectedCategoryId = categories[0].Id;
-            await LoadNotesForCurrentCategory();
+            groupDefinitionId = selectProperties[0].Id;
+            await LoadNotesForCurrentGroup();
         }
         isLoading = false;
     }
 
-    private async Task OnPropertyFiltersChanged() => await LoadNotesForCurrentCategory();
+    private async Task OnPropertyFiltersChanged() => await LoadNotesForCurrentGroup();
 
-    private async Task LoadNotesForCurrentCategory()
+    private async Task LoadNotesForCurrentGroup()
     {
         // A fresh load collapses every column back to the cap.
         expandedColumns.Clear();
-        if (selectedCategory is null || !selectedCategory.Labels.Any())
+        if (groupDefinition is null || !groupDefinition.Options.Any())
         {
             notes = [];
             isLoading = false;
@@ -336,9 +317,9 @@
         }
         isLoading = true;
         StateHasChanged();
-        // Load every non-archived note (no label filter) so notes that carry none of this
-        // category's labels are available client-side for the "No label" virtual column (#272).
-        // Server-side label filtering would drop them entirely, making them invisible on the board.
+        // Load every non-archived note (no filter on the grouping property) so notes with no value
+        // for it are available client-side for the "No value" virtual column (#272). Filtering
+        // server-side on the grouping property would drop them entirely, hiding them from the board.
         var notesResult = await NoteService.GetAllSummariesAsync(
             propertyFilters: propertyFilters.Count > 0 ? propertyFilters : null);
         if (!notesResult.IsSuccess)
@@ -366,102 +347,143 @@
     // ── Called by JS when a card is dropped on a different column ─────────────
 
     [JSInvokable]
-    public async Task OnDropFromJs(string noteIdStr, string fromLabelIdStr, string toLabelIdStr)
+    public async Task OnDropFromJs(string noteIdStr, string fromOptionIdStr, string toOptionIdStr)
     {
         if (!Guid.TryParse(noteIdStr, out var noteId)) return;
-        if (!Guid.TryParse(fromLabelIdStr, out var fromLabelId)) return;
-        if (!Guid.TryParse(toLabelIdStr, out var toLabelId)) return;
-        await MoveNoteToLabelAsync(noteId, fromLabelId, toLabelId);
+        if (!Guid.TryParse(fromOptionIdStr, out var fromOptionId)) return;
+        if (!Guid.TryParse(toOptionIdStr, out var toOptionId)) return;
+        await MoveNoteToOptionAsync(noteId, fromOptionId, toOptionId);
     }
 
     // Shared move logic used by both the desktop HTML5 drop (OnDropFromJs) and the
     // touch move sheet (MoveViaSheet) so both paths persist identically (#273).
-    private async Task MoveNoteToLabelAsync(Guid noteId, Guid fromLabelId, Guid toLabelId)
+    private async Task MoveNoteToOptionAsync(Guid noteId, Guid fromOptionId, Guid toOptionId)
     {
-        // Resolve target label object from current category
-        var targetLabel = selectedCategory?.Labels.FirstOrDefault(l => l.Id == toLabelId);
-        if (targetLabel is null)
+        var definition = groupDefinition;
+        if (definition is null) return;
+
+        // Resolve target option from the current grouping property
+        var targetOption = definition.Options.FirstOrDefault(o => o.Id == toOptionId);
+        if (targetOption is null)
         {
-            Logger.LogWarning("Drop target label {LabelId} not found in current category.", toLabelId);
+            Logger.LogWarning("Drop target option {OptionId} not found on property {DefinitionId}.",
+                toOptionId, definition.Id);
             return;
         }
 
         var note = notes.FirstOrDefault(n => n.Id == noteId);
 
-        // Snapshot labels before mutation for rollback
-        var originalLabels = note?.Labels.ToList();
+        // Snapshot the note's property values before mutation for rollback
+        var originalProperties = note?.Properties.ToList();
 
         // Optimistic update — move card immediately
         if (note is not null)
         {
-            note.Labels.RemoveAll(l => l.Id == fromLabelId);
-            if (!note.Labels.Any(l => l.Id == toLabelId))
-                note.Labels.Add(new Label
+            var existing = note.Properties.FirstOrDefault(p => p.DefinitionId == definition.Id);
+            if (existing is not null)
+                existing.OptionId = toOptionId;
+            else
+                note.Properties.Add(new NotePropertyValue
                 {
-                    Id = targetLabel.Id,
-                    Name = targetLabel.Name,
-                    CategoryId = targetLabel.CategoryId,
-                    CategoryName = selectedCategory?.Name
+                    DefinitionId = definition.Id,
+                    Name = definition.Name,
+                    Type = PropertyType.Select,
+                    OptionId = toOptionId
                 });
         }
 
         StateHasChanged();
 
-        Logger.LogInformation("Moving note {NoteId}: label {FromLabel} → {ToLabel}.",
-            noteId, fromLabelId, toLabelId);
+        Logger.LogInformation("Moving note {NoteId} on property {DefinitionId}: option {FromOption} → {ToOption}.",
+            noteId, definition.Id, fromOptionId, toOptionId);
 
-        // Persist to server with a SINGLE add. Board columns are labels of one category, so the
-        // server's category mutual-exclusion (adding a label removes any sibling in the same
-        // category, atomically in one SaveChanges) both drops the old label and adds the new one.
-        // A separate remove call would leave a window where a mid-move failure strips the note's
-        // label and drops it from every column; the single add has no such partial-failure mode —
-        // on failure the server is unchanged and the note keeps its original label (#271).
-        var addResult = await LabelService.AddLabelToNoteAsync(noteId, toLabelId);
+        // Persist with a SINGLE write. A Select value holds exactly one option, so setting the target
+        // both clears the old column and fills the new one atomically. A separate clear-then-set would
+        // leave a window where a mid-move failure strips the value and drops the note out of every
+        // column; the single set has no such partial-failure mode — on failure the server is unchanged
+        // and the note keeps its original option (#271).
+        var setResult = await PropertyService.SetValueAsync(
+            noteId, definition.Id, new SetNotePropertyValueRequest { OptionId = toOptionId });
 
-        if (!addResult.IsSuccess)
+        if (!setResult.IsSuccess)
         {
             Logger.LogError(
-                "Failed to persist label move for note {NoteId} ({FromLabel} → {ToLabel}).",
-                noteId, fromLabelId, toLabelId);
+                "Failed to persist property move for note {NoteId} ({FromOption} → {ToOption}).",
+                noteId, fromOptionId, toOptionId);
 
             // Immediate visual rollback before server sync
-            if (note is not null && originalLabels is not null)
+            if (note is not null && originalProperties is not null)
             {
-                note.Labels = originalLabels;
+                note.Properties = originalProperties;
                 StateHasChanged();
             }
 
             // Reload from server to guarantee UI matches DB
-            await LoadNotesForCurrentCategory();
-            Snackbar.Add("Failed to move note. Changes have been reverted.", Severity.Error);
+            await LoadNotesForCurrentGroup();
+            Snackbar.Add(
+                setResult.IsForbidden
+                    ? "That note is archived and is read-only. Changes have been reverted."
+                    : "Failed to move note. Changes have been reverted.",
+                Severity.Error);
         }
     }
 
     // ── General helpers ───────────────────────────────────────────────────────
 
-    private List<NoteSummary> GetNotesForLabel(Guid labelId) =>
-        notes.Where(n => n.Labels.Any(l => l.Id == labelId))
+    private List<NoteSummary> GetNotesForOption(Guid optionId) =>
+        notes.Where(n => OptionIdFor(n) == optionId)
              .OrderByDescending(n => n.UpdatedAt)
              .ToList();
 
-    // Notes carrying none of the selected category's labels — surfaced in the "No label"
-    // virtual column so unclassified notes are not invisible on the board (#272).
+    // Notes with no value for the grouping property — surfaced in the "No value" virtual
+    // column so unclassified notes are not invisible on the board (#272).
     private List<NoteSummary> GetUnclassifiedNotes()
     {
-        if (selectedCategory is null)
+        if (groupDefinition is null)
             return [];
-        var categoryLabelIds = selectedCategory.Labels.Select(l => l.Id).ToHashSet();
-        return notes.Where(n => !n.Labels.Any(l => categoryLabelIds.Contains(l.Id)))
+        var optionIds = groupDefinition.Options.Select(o => o.Id).ToHashSet();
+        return notes.Where(n => OptionIdFor(n) is not { } id || !optionIds.Contains(id))
                     .OrderByDescending(n => n.UpdatedAt)
                     .ToList();
     }
 
-    private void ShowMore(Guid labelId) => expandedColumns.Add(labelId);
+    /// <summary>The note's selected option for the grouping property, or null when it has no value.
+    /// Value rows only exist when non-empty (INV-P1), so a missing entry means "no value".</summary>
+    private Guid? OptionIdFor(NoteSummary note) =>
+        groupDefinitionId is { } defId
+            ? note.Properties.FirstOrDefault(p => p.DefinitionId == defId)?.OptionId
+            : null;
 
-    private async Task SelectCategory(Guid catId)
+    // The card shows the note's OTHER non-empty property values as chips, so a board grouped by
+    // "Status" still surfaces "Priority", "Due date", etc. without a second fetch — the values
+    // already ride along on NoteSummary.Properties.
+    private RenderFragment? OtherPropertyChips(NoteSummary note)
     {
-        selectedCategoryId = catId;
-        await LoadNotesForCurrentCategory();
+        var others = note.Properties
+            .Where(p => p.DefinitionId != groupDefinitionId)
+            .Select(p => (Value: p, Text: PropertyValueFormatter.Format(
+                allDefinitions.FirstOrDefault(d => d.Id == p.DefinitionId), p)))
+            .Where(x => !string.IsNullOrEmpty(x.Text))
+            .ToList();
+        if (others.Count == 0) return null;
+
+        return @<div class="board-card-props">
+            @foreach (var (value, text) in others)
+            {
+                <span class="board-card-chip">
+                    <span class="board-card-chip-prefix">@value.Name:</span>
+                    @text
+                </span>
+            }
+        </div>;
+    }
+
+    private void ShowMore(Guid optionId) => expandedColumns.Add(optionId);
+
+    private async Task SelectGroupProperty(Guid definitionId)
+    {
+        groupDefinitionId = definitionId;
+        await LoadNotesForCurrentGroup();
     }
 
     private void EditNote(Guid id) =>
@@ -469,35 +491,35 @@
 
     // ── Move sheet (touch fallback for HTML5 drag-drop, #273) ─────────────────
 
-    private void OpenMoveSheet(NoteSummary note, Guid fromLabelId)
+    private void OpenMoveSheet(NoteSummary note, Guid fromOptionId)
     {
         moveNoteId = note.Id;
-        moveFromLabelId = fromLabelId;
+        moveFromOptionId = fromOptionId;
         moveNoteTitle = string.IsNullOrWhiteSpace(note.Title) ? "(No title)" : note.Title;
-        moveSheetLabels = selectedCategory?.Labels.OrderBy(l => l.Name).ToList() ?? [];
+        moveSheetOptions = groupDefinition?.Options.OrderBy(o => o.SortOrder).ThenBy(o => o.Name).ToList() ?? [];
         showMoveSheet = true;
     }
 
     private void CloseMoveSheet()
     {
         showMoveSheet = false;
-        moveSheetLabels = [];
+        moveSheetOptions = [];
     }
 
-    private async Task MoveViaSheet(Guid toLabelId)
+    private async Task MoveViaSheet(Guid toOptionId)
     {
         var noteId = moveNoteId;
-        var fromLabelId = moveFromLabelId;
+        var fromOptionId = moveFromOptionId;
         CloseMoveSheet();
-        if (toLabelId == fromLabelId) return;
-        await MoveNoteToLabelAsync(noteId, fromLabelId, toLabelId);
+        if (toOptionId == fromOptionId) return;
+        await MoveNoteToOptionAsync(noteId, fromOptionId, toOptionId);
     }
 
     // ── Add note dialog ───────────────────────────────────────────────────────
 
-    private void OpenAddDialog(Label label)
+    private void OpenAddDialog(PropertyOption option)
     {
-        dialogLabel = label;
+        dialogOption = option;
         newNoteTitle = "";
         dialogError = null;
         isAdding = false;
@@ -509,7 +531,7 @@
     {
         if (isAdding) return;
         showDialog = false;
-        dialogLabel = null;
+        dialogOption = null;
         newNoteTitle = "";
         dialogError = null;
         await JS.InvokeVoidAsync("focusTrap.deactivate");
@@ -517,7 +539,7 @@
 
     private async Task ConfirmAddNote()
     {
-        if (dialogLabel is null || isAdding) return;
+        if (dialogOption is null || groupDefinition is null || isAdding) return;
 
         isAdding = true;
         dialogError = null;
@@ -529,30 +551,31 @@
             var saveResult = await NoteService.SaveAsync(note);
             if (saveResult.IsSuccess)
             {
-                // The board places a new note into a column purely via its label. Ignoring the
-                // label POST result left a saved-but-labelless note showing in no column, so it
-                // looked like it vanished (#205). Detect the failure and tell the user the note
-                // exists but was not added to the column.
-                var labelResult = await LabelService.AddLabelToNoteAsync(saveResult.Value!.Id, dialogLabel.Id);
-                if (!labelResult.IsSuccess)
+                // The board places a new note into a column purely via its property value. Ignoring
+                // the value PUT result left a saved-but-valueless note showing in the "No value"
+                // column, so it looked like it vanished from the column it was created in (#205).
+                var valueResult = await PropertyService.SetValueAsync(
+                    saveResult.Value!.Id, groupDefinition.Id,
+                    new SetNotePropertyValueRequest { OptionId = dialogOption.Id });
+                if (!valueResult.IsSuccess)
                 {
                     Logger.LogError(
-                        "Note {NoteId} created but failed to add label '{LabelName}' from board dialog.",
-                        saveResult.Value!.Id, dialogLabel.Name);
+                        "Note {NoteId} created but failed to set property '{PropertyName}' to '{OptionName}' from board dialog.",
+                        saveResult.Value!.Id, groupDefinition.Name, dialogOption.Name);
                     Snackbar.Add(
-                        $"Note saved, but couldn't be added to \"{dialogLabel.Name}\". It won't appear on the board.",
+                        $"Note saved, but couldn't be added to \"{dialogOption.Name}\". It appears under \"No value\".",
                         Severity.Warning);
                 }
-                await LoadNotesForCurrentCategory();
+                await LoadNotesForCurrentGroup();
                 showDialog = false;
-                dialogLabel = null;
+                dialogOption = null;
                 newNoteTitle = "";
                 await JS.InvokeVoidAsync("focusTrap.deactivate");
             }
             else
             {
-                Logger.LogError("Failed to create note from board dialog (label '{LabelName}').",
-                    dialogLabel.Name);
+                Logger.LogError("Failed to create note from board dialog (option '{OptionName}').",
+                    dialogOption.Name);
                 dialogError = "Failed to add note. Please try again.";
             }
         }

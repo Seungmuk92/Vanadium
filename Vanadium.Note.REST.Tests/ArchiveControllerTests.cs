@@ -17,15 +17,7 @@ public class ArchiveControllerTests
     private static NotesController CreateNotesController(TestHost h)
     {
         var controller = new NotesController(
-            h.Notes, h.Labels, h.Db, NullLogger<NotesController>.Instance);
-        controller.ControllerContext = CreateContext();
-        return controller;
-    }
-
-    private static LabelsController CreateLabelsController(TestHost h)
-    {
-        var controller = new LabelsController(
-            h.Labels, NullLogger<LabelsController>.Instance);
+            h.Notes, h.Db, NullLogger<NotesController>.Instance);
         controller.ControllerContext = CreateContext();
         return controller;
     }
@@ -59,25 +51,6 @@ public class ArchiveControllerTests
 
         var objectResult = Assert.IsType<ObjectResult>(result.Result);
         Assert.Equal(StatusCodes.Status403Forbidden, objectResult.StatusCode);
-    }
-
-    [Fact]
-    public async Task AddAndRemoveLabel_OnArchivedNote_Return403()
-    {
-        using var h = new TestHost();
-        var note = await h.CreateNoteAsync("Read-only");
-        var label = await h.Labels.CreateLabelAsync("todo", null);
-        await h.Labels.AddLabelToNoteAsync(note.Id, label.Id);
-        await h.Notes.Archive(note.Id);
-        var controller = CreateLabelsController(h);
-
-        var addResult = await controller.AddLabel(note.Id, new AddLabelRequest(label.Id));
-        var addObject = Assert.IsType<ObjectResult>(addResult);
-        Assert.Equal(StatusCodes.Status403Forbidden, addObject.StatusCode);
-
-        var removeResult = await controller.RemoveLabel(note.Id, label.Id);
-        var removeObject = Assert.IsType<ObjectResult>(removeResult);
-        Assert.Equal(StatusCodes.Status403Forbidden, removeObject.StatusCode);
     }
 
     [Fact]

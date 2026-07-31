@@ -153,7 +153,7 @@
         {
             _focusQueued = false;
             // Activate the trap before moving focus, so it captures the pre-open active
-            // element as the restore target (mirrors the Board dialog pattern).
+            // element as the restore target (mirrors the sub-note dialog pattern).
             try { await JS.InvokeVoidAsync("focusTrap.activate", _panel); } catch { /* JS may be gone */ }
             try { await _input.FocusAsync(); } catch { /* element may be gone */ }
         }

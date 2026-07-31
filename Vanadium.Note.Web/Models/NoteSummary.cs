@@ -12,8 +12,6 @@ public class NoteSummary
     /// <summary>True only in search results; drives the "Archived" badge in the UI.</summary>
     public bool IsArchived { get; set; }
 
-    public List<Label> Labels { get; set; } = [];
-
     /// <summary>Non-empty property values, ordered by definition sort order (issue #343).</summary>
     public List<NotePropertyValue> Properties { get; set; } = [];
 }

@@ -1,11 +1,11 @@
 window.boardDragDrop = (() => {
     let _dotNetRef = null;
     let _draggingNoteId = null;
-    let _draggingFromLabelId = null;
+    let _draggingFromOptionId = null;
     const _h = {};
 
     function getColumn(el) {
-        return el?.closest('[data-label-id]');
+        return el?.closest('[data-option-id]');
     }
 
     function getCard(el) {
@@ -26,9 +26,9 @@ window.boardDragDrop = (() => {
         const card = getCard(e.target);
         if (!card) return;
 
-        _draggingNoteId    = card.dataset.noteId;
-        _draggingFromLabelId = card.dataset.labelId;
-        console.debug(`[board] Drag started: noteId=${_draggingNoteId}, fromLabel=${_draggingFromLabelId}`);
+        _draggingNoteId = card.dataset.noteId;
+        _draggingFromOptionId = card.dataset.optionId;
+        console.debug(`[board] Drag started: noteId=${_draggingNoteId}, fromOption=${_draggingFromOptionId}`);
 
         // Required: without setData the drag simply won't start in most browsers
         e.dataTransfer.setData('text/plain', _draggingNoteId);
@@ -47,7 +47,7 @@ window.boardDragDrop = (() => {
         clearDropTargets();
         setIsDragging(false);
         _draggingNoteId = null;
-        _draggingFromLabelId = null;
+        _draggingFromOptionId = null;
     };
 
     _h.dragover = (e) => {
@@ -64,7 +64,7 @@ window.boardDragDrop = (() => {
         const col = getColumn(e.target);
         if (!col) return;
         clearDropTargets();
-        if (col.dataset.labelId !== _draggingFromLabelId) {
+        if (col.dataset.optionId !== _draggingFromOptionId) {
             col.classList.add('drop-target');
         }
     };
@@ -84,18 +84,18 @@ window.boardDragDrop = (() => {
         if (!col) return;
 
         e.preventDefault();
-        const toLabelId   = col.dataset.labelId;
-        const fromLabelId = _draggingFromLabelId;
-        const noteId      = _draggingNoteId;
+        const toOptionId = col.dataset.optionId;
+        const fromOptionId = _draggingFromOptionId;
+        const noteId = _draggingNoteId;
 
         clearDropTargets();
         setIsDragging(false);
-        _draggingNoteId      = null;
-        _draggingFromLabelId = null;
+        _draggingNoteId = null;
+        _draggingFromOptionId = null;
 
-        if (toLabelId !== fromLabelId && _dotNetRef) {
-            console.debug(`[board] Drop: noteId=${noteId}, from=${fromLabelId} -> to=${toLabelId}`);
-            _dotNetRef.invokeMethodAsync('OnDropFromJs', noteId, fromLabelId, toLabelId)
+        if (toOptionId !== fromOptionId && _dotNetRef) {
+            console.debug(`[board] Drop: noteId=${noteId}, from=${fromOptionId} -> to=${toOptionId}`);
+            _dotNetRef.invokeMethodAsync('OnDropFromJs', noteId, fromOptionId, toOptionId)
                 .catch(err => console.error('[board] OnDropFromJs failed', err));
         }
     };

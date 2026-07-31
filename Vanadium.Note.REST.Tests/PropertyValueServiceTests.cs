@@ -185,15 +185,15 @@ public class PropertyValueServiceTests
 
         var filter = new List<PropertyFilter> { new(def.Id, PropertyFilterOp.Eq, "true") };
 
-        var before = await h.Notes.GetPaged(1, 50, null, "date", "desc", null, filter);
+        var before = await h.Notes.GetPaged(1, 50, null, "date", "desc", filter);
         Assert.Contains(before.Items, n => n.Id == note.Id);
 
         await h.Notes.Delete(note.Id);
-        var during = await h.Notes.GetPaged(1, 50, null, "date", "desc", null, filter);
+        var during = await h.Notes.GetPaged(1, 50, null, "date", "desc", filter);
         Assert.DoesNotContain(during.Items, n => n.Id == note.Id);
 
         await h.Notes.Restore(note.Id);
-        var after = await h.Notes.GetPaged(1, 50, null, "date", "desc", null, filter);
+        var after = await h.Notes.GetPaged(1, 50, null, "date", "desc", filter);
         Assert.Contains(after.Items, n => n.Id == note.Id);
     }
 

@@ -80,14 +80,8 @@ public class NoteItem
     [NotMapped]
     public string? ParentTitle { get; set; }
 
-    [NotMapped]
-    public List<LabelSummary> Labels { get; set; } = [];
-
-    [JsonIgnore]
-    public ICollection<NoteLabel> NoteLabels { get; set; } = [];
-
     /// <summary>Read-model projection of the note's non-empty property values, ordered by
-    /// definition SortOrder. Populated like <see cref="Labels"/>; never persisted directly.
+    /// definition SortOrder. Populated by the service layer; never persisted directly.
     /// Server-owned (INV-P5): ignored on the create/update write path.</summary>
     [NotMapped]
     public List<NotePropertyValueDto> Properties { get; set; } = [];

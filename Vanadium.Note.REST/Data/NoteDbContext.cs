@@ -7,9 +7,6 @@ public class NoteDbContext(DbContextOptions<NoteDbContext> options) : DbContext(
 {
     public DbSet<NoteItem> Notes => Set<NoteItem>();
     public DbSet<FileAttachment> FileAttachments => Set<FileAttachment>();
-    public DbSet<LabelCategory> LabelCategories => Set<LabelCategory>();
-    public DbSet<Label> Labels => Set<Label>();
-    public DbSet<NoteLabel> NoteLabels => Set<NoteLabel>();
     public DbSet<UserSettings> UserSettings => Set<UserSettings>();
     public DbSet<ApiToken> ApiTokens => Set<ApiToken>();
     public DbSet<PropertyDefinition> PropertyDefinitions => Set<PropertyDefinition>();
@@ -19,27 +16,6 @@ public class NoteDbContext(DbContextOptions<NoteDbContext> options) : DbContext(
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
-        modelBuilder.Entity<NoteLabel>()
-            .HasKey(nl => new { nl.NoteId, nl.LabelId });
-
-        modelBuilder.Entity<NoteLabel>()
-            .HasOne(nl => nl.Note)
-            .WithMany(n => n.NoteLabels)
-            .HasForeignKey(nl => nl.NoteId)
-            .OnDelete(DeleteBehavior.Cascade);
-
-        modelBuilder.Entity<NoteLabel>()
-            .HasOne(nl => nl.Label)
-            .WithMany()
-            .HasForeignKey(nl => nl.LabelId)
-            .OnDelete(DeleteBehavior.Cascade);
-
-        modelBuilder.Entity<Label>()
-            .HasOne(l => l.Category)
-            .WithMany(c => c.Labels)
-            .HasForeignKey(l => l.CategoryId)
-            .OnDelete(DeleteBehavior.Cascade);
-
         modelBuilder.Entity<NoteItem>()
             .HasOne(n => n.ParentNote)
             .WithMany(n => n.ChildNotes)
@@ -69,17 +45,12 @@ public class NoteDbContext(DbContextOptions<NoteDbContext> options) : DbContext(
         modelBuilder.Entity<NoteItem>()
             .HasQueryFilter(n => n.DeletedAt == null);
 
-        // Matching filter on the join table: NoteLabel has a required navigation
-        // to the filtered NoteItem, so it must be filtered the same way.
-        modelBuilder.Entity<NoteLabel>()
-            .HasQueryFilter(nl => nl.Note.DeletedAt == null);
-
         modelBuilder.Entity<NoteItem>()
             .HasIndex(n => n.DeletedAt)
             .HasFilter("\"DeletedAt\" IS NOT NULL");
 
         // Archive: deliberately NOT part of the global query filter. Archive visibility
-        // is not uniform (hidden on Home/Board/children/mentions, visible in search,
+        // is not uniform (hidden on Home/children/mentions, visible in search,
         // single-note GET, and the archive page), so read paths exclude archived notes
         // with explicit Where(n => n.ArchivedAt == null) predicates instead. This also
         // keeps every existing IgnoreQueryFilters() opt-out scoped to the recycle bin
@@ -102,8 +73,8 @@ public class NoteDbContext(DbContextOptions<NoteDbContext> options) : DbContext(
         ConfigureProperties(modelBuilder);
     }
 
-    /// <summary>Note Properties (issue #343): the EAV value store mirroring the NoteLabel pattern
-    /// (composite PKs, matching soft-delete query filters, DB cascades). See
+    /// <summary>Note Properties (issue #343): the EAV value store — composite PKs, matching
+    /// soft-delete query filters, DB cascades. See
     /// docs/plannings/note-property/note-properties-feature.md §4.4–4.5.</summary>
     private static void ConfigureProperties(ModelBuilder modelBuilder)
     {
@@ -153,8 +124,8 @@ public class NoteDbContext(DbContextOptions<NoteDbContext> options) : DbContext(
             .HasForeignKey(o => o.DefinitionId)
             .OnDelete(DeleteBehavior.Cascade);
 
-        // INV-P4: mirror the NoteLabel soft-delete parity filters so default queries
-        // never see recycle-bin values. Definition-level scans must use IgnoreQueryFilters().
+        // INV-P4: soft-delete parity filters so default queries never see recycle-bin
+        // values. Definition-level scans must use IgnoreQueryFilters().
         modelBuilder.Entity<NotePropertyValue>()
             .HasQueryFilter(v => v.Note.DeletedAt == null);
         modelBuilder.Entity<NotePropertySelectedOption>()

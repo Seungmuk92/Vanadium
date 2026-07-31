@@ -12,8 +12,6 @@ public class NoteSummary
     /// <summary>True only in search results; drives the "Archived" badge in the UI.</summary>
     public bool IsArchived { get; set; }
 
-    public List<LabelSummary> Labels { get; set; } = [];
-
     /// <summary>Non-empty property values, ordered by definition SortOrder. Drives list chips
     /// (v1 renders only the active sort property's value) and avoids N+1 value fetches.</summary>
     public List<NotePropertyValueDto> Properties { get; set; } = [];

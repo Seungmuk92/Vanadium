@@ -62,23 +62,6 @@
                                 @(string.IsNullOrWhiteSpace(child.Title) ? "(No title)" : child.Title)
                             </a>
                         </div>
-                        @if (child.Labels?.Any() == true)
-                        {
-                            <div class="note-label-chips" style="padding-left:calc(@(ctx.depth)rem + 0.75rem)">
-                                @foreach (var label in child.Labels)
-                                {
-                                    <span class="note-label-chip @(label.CategoryId.HasValue ? "note-label-chip-cat" : "")"
-                                          @onclick:stopPropagation="true"
-                                          @onclick="() => ToggleFilter(label.Id)">
-                                        @if (label.CategoryId.HasValue)
-                                        {
-                                            <span class="note-label-cat-prefix">@label.CategoryName:</span>
-                                        }
-                                        @label.Name
-                                    </span>
-                                }
-                            </div>
-                        }
                     </div>
                     <div class="col-date" @onclick="() => EditNote(child.Id)">
                         @child.UpdatedAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm")
@@ -103,29 +86,6 @@
                @oninput="OnSearchInput" />
         <button class="btn btn-primary" @onclick="CreateNote">New Note</button>
     </div>
-
-    @if (allLabels.Any())
-    {
-        <div class="label-filter-bar">
-            <span class="label-filter-title">Filter:</span>
-            @foreach (var label in allLabels)
-            {
-                var active = activeFilters.Contains(label.Id);
-                <span class="filter-chip @(active ? "filter-chip-active" : "") @(label.CategoryId.HasValue ? "filter-chip-cat" : "")"
-                      @onclick="() => ToggleFilter(label.Id)">
-                    @if (label.CategoryId.HasValue)
-                    {
-                        <span class="filter-chip-cat-prefix">@label.CategoryName:</span>
-                    }
-                    @label.Name
-                </span>
-            }
-            @if (activeFilters.Any())
-            {
-                <button class="filter-clear-btn" @onclick="ClearFilters">× Clear</button>
-            }
-        </div>
-    }
 
     @if (propertyDefinitions.Count > 0)
     {
@@ -158,7 +118,7 @@
     else if (!isLoading && !notes.Any())
     {
         <p class="empty-message">
-            @(totalCount == 0 && string.IsNullOrWhiteSpace(_searchText) && !activeFilters.Any()
+            @(totalCount == 0 && string.IsNullOrWhiteSpace(_searchText) && propertyFilters.Count == 0
                 ? "No notes yet. Create one!"
                 : "No notes match the current filter.")
         </p>
@@ -248,23 +208,6 @@
                                 <span class="property-sort-chip" title="@sortDef?.Name">@sortDef?.Name: @sortChip</span>
                             }
                         </div>
-                        @if (note.Labels?.Any() == true)
-                        {
-                            <div class="note-label-chips">
-                                @foreach (var label in note.Labels)
-                                {
-                                    <span class="note-label-chip @(label.CategoryId.HasValue ? "note-label-chip-cat" : "")"
-                                          @onclick:stopPropagation="true"
-                                          @onclick="() => ToggleFilter(label.Id)">
-                                        @if (label.CategoryId.HasValue)
-                                        {
-                                            <span class="note-label-cat-prefix">@label.CategoryName:</span>
-                                        }
-                                        @label.Name
-                                    </span>
-                                }
-                            </div>
-                        }
                     </div>
                     <div class="col-date" @onclick="() => EditNote(note.Id)">
                         @note.UpdatedAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm")
@@ -287,12 +230,10 @@
 
 @code {
     private List<NoteSummary> notes = [];
-    private List<Label> allLabels = [];
     private List<PropertyDefinition> propertyDefinitions = [];
     private readonly List<PropertyFilter> propertyFilters = [];
     private Guid? sortPropertyId;
     private HashSet<Guid> selectedIds = [];
-    private HashSet<Guid> activeFilters = [];
     private HashSet<Guid> expandedNoteIds = [];
     private HashSet<Guid> loadingChildrenIds = [];
     private Dictionary<Guid, List<NoteSummary>> childrenCache = [];
@@ -336,7 +277,7 @@
         var defs = await PropertyService.GetDefinitionsAsync();
         if (defs.IsSuccess)
             propertyDefinitions = defs.Value!.OrderBy(d => d.SortOrder).ThenBy(d => d.Name).ToList();
-        await LoadNotes(includeLabels: true);
+        await LoadNotes();
         StartBackgroundRefresh();
     }
 
@@ -369,20 +310,8 @@
         var value = note.Properties.FirstOrDefault(p => p.DefinitionId == id);
         if (value is null) return null;
         var def = propertyDefinitions.FirstOrDefault(d => d.Id == id);
-        return FormatValue(def, value);
+        return PropertyValueFormatter.Format(def, value);
     }
-
-    private static string FormatValue(PropertyDefinition? def, NotePropertyValue value) => value.Type switch
-    {
-        PropertyType.Text => value.TextValue ?? "",
-        PropertyType.Number => value.NumberValue?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "",
-        PropertyType.Date => value.DateValue?.ToString("yyyy-MM-dd") ?? "",
-        PropertyType.Checkbox => value.BoolValue == true ? "✓" : "",
-        PropertyType.Select => def?.Options.FirstOrDefault(o => o.Id == value.OptionId)?.Name ?? "",
-        PropertyType.MultiSelect => string.Join(", ",
-            value.OptionIds.Select(oid => def?.Options.FirstOrDefault(o => o.Id == oid)?.Name).Where(n => n is not null)),
-        _ => ""
-    };
 
     private async Task SortByProperty(Guid definitionId)
     {
@@ -416,8 +345,7 @@
             pageSize = settings.DefaultPageSize;
     }
 
-    // Retry after a failed load. Reload labels too if the initial load never delivered them.
-    private async Task RetryLoad() => await LoadNotes(includeLabels: allLabels.Count == 0);
+    private async Task RetryLoad() => await LoadNotes();
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
@@ -425,7 +353,7 @@
             await ShortcutService.RegisterAsync("delete", "Delete selected notes", () => InvokeAsync(DeleteSelectedAsync));
     }
 
-    private async Task LoadNotes(bool includeLabels = false)
+    private async Task LoadNotes()
     {
         // Cancel any in-flight request so only the latest call updates the UI
         _loadCts?.Cancel();
@@ -447,8 +375,6 @@
                     string.IsNullOrWhiteSpace(_searchText) ? null : _searchText,
                     CurrentSortBy(),
                     sortAscending ? "asc" : "desc",
-                    activeFilters.Count > 0 ? activeFilters : null,
-                    includeLabels: includeLabels,
                     propertyFilters: propertyFilters.Count > 0 ? propertyFilters : null,
                     cancellationToken: token);
 
@@ -459,8 +385,6 @@
                     break;
                 }
 
-                if (includeLabels)
-                    allLabels = result.Value!.Labels ?? [];
                 notes = result.Value!.Items;
                 totalCount = result.Value!.TotalCount;
 
@@ -556,8 +480,6 @@
             string.IsNullOrWhiteSpace(_searchText) ? null : _searchText,
             CurrentSortBy(),
             sortAscending ? "asc" : "desc",
-            activeFilters.Count > 0 ? activeFilters : null,
-            includeLabels: false,
             propertyFilters: propertyFilters.Count > 0 ? propertyFilters : null,
             cancellationToken: CancellationToken.None);
 
@@ -648,39 +570,6 @@
             sortAscending = true;
         }
         sortPropertyId = null;   // a column-header sort clears any active property sort
-        currentPage = 1;
-        selectedIds.Clear();
-        await LoadNotes();
-    }
-
-    private async Task ToggleFilter(Guid labelId)
-    {
-        if (activeFilters.Contains(labelId))
-        {
-            activeFilters.Remove(labelId);
-        }
-        else
-        {
-            var label = allLabels.FirstOrDefault(l => l.Id == labelId);
-            if (label?.CategoryId.HasValue == true)
-            {
-                var sameCategory = allLabels
-                    .Where(l => l.CategoryId == label.CategoryId)
-                    .Select(l => l.Id);
-                foreach (var id in sameCategory)
-                    activeFilters.Remove(id);
-            }
-            activeFilters.Add(labelId);
-        }
-
-        currentPage = 1;
-        selectedIds.Clear();
-        await LoadNotes();
-    }
-
-    private async Task ClearFilters()
-    {
-        activeFilters.Clear();
         currentPage = 1;
         selectedIds.Clear();
         await LoadNotes();

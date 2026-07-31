@@ -4,7 +4,6 @@
 @using System.IO
 @using System.Text.Json.Serialization
 @inject NoteService NoteService
-@inject LabelService LabelService
 @inject NavigationManager Nav
 @inject IJSRuntime JS
 @inject HttpClient Http
@@ -115,95 +114,12 @@
            @oninput="OnTitleInput"
            @onkeydown="OnTitleKeyDown" />
 
-    <LabelPicker @ref="_labelPicker"
-                 BarClass="label-bar"
-                 NoteLabels="noteLabels"
-                 AvailableLabels="availableLabels"
-                 LabelCategories="labelCategories"
-                 ReadOnly="IsArchived"
-                 OnToggleLabel="ToggleLabel"
-                 OnRemoveLabel="RemoveLabel"
-                 OnPickerOpened="OnLabelPickerOpened">
-        <Footer>
-            <div class="label-picker-divider"></div>
-            <div class="label-picker-manage-btn" @onclick="ToggleLabelManager">Manage labels...</div>
-        </Footer>
-    </LabelPicker>
-
     @if (Id is not null)
     {
         <NotePropertyPanel NoteId="Id.Value"
                            Values="noteProperties"
                            ReadOnly="IsArchived"
                            OnArchivedElsewhere="OnPropertyArchivedElsewhere" />
-    }
-
-    @if (showLabelManager)
-    {
-        <div class="label-manager">
-            <div class="label-manager-header">
-                <strong>Manage Labels</strong>
-                <button class="btn btn-sm btn-outline-secondary" @onclick="ToggleLabelManager">Close</button>
-            </div>
-            <div class="label-manager-body">
-                <div class="label-manager-section">
-                    <div class="label-manager-section-title">Categories</div>
-                    @foreach (var cat in labelCategories)
-                    {
-                        <div class="label-manager-item">
-                            <span>@cat.Name</span>
-                            <button class="label-mgr-delete" @onclick="() => DeleteCategory(cat.Id)">×</button>
-                        </div>
-                    }
-                    <div class="label-manager-new">
-                        <input class="label-manager-input @(categoryError is not null ? "input-error" : "")"
-                               @bind="newCategoryName"
-                               @oninput="() => categoryError = null"
-                               placeholder="Category name" />
-                        <button class="btn btn-sm btn-primary" @onclick="CreateCategory">Add</button>
-                    </div>
-                    @if (categoryError is not null)
-                    {
-                        <div class="label-manager-error">@categoryError</div>
-                    }
-                </div>
-
-                <div class="label-manager-section">
-                    <div class="label-manager-section-title">Labels</div>
-                    @foreach (var lbl in availableLabels)
-                    {
-                        <div class="label-manager-item">
-                            <span>
-                                @if (lbl.CategoryId.HasValue)
-                                {
-                                    <span class="label-mgr-cat-prefix">[@lbl.CategoryName]</span>
-                                }
-                                @lbl.Name
-                            </span>
-                            <button class="label-mgr-delete" @onclick="() => DeleteLabel(lbl.Id)">×</button>
-                        </div>
-                    }
-                    <div class="label-manager-new">
-                        <input class="label-manager-input @(labelError is not null ? "input-error" : "")"
-                               @bind="newLabelName"
-                               @oninput="() => labelError = null"
-                               placeholder="Label name" />
-                        <select class="label-manager-select" @bind="newLabelCategoryStr">
-                            <option value="">General</option>
-                            @foreach (var cat in labelCategories)
-                            {
-                                <option value="@cat.Id">@cat.Name</option>
-                            }
-                        </select>
-                        <button class="btn btn-sm btn-primary" @onclick="CreateLabel">Add</button>
-                    </div>
-                    @if (labelError is not null)
-                    {
-                        <div class="label-manager-error">@labelError</div>
-                    }
-                </div>
-            </div>
-        </div>
     }
 
     <div id="@_editorId" class="tiptap-wrapper"></div>
@@ -350,21 +266,6 @@
     // Property state (issue #343): the note's non-empty values at load; the panel manages edits.
     private List<NotePropertyValue> noteProperties = [];
 
-    // Label state
-    private List<Label> noteLabels = [];
-    private List<Label> availableLabels = [];
-    private List<LabelCategory> labelCategories = [];
-    private LabelPicker? _labelPicker;
-    private bool showLabelManager = false;
-    private string newLabelName = "";
-    private string newLabelCategoryStr = "";
-    private string newCategoryName = "";
-    private string? labelError;
-    private string? categoryError;
-
-    private Guid? NewLabelCategoryId =>
-        Guid.TryParse(newLabelCategoryStr, out var g) && g != Guid.Empty ? g : null;
-
     protected override async Task OnParametersSetAsync()
     {
         if (_currentId == Id && _currentParentId == ParentId) return;
@@ -396,7 +297,6 @@
         parentNoteId = null;
         parentTitle = null;
         childCount = 0;
-        noteLabels = [];
         noteProperties = [];
         backlinks = [];
         _backlinksFailed = false;
@@ -417,7 +317,6 @@
                 title = result.Value!.Title;
                 content = result.Value!.Content;
                 archivedAt = result.Value!.ArchivedAt;
-                noteLabels = result.Value!.Labels ?? [];
                 noteProperties = result.Value!.Properties ?? [];
                 parentNoteId = result.Value!.ParentNoteId;
                 parentTitle = result.Value!.ParentTitle;
@@ -496,8 +395,6 @@
         // (e.g. navigating editor→editor via the peek dialog's "Open in full page").
         _contentJustLoaded = true;
 
-        await LoadLabelsAsync();
-
         if (Id is not null)
             await LoadBacklinksAsync(Id.Value);
     }
@@ -523,19 +420,6 @@
     {
         if (Id is not null)
             await LoadBacklinksAsync(Id.Value);
-    }
-
-    private async Task LoadLabelsAsync()
-    {
-        var labelsResult = await LabelService.GetLabelsAsync();
-        if (!labelsResult.IsSuccess)
-            Snackbar.Add(labelsResult.Error ?? "Failed to load labels.", Severity.Warning);
-        availableLabels = labelsResult.Value ?? [];
-
-        var categoriesResult = await LabelService.GetCategoriesAsync();
-        if (!categoriesResult.IsSuccess)
-            Snackbar.Add(categoriesResult.Error ?? "Failed to load categories.", Severity.Warning);
-        labelCategories = categoriesResult.Value ?? [];
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
@@ -651,8 +535,8 @@
         await FlushPendingContentAsync();
 
         // Normalize the title before saving so a whitespace-only or empty title
-        // never lands in the list. Mirrors the Board create path (which trims) and
-        // falls back to "Untitled" for an empty result (#203).
+        // never lands in the list: trim it and fall back to "Untitled" for an
+        // empty result (#203).
         var normalizedTitle = title.Trim();
         if (normalizedTitle.Length == 0)
             normalizedTitle = "Untitled";
@@ -743,7 +627,6 @@
 
         if (isNew && !_isDisposing)
         {
-            await PersistNewNoteLabelsAsync(saved.Id);
             // Set _currentId/_currentParentId before navigating so OnParametersSetAsync
             // treats this as a same-note transition and skips the full state reset,
             // preserving any content the user typed during the network round-trip.
@@ -806,12 +689,6 @@
         if (joinedInFlight && !isNew && HasPendingChanges && !_hasConflict)
             saved = await SaveCoreAsync() ?? saved;
 
-        // When we joined an in-flight save, the originating auto-save already added
-        // the new note's labels and navigated — don't repeat that work here.
-        if (isNew && !joinedInFlight)
-        {
-            await PersistNewNoteLabelsAsync(saved.Id);
-        }
         Nav.NavigateTo(BackUrl);
     }
 
@@ -866,7 +743,6 @@
         if (!result.IsSuccess) { Nav.NavigateTo("/"); return; }
         title = result.Value!.Title;
         content = result.Value!.Content;
-        noteLabels = result.Value!.Labels ?? [];
         _serverUpdatedAt = result.Value!.UpdatedAt;
         _hasConflict = false;
         HasPendingChanges = false;
@@ -1053,7 +929,7 @@
     }
 
     /// <summary>Persists the current new (unsaved) note so it gains a server id, mirroring the
-    /// new-note tail of <see cref="DoAutoSave"/> (persist labels, rebind <c>_currentId</c>, and
+    /// new-note tail of <see cref="DoAutoSave"/> (rebind <c>_currentId</c> and
     /// replace-navigate to <c>/editor/{id}</c> so the next save can't create a duplicate). Returns
     /// the new id, or <c>null</c> if the save failed. Used by the <c>/page</c> command so a sub-page
     /// can be created straight from a brand-new note (#266). Does not reuse DoAutoSave directly to
@@ -1064,7 +940,6 @@
         var saved = await SaveCoreAsync();
         if (saved is null)
             return null;
-        await PersistNewNoteLabelsAsync(saved.Id);
         _currentId = saved.Id;
         _currentParentId = null;
         Nav.NavigateTo($"/editor/{saved.Id}", replace: true);
@@ -1145,153 +1020,6 @@
     private void GoBack()
     {
         Nav.NavigateTo(BackUrl);
-    }
-
-    // ── Label actions ─────────────────────────────────────────────────────────
-
-    // Opening the label picker closes the manager (they overlap the same space).
-    private void OnLabelPickerOpened() => showLabelManager = false;
-
-    private void ToggleLabelManager()
-    {
-        showLabelManager = !showLabelManager;
-        _labelPicker?.ClosePicker();
-    }
-
-    private async Task ToggleLabel(Label label)
-    {
-        if (noteLabels.Any(l => l.Id == label.Id))
-        {
-            if (Id is not null)
-            {
-                var result = await LabelService.RemoveLabelFromNoteAsync(Id.Value, label.Id);
-                if (!result.IsSuccess)
-                {
-                    Snackbar.Add(result.Error ?? "Failed to remove label.", Severity.Warning);
-                    return;
-                }
-            }
-            noteLabels.RemoveAll(l => l.Id == label.Id);
-        }
-        else
-        {
-            if (Id is not null)
-            {
-                var result = await LabelService.AddLabelToNoteAsync(Id.Value, label.Id);
-                if (!result.IsSuccess)
-                {
-                    Snackbar.Add(result.Error ?? "Failed to add label.", Severity.Warning);
-                    return;
-                }
-            }
-
-            // Apply category exclusivity in local state
-            if (label.CategoryId.HasValue)
-                noteLabels.RemoveAll(l => l.CategoryId == label.CategoryId);
-
-            noteLabels.Add(label);
-            noteLabels = [.. noteLabels.OrderForDisplay()];
-        }
-    }
-
-    private async Task RemoveLabel(Guid labelId)
-    {
-        if (Id is not null)
-        {
-            var result = await LabelService.RemoveLabelFromNoteAsync(Id.Value, labelId);
-            if (!result.IsSuccess)
-            {
-                Snackbar.Add(result.Error ?? "Failed to remove label.", Severity.Warning);
-                return;
-            }
-        }
-        noteLabels.RemoveAll(l => l.Id == labelId);
-    }
-
-    // A new note's labels are chosen locally (while Id is null) and only POSTed once the
-    // note exists. Each POST can fail independently; ignoring the result left the label
-    // showing in the UI while it was never saved, so it "vanished" on refresh (#202).
-    // Roll every failed label back out of the local list and alert the user so the UI
-    // matches the real server state.
-    private async Task PersistNewNoteLabelsAsync(Guid noteId)
-    {
-        var failed = new List<Label>();
-        foreach (var label in noteLabels.ToList())
-        {
-            var result = await LabelService.AddLabelToNoteAsync(noteId, label.Id);
-            if (!result.IsSuccess)
-                failed.Add(label);
-        }
-        if (failed.Count == 0)
-            return;
-
-        var failedIds = failed.Select(l => l.Id).ToHashSet();
-        noteLabels.RemoveAll(l => failedIds.Contains(l.Id));
-        Snackbar.Add(
-            failed.Count == 1
-                ? $"Failed to save label \"{failed[0].Name}\"."
-                : $"Failed to save {failed.Count} labels.",
-            Severity.Warning);
-    }
-
-    private async Task CreateLabel()
-    {
-        if (string.IsNullOrWhiteSpace(newLabelName)) return;
-        var result = await LabelService.CreateLabelAsync(newLabelName.Trim(), NewLabelCategoryId);
-        if (!result.IsSuccess)
-        {
-            labelError = result.Error;
-            return;
-        }
-        labelError = null;
-        availableLabels.Add(result.Value!);
-        availableLabels = [.. availableLabels.OrderBy(l => l.Name)];
-        newLabelName = "";
-        newLabelCategoryStr = "";
-    }
-
-    private async Task CreateCategory()
-    {
-        if (string.IsNullOrWhiteSpace(newCategoryName)) return;
-        var result = await LabelService.CreateCategoryAsync(newCategoryName.Trim());
-        if (!result.IsSuccess)
-        {
-            categoryError = result.Error;
-            return;
-        }
-        categoryError = null;
-        labelCategories.Add(result.Value!);
-        labelCategories = [.. labelCategories.OrderBy(c => c.Name)];
-        newCategoryName = "";
-    }
-
-    private async Task DeleteLabel(Guid labelId)
-    {
-        var result = await LabelService.DeleteLabelAsync(labelId);
-        if (!result.IsSuccess)
-        {
-            Snackbar.Add(result.Error ?? "Failed to delete label.", Severity.Error);
-            return;
-        }
-        availableLabels.RemoveAll(l => l.Id == labelId);
-        noteLabels.RemoveAll(l => l.Id == labelId);
-    }
-
-    private async Task DeleteCategory(Guid categoryId)
-    {
-        var result = await LabelService.DeleteCategoryAsync(categoryId);
-        if (!result.IsSuccess)
-        {
-            Snackbar.Add(result.Error ?? "Failed to delete category.", Severity.Error);
-            return;
-        }
-        var removedIds = availableLabels
-            .Where(l => l.CategoryId == categoryId)
-            .Select(l => l.Id)
-            .ToHashSet();
-        availableLabels.RemoveAll(l => l.CategoryId == categoryId);
-        noteLabels.RemoveAll(l => removedIds.Contains(l.Id));
-        labelCategories.RemoveAll(c => c.Id == categoryId);
     }
 
     public async ValueTask DisposeAsync()
