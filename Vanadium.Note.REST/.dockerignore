@@ -1,0 +1,25 @@
+# Build-context exclusions for the REST image.
+#
+# This is a SECURITY control, not just a size optimization. The Dockerfile does
+# `COPY . .`, and the Web SDK publishes `**/*.json` by default — so without the
+# appsettings.Development.json line below, the local dev DB password and JWT
+# secret end up inside the image that gets pushed to the public Docker Hub repo.
+#
+# bin/ and obj/ are produced on the Windows host; their project.assets.json
+# carries Windows NuGet paths and would poison the in-container restore.
+
+**/bin/
+**/obj/
+
+# Never ship local dev secrets (DB password, JWT secret, owner password hash).
+appsettings.Development.json
+appsettings.*.json.user
+.env
+
+# Locally uploaded files — the deployed container gets its own named volume.
+uploads/
+
+# IDE / VCS noise
+.vs/
+*.user
+Properties/launchSettings.json

@@ -59,7 +59,22 @@ dotnet ef database update --project Vanadium.Note.REST
 docker compose up -d
 ```
 
-Required env vars for `docker-compose.yml`: `DB_PASSWORD`, `AUTH_JWT_SECRET`, `AUTH_PASSWORD_HASH`. Optional: `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, `CORS_ALLOWED_ORIGINS`, `API_BASE_URL`.
+Required env vars for `docker-compose.yml`: `DB_PASSWORD`, `AUTH_JWT_SECRET`, `AUTH_PASSWORD_HASH`. Optional: `VANADIUM_VERSION` (image tag applied to BOTH services, default `latest`), `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, `CORS_ALLOWED_ORIGINS`, `API_BASE_URL`.
+
+`rest` maps `host.docker.internal` to `host-gateway` so the default `DB_HOST` resolves on Docker Engine (Linux), not just Docker Desktop.
+
+### Publishing images to Docker Hub
+
+`publish.ps1` builds and pushes both images (`smoh92/vanadium-rest`, `smoh92/vanadium-web`) as a matched pair, then creates and pushes the `v{Version}` git tag:
+
+```powershell
+docker login
+.\publish.ps1 -Version 0.2.0
+```
+
+It fails fast before any Docker work: Docker Hub login pre-check, no pre-existing git tag, clean working tree, and `dotnet test Vanadium.slnx` must pass. Build and push are a single `docker buildx build --push`, so a partial publish cannot leave one tag pushed and the other not. Switches: `-Platform` (default `linux/amd64` — pin it, because a Windows Docker Desktop build silently produces host-arch-only images; a comma-separated list builds a multi-arch manifest through an auto-created `docker-container` buildx builder), `-NoLatest` (do not move `:latest` — use when re-publishing an older line), `-SkipTests`, `-SkipLoginCheck`, `-NoGitTag`, `-AllowDirty`.
+
+**Each project's `.dockerignore` is a security control, not just a size knob.** Both Dockerfiles do `COPY . .`, and the Web SDK publishes `**/*.json` by default — so without the `appsettings.Development.json` entry, that file's real dev DB password and JWT secret ship inside a public Docker Hub image. Never drop that entry, and never add a new secret-bearing file to a build context without ignoring it too. The same files keep Windows-generated `bin/`/`obj/` (whose `project.assets.json` holds Windows NuGet paths) out of the in-container restore, and `node_modules/` (~92 MB) out of the Web context — the committed `wwwroot/js/vendor/` bundle means the image build needs no Node at all.
 
 ### Verifying a change
 

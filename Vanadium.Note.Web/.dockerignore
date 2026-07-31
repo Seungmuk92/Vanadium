@@ -1,0 +1,25 @@
+# Build-context exclusions for the Web (nginx) image.
+#
+# The Dockerfile does `COPY . .`, and this project's untracked build output is
+# large: node_modules ~92 MB, obj ~137 MB, bin ~185 MB. Without this file every
+# build ships ~400 MB to the Docker daemon and the Windows-generated
+# obj/project.assets.json leaks into the Linux restore.
+#
+# node_modules is only needed to REGENERATE wwwroot/js/vendor (`npm run build`);
+# that bundle is committed, so the image build itself needs no Node at all.
+
+**/bin/
+**/obj/
+node_modules/
+
+# esbuild scratch entries produced by build/bundle.mjs
+build/.entries/
+
+# Dev-only overrides — never part of a deployed image.
+wwwroot/appsettings.Development.json
+.env
+
+# IDE / VCS noise
+.vs/
+*.user
+Properties/launchSettings.json

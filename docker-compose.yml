@@ -1,9 +1,19 @@
 services:
   rest:
-    image: smoh92/vanadium-rest:0.1.0
+    # Both images are pinned to the SAME tag: publish.ps1 builds and pushes them
+    # as a matched pair, so deploying different versions of the API and the SPA
+    # is never intended. Set VANADIUM_VERSION in .env to the version passed to
+    # publish.ps1 (defaults to :latest).
+    image: smoh92/vanadium-rest:${VANADIUM_VERSION:-latest}
     restart: unless-stopped
     ports:
       - "5000:8080"
+    # host.docker.internal is provided automatically by Docker Desktop but NOT by
+    # Docker Engine on Linux, where the default DB_HOST would fail to resolve.
+    # This mapping makes it resolve to the host on both. Harmless when DB_HOST
+    # points at a real hostname/IP instead.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     environment:
       ConnectionStrings__DefaultConnection: "Host=${DB_HOST:-host.docker.internal};Port=${DB_PORT:-5432};Database=${DB_NAME:-vanadium};Username=${DB_USER:-postgres};Password=${DB_PASSWORD};Keepalive=30;Tcp Keepalive=true;Command Timeout=60"
       Auth__JwtSecret: ${AUTH_JWT_SECRET}
@@ -22,7 +32,7 @@ services:
       - vanadium_uploads:/app/uploads
 
   web:
-    image: smoh92/vanadium-web:latest
+    image: smoh92/vanadium-web:${VANADIUM_VERSION:-latest}
     restart: unless-stopped
     ports:
       - "80:80"
