@@ -5,7 +5,7 @@ let _mermaidIdCounter = 0;
 
 export async function getMermaid() {
     if (!_mermaidPromise) {
-        _mermaidPromise = import('mermaid')
+        _mermaidPromise = import('/js/vendor/mermaid.js')
             .then(m => m.default)
             .catch(err => {
                 _mermaidPromise = null;

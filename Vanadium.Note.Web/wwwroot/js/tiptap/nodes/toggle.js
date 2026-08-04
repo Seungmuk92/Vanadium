@@ -1,4 +1,4 @@
-import { Node, mergeAttributes } from '@tiptap/core'
+import { Node, mergeAttributes } from '/js/vendor/tiptap-core.js'
 
 // ── Toggle nodes ─────────────────────────────────────────────────────────────
 //

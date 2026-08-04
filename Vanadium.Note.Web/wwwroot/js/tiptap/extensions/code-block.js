@@ -1,6 +1,6 @@
-import { mergeAttributes } from '@tiptap/core'
-import { createLowlight, common } from 'lowlight'
-import CodeBlockLowlight from '@tiptap/extension-code-block-lowlight'
+import { mergeAttributes } from '/js/vendor/tiptap-core.js'
+import { createLowlight, common } from '/js/vendor/lowlight.js'
+import CodeBlockLowlight from '/js/vendor/tiptap-extension-code-block-lowlight.js'
 
 // ── Code block with lowlight syntax highlighting ─────────────────────────────
 

@@ -1,5 +1,5 @@
-import { Node, mergeAttributes } from '@tiptap/core'
-import { PluginKey, Plugin } from '@tiptap/pm/state'
+import { Node, mergeAttributes } from '/js/vendor/tiptap-core.js'
+import { PluginKey, Plugin } from '/js/vendor/tiptap-pm-state.js'
 
 // ── Accordion group ──────────────────────────────────────────────────────────
 //

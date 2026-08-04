@@ -170,6 +170,10 @@ Notion-style **typed metadata** (issue #343): global `PropertyDefinition`s (name
 
 The Blazor WASM static files are served via nginx. `API_BASE_URL` is injected at container startup by `entrypoint.sh`, which uses `envsubst` to rewrite `appsettings.json` from the template baked into the image.
 
+**`wwwroot/index.html`'s `<script type="importmap">` must stay EMPTY.** The .NET SDK fills that element at build/publish time with the framework fingerprint map (`./_framework/dotnet.js` → `./_framework/dotnet.<hash>.js` plus an SRI table), and it only fills an element that is empty — putting our own map there makes it skip injection, the runtime then requests the non-existent `/_framework/dotnet.js`, nginx answers with the SPA fallback (`index.html`), and the app hangs forever on the loading spinner with `Failed to load module script: … MIME type "text/html"`. This is why the self-hosted editor bundles (issue #307) are imported by URL — `import { Editor } from '/js/vendor/tiptap-core.js'` in `wwwroot/js/tiptap/**` — instead of by bare specifier: there is no room for a second import map. `build/bundle.mjs` prints the specifier → URL table for new entries.
+
+That SDK-injected map is also the **only inline script** on the page, and `script-src` deliberately has no `'unsafe-inline'`. Its sha256 is therefore computed from the actual publish output during the image build (`build/csp-importmap-hash.cs`, run as a file-based app from `/tmp` — `dotnet run <file>.cs` resolves the `.csproj` instead when one sits in the working directory) and substituted for the `__IMPORTMAP_SHA256__` placeholder in both CSP headers in `nginx.conf`; the final stage copies the generated config, not the template. The tool fails the build if the map or the placeholder is missing, so a silent boot failure cannot ship. Dev (`dotnet run`) sends no CSP header at all, which is why this class of breakage only ever shows up in the container.
+
 ### Development configuration
 
 `Vanadium.Note.REST/appsettings.Development.json` contains a live dev database connection and JWT secret — these are intentionally committed for local development convenience.

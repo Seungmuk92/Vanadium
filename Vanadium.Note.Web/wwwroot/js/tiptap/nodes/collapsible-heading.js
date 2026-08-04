@@ -1,6 +1,6 @@
-import { PluginKey, Plugin, Selection } from '@tiptap/pm/state'
-import { Decoration, DecorationSet } from '@tiptap/pm/view'
-import Heading from '@tiptap/extension-heading'
+import { PluginKey, Plugin, Selection } from '/js/vendor/tiptap-pm-state.js'
+import { Decoration, DecorationSet } from '/js/vendor/tiptap-pm-view.js'
+import Heading from '/js/vendor/tiptap-extension-heading.js'
 import { toggleOpenAt } from './toggle.js'
 
 // ── Collapsible heading ──────────────────────────────────────────────────────

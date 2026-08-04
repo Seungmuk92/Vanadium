@@ -12,36 +12,18 @@
     <link rel="stylesheet" href="css/app.css" />
     <link rel="icon" type="image/png" href="favicon.png" />
     <link href="Vanadium.Note.Web.styles.css" rel="stylesheet" />
-    <!-- Editor dependency import map (issue #307). Maps the bare specifiers used
-         by the Tiptap/Mermaid ES modules to self-hosted bundles under
-         wwwroot/js/vendor/, built by `npm run build` (see build/bundle.mjs).
-         Keep in sync with wwwroot/js/vendor/importmap.json. -->
-    <script type="importmap">
-    {
-      "imports": {
-        "@tiptap/core": "/js/vendor/tiptap-core.js",
-        "@tiptap/pm/state": "/js/vendor/tiptap-pm-state.js",
-        "@tiptap/pm/view": "/js/vendor/tiptap-pm-view.js",
-        "@tiptap/starter-kit": "/js/vendor/tiptap-starter-kit.js",
-        "@tiptap/suggestion": "/js/vendor/tiptap-suggestion.js",
-        "@tiptap/extension-bubble-menu": "/js/vendor/tiptap-extension-bubble-menu.js",
-        "@tiptap/extension-placeholder": "/js/vendor/tiptap-extension-placeholder.js",
-        "@tiptap/extension-link": "/js/vendor/tiptap-extension-link.js",
-        "@tiptap/extension-image": "/js/vendor/tiptap-extension-image.js",
-        "@tiptap/extension-task-list": "/js/vendor/tiptap-extension-task-list.js",
-        "@tiptap/extension-task-item": "/js/vendor/tiptap-extension-task-item.js",
-        "@tiptap/extension-table": "/js/vendor/tiptap-extension-table.js",
-        "@tiptap/extension-table-row": "/js/vendor/tiptap-extension-table-row.js",
-        "@tiptap/extension-table-header": "/js/vendor/tiptap-extension-table-header.js",
-        "@tiptap/extension-table-cell": "/js/vendor/tiptap-extension-table-cell.js",
-        "@tiptap/extension-code-block-lowlight": "/js/vendor/tiptap-extension-code-block-lowlight.js",
-        "@tiptap/extension-heading": "/js/vendor/tiptap-extension-heading.js",
-        "tiptap-markdown": "/js/vendor/tiptap-markdown.js",
-        "lowlight": "/js/vendor/lowlight.js",
-        "mermaid": "/js/vendor/mermaid.js"
-      }
-    }
-    </script>
+    <!-- MUST stay empty. The .NET SDK injects the Blazor framework import map
+         into this element during build/publish (OverrideHtmlAssetPlaceholders),
+         mapping "./_framework/dotnet.js" to the fingerprinted
+         "./_framework/dotnet.<hash>.js" plus the matching SRI integrity table.
+         The SDK only fills an EMPTY importmap element -- writing our own map
+         here makes it skip injection, the fingerprint mapping disappears, the
+         runtime requests the non-existent "/_framework/dotnet.js", nginx serves
+         index.html for it and the app hangs on the loading spinner.
+         Editor dependencies (issue #307) therefore do NOT use an import map:
+         wwwroot/js/tiptap/** imports the self-hosted bundles under
+         wwwroot/js/vendor/ by their "/js/vendor/..." URL directly. -->
+    <script type="importmap"></script>
 </head>
 
 <body>

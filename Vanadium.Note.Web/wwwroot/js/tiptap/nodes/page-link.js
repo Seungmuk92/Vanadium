@@ -1,4 +1,4 @@
-import { Node } from '@tiptap/core'
+import { Node } from '/js/vendor/tiptap-core.js'
 
 // ── PageLink node ────────────────────────────────────────────────────────────
 

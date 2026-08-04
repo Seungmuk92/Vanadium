@@ -1,4 +1,4 @@
-import { Extension } from '@tiptap/core'
+import { Extension } from '/js/vendor/tiptap-core.js'
 
 // ── Tab / Shift-Tab handling ─────────────────────────────────────────────────
 

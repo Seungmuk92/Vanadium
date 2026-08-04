@@ -1,5 +1,5 @@
-import { Extension } from '@tiptap/core'
-import { Selection, TextSelection } from '@tiptap/pm/state'
+import { Extension } from '/js/vendor/tiptap-core.js'
+import { Selection, TextSelection } from '/js/vendor/tiptap-pm-state.js'
 import { findAncestorOfType, toggleOpenAt } from '../nodes/toggle.js'
 import { collectFoldedHeadingSpans } from '../nodes/collapsible-heading.js'
 

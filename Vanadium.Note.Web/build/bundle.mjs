@@ -28,7 +28,16 @@ const webRoot = join(here, '..');
 const vendorDir = join(webRoot, 'wwwroot', 'js', 'vendor');
 const entriesDir = join(here, '.entries');
 
-// specifier (what app code imports) -> { out: output basename, reexport: entry body }
+// NOTE: app code does NOT use bare specifiers + an import map. index.html's
+// <script type="importmap"> must stay EMPTY so the .NET SDK can inject the
+// Blazor framework fingerprint map into it (an occupied element makes the SDK
+// skip injection, which breaks _framework/dotnet.js resolution and hangs the
+// app on the loading spinner). wwwroot/js/tiptap/** therefore imports these
+// bundles by their served URL: '/js/vendor/<out>.js'. When adding an entry
+// here, import it that way -- there is no map to keep in sync.
+
+// specifier (the upstream package this entry re-exports) -> { out: output
+// basename, reexport: entry body }. App code imports '/js/vendor/<out>.js'.
 const ENTRIES = {
   '@tiptap/core': { out: 'tiptap-core', reexport: star('@tiptap/core') },
   '@tiptap/pm/state': { out: 'tiptap-pm-state', reexport: star('@tiptap/pm/state') },
@@ -88,21 +97,12 @@ async function main() {
 
   rmSync(entriesDir, { recursive: true, force: true });
 
-  // Emit the import map that index.html mirrors, so the two never drift.
-  // Addresses MUST be root-absolute (leading "/"): the import maps spec only
-  // resolves values that start with "/", "./" or "../" (or are absolute URLs)
-  // and silently DROPS any bare "js/vendor/..." value, which would break every
-  // mapping. The app is served from the site root (<base href="/">), so
-  // "/js/vendor/..." is the safe, unambiguous form.
-  const imports = {};
+  // Reference table only -- nothing consumes this at runtime. App modules
+  // import these URLs literally (see the note above ENTRIES).
+  console.log('\nimport these URLs from wwwroot/js/tiptap/**:');
   for (const [spec, cfg] of Object.entries(ENTRIES)) {
-    imports[spec] = `/js/vendor/${cfg.out}.js`;
+    console.log(`  ${spec} -> /js/vendor/${cfg.out}.js`);
   }
-  const importmap = { imports };
-  writeFileSync(join(vendorDir, 'importmap.json'), `${JSON.stringify(importmap, null, 2)}\n`, 'utf8');
-
-  console.log('\nimportmap (mirror into wwwroot/index.html):');
-  console.log(JSON.stringify(importmap, null, 2));
   console.log('\nDone. Vendor assets written to wwwroot/js/vendor/');
 }
 

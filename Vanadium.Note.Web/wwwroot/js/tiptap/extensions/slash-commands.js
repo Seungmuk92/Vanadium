@@ -1,6 +1,6 @@
-import { Extension } from '@tiptap/core'
-import { PluginKey } from '@tiptap/pm/state'
-import Suggestion from '@tiptap/suggestion'
+import { Extension } from '/js/vendor/tiptap-core.js'
+import { PluginKey } from '/js/vendor/tiptap-pm-state.js'
+import Suggestion from '/js/vendor/tiptap-suggestion.js'
 
 // ── Slash commands ───────────────────────────────────────────────────────────
 

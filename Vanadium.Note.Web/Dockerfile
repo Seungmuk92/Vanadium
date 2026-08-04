@@ -13,9 +13,23 @@ RUN dotnet restore Vanadium.Note.Web.csproj
 COPY . .
 RUN dotnet publish Vanadium.Note.Web.csproj -c Release -o /app/publish --no-restore
 
+# The published index.html carries one inline script: the <script type="importmap">
+# the SDK fills with the framework fingerprint map. The site CSP has no
+# 'unsafe-inline', so its sha256 has to be allowlisted explicitly or the app
+# never boots. Compute it from the actual publish output and substitute it into
+# nginx.conf (the tool fails the build if the map or the placeholder is missing).
+# Run from /tmp: with a .csproj in the working directory `dotnet run <file>.cs`
+# builds the project instead of the file-based app.
+RUN cp build/csp-importmap-hash.cs /tmp/csp-importmap-hash.cs \
+    && cd /tmp \
+    && dotnet run /tmp/csp-importmap-hash.cs -- \
+         /app/publish/wwwroot/index.html \
+         /src/nginx.conf \
+         /app/nginx.conf
+
 FROM nginx:alpine AS final
 COPY --from=build /app/publish/wwwroot /usr/share/nginx/html
-COPY nginx.conf /etc/nginx/conf.d/default.conf
+COPY --from=build /app/nginx.conf /etc/nginx/conf.d/default.conf
 COPY entrypoint.sh /entrypoint.sh
 
 LABEL org.opencontainers.image.title="vanadium-web" \
